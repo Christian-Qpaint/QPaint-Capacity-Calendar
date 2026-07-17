@@ -43,6 +43,11 @@ export interface Job {
   pipedriveStageId?: number
   /** The deal's own title from Pipedrive, e.g. "41466 - 11 Dawson Street, Yeerongpilly (Genivieve Place CTS27991)" — already Quote-ID-prefixed in Pipedrive's own naming convention. */
   pipedriveDealTitle?: string
+  /** Manual override for Actual/Logged Hours — set only when actualHoursSource is 'manual'. When
+   * 'computed', Actual Hours is the sum of real daily_hours_entries logged against this job's
+   * schedule blocks (see getJobActualHours in dataAccess.ts). */
+  actualHoursOverride?: number
+  actualHoursSource: 'computed' | 'manual'
 }
 
 export type WorkArea = 'External' | 'Internal' | 'Roof' | 'Epoxy Floors' | 'Decks'

@@ -80,14 +80,14 @@ export const teamMemberships: TeamMembership[] = [
 ]
 
 export const jobs: Job[] = [
-  { id: 'jb-1', pipedriveDealId: 'PD-1001', clientId: 'cl-1', address: '24 Carrington Road, Indooroopilly', category: 'Residential', totalValue: 29454.7, targetHours: 214, dateWon: '2026-04-24' },
-  { id: 'jb-2', pipedriveDealId: 'PD-1002', clientId: 'cl-2', address: '17 Drury St, Paddington', category: 'Residential', totalValue: 24 * RATE_PER_HOUR, targetHours: 24, dateWon: '2026-05-01' },
-  { id: 'jb-3', pipedriveDealId: 'PD-1003', clientId: 'cl-3', address: '40 Buhot St, Toowong', category: 'Corporate', totalValue: 40 * RATE_PER_HOUR, targetHours: 40, dateWon: '2026-05-05' },
-  { id: 'jb-4', pipedriveDealId: 'PD-1004', clientId: 'cl-4', address: '144 Dornoch Tce, West End', category: 'Corporate', totalValue: 40 * RATE_PER_HOUR, targetHours: 40, dateWon: '2026-05-10' },
-  { id: 'jb-5', pipedriveDealId: 'PD-1005', clientId: 'cl-5', address: '22 Liverpool Rd, Toowong', category: 'Corporate', totalValue: 40 * RATE_PER_HOUR, targetHours: 40, dateWon: '2026-05-15' },
-  { id: 'jb-6', pipedriveDealId: 'PD-1006', clientId: 'cl-6', address: '61 Jarvis Rd, Bardon', category: 'Residential', totalValue: 40 * RATE_PER_HOUR, targetHours: 40, dateWon: '2026-05-20' },
-  { id: 'jb-7', pipedriveDealId: 'PD-1007', clientId: 'cl-7', address: 'Aratula State School, Aratula', category: 'Government', totalValue: 24 * RATE_PER_HOUR, targetHours: 24, dateWon: '2026-04-01' },
-  { id: 'jb-8', pipedriveDealId: 'PD-1008', clientId: 'cl-8', address: '10 Plumer St, Auchenflower', category: 'Residential', totalValue: 16 * RATE_PER_HOUR, targetHours: 16, dateWon: '2026-06-01' },
+  { id: 'jb-1', pipedriveDealId: 'PD-1001', clientId: 'cl-1', address: '24 Carrington Road, Indooroopilly', category: 'Residential', totalValue: 29454.7, targetHours: 214, dateWon: '2026-04-24', actualHoursSource: 'computed' },
+  { id: 'jb-2', pipedriveDealId: 'PD-1002', clientId: 'cl-2', address: '17 Drury St, Paddington', category: 'Residential', totalValue: 24 * RATE_PER_HOUR, targetHours: 24, dateWon: '2026-05-01', actualHoursSource: 'computed' },
+  { id: 'jb-3', pipedriveDealId: 'PD-1003', clientId: 'cl-3', address: '40 Buhot St, Toowong', category: 'Corporate', totalValue: 40 * RATE_PER_HOUR, targetHours: 40, dateWon: '2026-05-05', actualHoursSource: 'computed' },
+  { id: 'jb-4', pipedriveDealId: 'PD-1004', clientId: 'cl-4', address: '144 Dornoch Tce, West End', category: 'Corporate', totalValue: 40 * RATE_PER_HOUR, targetHours: 40, dateWon: '2026-05-10', actualHoursSource: 'computed' },
+  { id: 'jb-5', pipedriveDealId: 'PD-1005', clientId: 'cl-5', address: '22 Liverpool Rd, Toowong', category: 'Corporate', totalValue: 40 * RATE_PER_HOUR, targetHours: 40, dateWon: '2026-05-15', actualHoursSource: 'computed' },
+  { id: 'jb-6', pipedriveDealId: 'PD-1006', clientId: 'cl-6', address: '61 Jarvis Rd, Bardon', category: 'Residential', totalValue: 40 * RATE_PER_HOUR, targetHours: 40, dateWon: '2026-05-20', actualHoursSource: 'computed' },
+  { id: 'jb-7', pipedriveDealId: 'PD-1007', clientId: 'cl-7', address: 'Aratula State School, Aratula', category: 'Government', totalValue: 24 * RATE_PER_HOUR, targetHours: 24, dateWon: '2026-04-01', actualHoursSource: 'computed' },
+  { id: 'jb-8', pipedriveDealId: 'PD-1008', clientId: 'cl-8', address: '10 Plumer St, Auchenflower', category: 'Residential', totalValue: 16 * RATE_PER_HOUR, targetHours: 16, dateWon: '2026-06-01', actualHoursSource: 'computed' },
 ]
 
 export const scheduleBlocks: ScheduleBlock[] = [

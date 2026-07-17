@@ -21,13 +21,9 @@ import {
   type SortState,
 } from '@/lib/jobFilters'
 import { formatCurrency } from '@/lib/formulas'
+import { jobDisplayName } from '@/lib/jobDisplay'
 import { ArrowDown, ArrowUp, ArrowUpDown, ListFilter, MapPin, RefreshCw, Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { Job } from '@/types'
-
-function jobDisplayName(job: Job) {
-  return job.pipedriveDealTitle || `${job.pipedriveDealId} - ${job.address}`
-}
 
 function deriveJobStatus(phaseStatuses: string[]): string {
   if (phaseStatuses.length === 0) return 'Unscheduled'

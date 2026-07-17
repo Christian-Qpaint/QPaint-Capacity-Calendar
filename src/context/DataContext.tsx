@@ -57,6 +57,9 @@ interface DataContextValue extends DataState {
   deleteTeamMembership: (id: string) => Promise<void>
   upsertMonthlyTarget: (year: number, month: number, targetDollars: number) => Promise<MonthlyTarget>
   takeMonthlySnapshot: (year: number, month: number, actualDollars: number) => Promise<MonthlySnapshot>
+  /** Sets a manual Actual/Logged Hours override for a job, or pass `null` to resync (clear the
+   * override so Actual Hours goes back to the computed sum of real logged hours). */
+  updateJobActualHours: (jobId: string, override: number | null) => Promise<void>
 }
 
 const DataContext = createContext<DataContextValue | null>(null)
@@ -314,6 +317,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
           monthlySnapshots: [...prev.monthlySnapshots.filter((s) => !(s.year === year && s.month === month)), saved],
         }))
         return saved
+      },
+      updateJobActualHours: async (jobId, override) => {
+        const row = override === null
+          ? { actual_hours_override: null, actual_hours_source: 'computed' as const }
+          : { actual_hours_override: override, actual_hours_source: 'manual' as const }
+        const { error } = await supabase.from('jobs').update(row).eq('id', jobId)
+        if (error) throw new Error(error.message)
+        setState((prev) => ({
+          ...prev,
+          jobs: prev.jobs.map((j) =>
+            j.id === jobId ? { ...j, actualHoursOverride: override ?? undefined, actualHoursSource: override === null ? 'computed' : 'manual' } : j,
+          ),
+        }))
       },
     }),
     [state, loading, error, fetchAll],

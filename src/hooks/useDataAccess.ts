@@ -31,6 +31,8 @@ export function useDataAccess() {
     getMultiTeamShares: (block: (typeof data.scheduleBlocks)[number], job: (typeof data.jobs)[number]) =>
       da.getMultiTeamShares(db, block, job),
     getJobPhaseHoursTotal: (jobId: string) => da.getJobPhaseHoursTotal(db, jobId),
+    getJobLoggedHours: (jobId: string) => da.getJobLoggedHours(db, jobId),
+    getJobProgress: (job: (typeof data.jobs)[number]) => da.getJobProgress(db, job),
     getContractorAssignedJobTypes: (contractorId: string) => da.getContractorAssignedJobTypes(db, contractorId),
     getContractorCompliance: (contractorId: string, today?: Date) => da.getContractorCompliance(db, contractorId, today),
   }

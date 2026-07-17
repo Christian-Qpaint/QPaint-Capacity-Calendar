@@ -1,12 +1,18 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 import { useData } from '@/context/DataContext'
 import { useCurrentUser } from '@/context/AuthContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
 import { canManageTargets } from '@/lib/permissions'
+import { PIPEDRIVE_TARGET_STAGE_IDS } from '@/lib/pipedriveStages'
+import { jobDisplayName } from '@/lib/jobDisplay'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { CapacityPill, UnderUtilizedPill } from '@/components/StatusBadges'
+import { Input } from '@/components/ui/input'
+import { CategoryPill } from '@/components/StatusBadges'
+import { ClientTypeIcon } from '@/components/ClientTypeIcon'
+import { TeamColorDot } from '@/components/TeamColorDot'
 import { TargetConfigDialog } from '@/components/TargetConfigDialog'
 import { formatCurrency, weeklyFromMonthly } from '@/lib/formulas'
 import {
@@ -17,10 +23,132 @@ import {
   weekEnd,
   weekStart,
 } from '@/lib/schedule'
-import { History, Settings } from 'lucide-react'
+import { History, Pencil, Settings, TriangleAlert } from 'lucide-react'
+import type { JobProgress } from '@/lib/dataAccess'
+import type { Job, Team } from '@/types'
+
+function JobProgressCard({ job, progress, teams, canManage }: { job: Job; progress: JobProgress; teams: Team[]; canManage: boolean }) {
+  const { clients, updateJobActualHours } = useData()
+  const client = clients.find((c) => c.id === job.clientId)
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  function openEdit() {
+    setValue(String(Math.round(progress.actualHours)))
+    setEditing(true)
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      await updateJobActualHours(job.id, Number(value) || 0)
+      toast.success('Actual hours updated')
+      setEditing(false)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to update actual hours')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleResync() {
+    setSaving(true)
+    try {
+      await updateJobActualHours(job.id, null)
+      toast.success(`Resynced to logged hours (${Math.round(progress.loggedHours)} hrs)`)
+      setEditing(false)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to resync')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card className="gap-3 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 space-y-1">
+          <div className="flex items-center gap-1.5 text-sm font-medium">
+            {client && <ClientTypeIcon type={client.type} />}
+            <span className="truncate">{client?.name ?? 'Unknown client'}</span>
+          </div>
+          <p className="truncate text-xs text-muted-foreground">{jobDisplayName(job)}</p>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+          <CategoryPill category={job.category} />
+          {teams.map((t) => (
+            <span key={t.id} className="flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+              <TeamColorDot team={t} />
+              {t.name}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <p className="text-xs font-medium text-muted-foreground">Production</p>
+        <div className="flex items-center gap-3">
+          <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+            <div className="h-full bg-success-fill" style={{ width: `${Math.min(100, Math.max(0, progress.productionPercent))}%` }} />
+          </div>
+          <span className="w-12 shrink-0 text-right text-sm font-medium">{Math.round(progress.productionPercent)}%</span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {formatCurrency(progress.actualDollars)} / {formatCurrency(progress.dealValue)}
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium text-muted-foreground">Hours</p>
+          {progress.isOverBudget && (
+            <span className="flex items-center gap-1 rounded-md bg-danger-bg px-1.5 py-0.5 text-xs font-medium text-danger animate-pulse">
+              <TriangleAlert className="size-3" /> Over budget
+            </span>
+          )}
+        </div>
+
+        {editing ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Input
+              type="number"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              className="h-7 w-24"
+              autoFocus
+            />
+            <span className="text-xs text-muted-foreground">/ {progress.targetHours} hrs</span>
+            <Button size="sm" className="h-7" onClick={handleSave} disabled={saving}>Save</Button>
+            <Button size="sm" variant="ghost" className="h-7" onClick={() => setEditing(false)} disabled={saving}>Cancel</Button>
+            {job.actualHoursSource === 'manual' && (
+              <Button size="sm" variant="outline" className="h-7" onClick={handleResync} disabled={saving}>Resync</Button>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center justify-between">
+            <span className={`text-sm font-medium ${progress.isOverBudget ? 'text-danger' : 'text-foreground'}`}>
+              {Math.round(progress.actualHours)} / {progress.targetHours} hrs
+            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                {job.actualHoursSource === 'manual' ? 'Manual' : 'Logged'}
+              </span>
+              {canManage && (
+                <button onClick={openEdit} aria-label="Edit actual hours">
+                  <Pencil className="size-3.5 text-muted-foreground hover:text-foreground" />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
 
 export function CapacityBoard() {
-  const { teams, contractors, monthlyTargets } = useData()
+  const { jobs, teams, scheduleBlocks, monthlyTargets } = useData()
   const currentUser = useCurrentUser()
   const da = useDataAccess()
   const [isMonthly, setIsMonthly] = useState(false)
@@ -30,20 +158,27 @@ export function CapacityBoard() {
   const windowStart = isMonthly ? monthStart(anchor) : weekStart(anchor)
   const windowEnd = isMonthly ? monthEnd(anchor) : weekEnd(weekStart(anchor))
 
-  const qpaintTeams = teams.filter((t) => t.type === 'QPaint')
-
-  const teamRows = useMemo(
-    () => qpaintTeams.map((team) => da.getQPaintTeamRow(team, windowStart, windowEnd, isMonthly)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [qpaintTeams, windowStart.getTime(), windowEnd.getTime(), isMonthly],
-  )
-  const contractorRows = useMemo(
-    () => contractors.map((c) => da.getContractorRow(c, windowStart, windowEnd, isMonthly)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [contractors, windowStart.getTime(), windowEnd.getTime(), isMonthly],
-  )
-
   const scheduledTotal = da.getScheduledDollarsInWindow(windowStart, windowEnd)
+
+  const activeJobs = useMemo(
+    () =>
+      jobs.filter(
+        (j) => j.pipedriveStageId != null && PIPEDRIVE_TARGET_STAGE_IDS.includes(j.pipedriveStageId) && scheduleBlocks.some((b) => b.jobId === j.id),
+      ),
+    [jobs, scheduleBlocks],
+  )
+  const jobRows = useMemo(
+    () =>
+      activeJobs.map((job) => ({
+        job,
+        progress: da.getJobProgress(job),
+        teams: Array.from(new Set(scheduleBlocks.filter((b) => b.jobId === job.id).map((b) => b.teamId)))
+          .map((teamId) => teams.find((t) => t.id === teamId))
+          .filter((t): t is (typeof teams)[number] => !!t),
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeJobs, scheduleBlocks, teams],
+  )
 
   const monthlyTargetRow = monthlyTargets.find((t) => t.year === anchor.getFullYear() && t.month === anchor.getMonth() + 1)
   const monthlyTargetDollars = monthlyTargetRow?.targetDollars ?? 0
@@ -100,81 +235,17 @@ export function CapacityBoard() {
 
       <section className="space-y-3">
         <div>
-          <h2 className="text-base font-medium">QPaint Teams</h2>
-          <p className="text-xs text-muted-foreground">
-            {isMonthly ? 'Monthly capacity = weekly capacity × ~4.33 weeks' : 'Weekly capacity = headcount × standard hours/week'}
-          </p>
+          <h2 className="text-base font-medium">Jobs</h2>
+          <p className="text-xs text-muted-foreground">Active jobs already on the Calendar — Production % and Hours tracked per job.</p>
         </div>
-        <div className="space-y-2">
-          {teamRows.map((row) => (
-            <Card key={row.team.id} className="gap-2 p-4">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <span className="text-sm font-medium">{row.team.name}</span>
-                <span className="text-xs text-muted-foreground">
-                  {isMonthly ? '~' : ''}
-                  {Math.round(row.capacityHours)} hrs/{isMonthly ? 'mo' : 'wk'} capacity
-                </span>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className={`h-full ${
-                      row.band === 'red' ? 'bg-danger-fill' : row.band === 'orange' ? 'bg-warning-fill' : 'bg-success-fill'
-                    }`}
-                    style={{ width: `${Math.min(100, row.usedPercent)}%` }}
-                  />
-                </div>
-                <CapacityPill percent={row.usedPercent} band={row.band} />
-              </div>
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>
-                  {Math.round(row.scheduledHours)} hrs · {formatCurrency(row.scheduledDollars)} scheduled
-                </span>
-                {row.underUtilized && <UnderUtilizedPill />}
-              </div>
-            </Card>
-          ))}
-        </div>
-      </section>
-
-      <section className="space-y-3">
-        <div>
-          <h2 className="text-base font-medium">Contractors</h2>
-          <p className="text-xs text-muted-foreground">
-            {isMonthly
-              ? 'Monthly Safety Target = self-reported capacity × 80%'
-              : 'Weekly target = monthly Safety Target ÷ ~4.33'}
-          </p>
-        </div>
-        <div className="space-y-2">
-          {contractorRows.map((row) => (
-            <Card key={row.contractor.id} className="gap-2 p-4">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <span className="text-sm font-medium">{row.contractor.nickname || row.contractor.name}</span>
-                <span className="text-xs text-muted-foreground">{row.activeTeams} team{row.activeTeams === 1 ? '' : 's'} active</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className={`h-full ${
-                      row.underUtilized
-                        ? 'bg-info-fill'
-                        : row.band === 'red'
-                          ? 'bg-danger-fill'
-                          : row.band === 'orange'
-                            ? 'bg-warning-fill'
-                            : 'bg-success-fill'
-                    }`}
-                    style={{ width: `${Math.min(100, row.usedPercent)}%` }}
-                  />
-                </div>
-                {row.underUtilized ? <UnderUtilizedPill /> : <CapacityPill percent={row.usedPercent} band={row.band} />}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {formatCurrency(row.scheduledDollars)} scheduled · {row.underUtilized ? `${Math.round(row.usedPercent)}% of ` : 'target '}
-                {formatCurrency(row.targetDollars)} {isMonthly ? 'safety target/mo' : 'target/wk'}
-              </div>
-            </Card>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {jobRows.length === 0 && (
+            <p className="col-span-full rounded-md border border-dashed border-border py-8 text-center text-sm text-muted-foreground">
+              No active jobs scheduled yet — jobs appear here once they're on the Calendar.
+            </p>
+          )}
+          {jobRows.map(({ job, progress, teams: jobTeams }) => (
+            <JobProgressCard key={job.id} job={job} progress={progress} teams={jobTeams} canManage={canManage} />
           ))}
         </div>
       </section>

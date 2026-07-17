@@ -198,6 +198,8 @@ export function mapJob(r: any): Job {
     dateWon: r.date_won,
     pipedriveStageId: r.pipedrive_stage_id ?? undefined,
     pipedriveDealTitle: r.pipedrive_deal_title ?? undefined,
+    actualHoursOverride: r.actual_hours_override ?? undefined,
+    actualHoursSource: r.actual_hours_source ?? 'computed',
   }
 }
 
