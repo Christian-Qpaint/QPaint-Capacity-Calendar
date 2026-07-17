@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils'
-import type { CapacityBand, ComplianceFlag } from '@/types'
+import type { CapacityBand, ComplianceFlag, JobCategory } from '@/types'
 import { formatPercent } from '@/lib/formulas'
+import { JOB_CATEGORY_ICONS } from '@/lib/jobCategoryIcons'
 
 const BAND_STYLES: Record<CapacityBand, string> = {
   green: 'bg-success-bg text-success',
@@ -64,6 +65,35 @@ export function StatusPill({ status }: { status: string }) {
   return (
     <span className={cn('inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-medium', SCHEDULE_BLOCK_STATUS_STYLES[status] ?? 'bg-muted')}>
       {status}
+    </span>
+  )
+}
+
+/** Shared with the Jobs List row-highlight tint — every job status maps to the same color everywhere. */
+export const JOB_STATUS_STYLES = SCHEDULE_BLOCK_STATUS_STYLES
+
+/** Subtle left-border + tint for table rows — same status colors as StatusPill, just lower-contrast. */
+export const JOB_ROW_STATUS_STYLES: Record<string, string> = {
+  Unscheduled: 'border-l-2 border-l-transparent',
+  Scheduled: 'border-l-2 border-l-info bg-info-bg/50 hover:brightness-[0.97]',
+  'In Production': 'border-l-2 border-l-warning bg-warning-bg/50 hover:brightness-[0.97]',
+  Overdue: 'border-l-2 border-l-danger bg-danger-bg/50 hover:brightness-[0.97]',
+  Completed: 'border-l-2 border-l-success bg-success-bg/50 hover:brightness-[0.97]',
+}
+
+const JOB_CATEGORY_STYLES: Record<JobCategory, string> = {
+  Residential: 'bg-success-bg text-success',
+  Corporate: 'bg-info-bg text-info',
+  Commercial: 'bg-warning-bg text-warning',
+  Government: 'bg-muted text-muted-foreground',
+}
+
+export function CategoryPill({ category }: { category: JobCategory }) {
+  const Icon = JOB_CATEGORY_ICONS[category]
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 rounded-md px-2.5 py-0.5 text-xs font-medium', JOB_CATEGORY_STYLES[category])}>
+      <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+      {category}
     </span>
   )
 }
