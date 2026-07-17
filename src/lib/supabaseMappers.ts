@@ -8,6 +8,8 @@ import type {
   Credential,
   DailyHoursEntry,
   Job,
+  MonthlySnapshot,
+  MonthlyTarget,
   ScheduleBlock,
   Team,
   TeamMembership,
@@ -251,4 +253,25 @@ export function dailyHoursEntryToRow(e: Omit<DailyHoursEntry, 'id'>) {
 
 export function mapWeeklyActual(r: any): WeeklyActual {
   return { id: r.id, jobId: r.job_id, weekEnding: r.week_ending, actualHours: r.actual_hours }
+}
+
+export function mapMonthlyTarget(r: any): MonthlyTarget {
+  return { id: r.id, year: r.year, month: r.month, targetDollars: r.target_dollars }
+}
+export function monthlyTargetToRow(t: Omit<MonthlyTarget, 'id'>) {
+  return { year: t.year, month: t.month, target_dollars: t.targetDollars }
+}
+
+export function mapMonthlySnapshot(r: any): MonthlySnapshot {
+  return {
+    id: r.id,
+    year: r.year,
+    month: r.month,
+    targetDollars: r.target_dollars,
+    actualDollars: r.actual_dollars,
+    capturedAt: r.captured_at,
+  }
+}
+export function monthlySnapshotToRow(s: Omit<MonthlySnapshot, 'id' | 'capturedAt'>) {
+  return { year: s.year, month: s.month, target_dollars: s.targetDollars, actual_dollars: s.actualDollars }
 }

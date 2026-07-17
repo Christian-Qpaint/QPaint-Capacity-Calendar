@@ -1,11 +1,14 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useData } from '@/context/DataContext'
+import { useCurrentUser } from '@/context/AuthContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
+import { canManageTargets } from '@/lib/permissions'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { CapacityPill, UnderUtilizedPill } from '@/components/StatusBadges'
-import { formatCurrency } from '@/lib/formulas'
-import { STANDARD_DOLLAR_RATE_PER_HOUR } from '@/lib/constants'
+import { TargetConfigDialog } from '@/components/TargetConfigDialog'
+import { formatCurrency, weeklyFromMonthly } from '@/lib/formulas'
 import {
   formatDateRange,
   formatMonthLabel,
@@ -14,12 +17,15 @@ import {
   weekEnd,
   weekStart,
 } from '@/lib/schedule'
+import { History, Settings } from 'lucide-react'
 
 export function CapacityBoard() {
-  const { teams, contractors } = useData()
+  const { teams, contractors, monthlyTargets } = useData()
+  const currentUser = useCurrentUser()
   const da = useDataAccess()
   const [isMonthly, setIsMonthly] = useState(false)
   const [anchor] = useState(() => new Date())
+  const [targetDialogOpen, setTargetDialogOpen] = useState(false)
 
   const windowStart = isMonthly ? monthStart(anchor) : weekStart(anchor)
   const windowEnd = isMonthly ? monthEnd(anchor) : weekEnd(weekStart(anchor))
@@ -37,12 +43,14 @@ export function CapacityBoard() {
     [contractors, windowStart.getTime(), windowEnd.getTime(), isMonthly],
   )
 
-  const scheduledTotal =
-    teamRows.reduce((s, r) => s + r.scheduledDollars, 0) + contractorRows.reduce((s, r) => s + r.scheduledDollars, 0)
-  const targetTotal =
-    teamRows.reduce((s, r) => s + r.capacityHours * STANDARD_DOLLAR_RATE_PER_HOUR, 0) +
-    contractorRows.reduce((s, r) => s + r.targetDollars, 0)
+  const scheduledTotal = da.getScheduledDollarsInWindow(windowStart, windowEnd)
+
+  const monthlyTargetRow = monthlyTargets.find((t) => t.year === anchor.getFullYear() && t.month === anchor.getMonth() + 1)
+  const monthlyTargetDollars = monthlyTargetRow?.targetDollars ?? 0
+  const targetTotal = isMonthly ? monthlyTargetDollars : weeklyFromMonthly(monthlyTargetDollars)
   const gap = scheduledTotal - targetTotal
+
+  const canManage = canManageTargets(currentUser.role)
 
   return (
     <div className="space-y-8">
@@ -50,30 +58,45 @@ export function CapacityBoard() {
         <h1 className="text-lg font-medium">
           {isMonthly ? formatMonthLabel(windowStart) : `Week of ${formatDateRange(windowStart, windowEnd)}`}
         </h1>
-        <div className="flex gap-1.5 rounded-md border border-border bg-card p-1">
-          <Button size="sm" variant={!isMonthly ? 'secondary' : 'ghost'} onClick={() => setIsMonthly(false)}>
-            Weekly
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1.5 rounded-md border border-border bg-card p-1">
+            <Button size="sm" variant={!isMonthly ? 'secondary' : 'ghost'} onClick={() => setIsMonthly(false)}>
+              Weekly
+            </Button>
+            <Button size="sm" variant={isMonthly ? 'secondary' : 'ghost'} onClick={() => setIsMonthly(true)}>
+              Monthly
+            </Button>
+          </div>
+          <Button size="sm" variant="outline" render={<Link to="/capacity/history" />}>
+            <History /> History
           </Button>
-          <Button size="sm" variant={isMonthly ? 'secondary' : 'ghost'} onClick={() => setIsMonthly(true)}>
-            Monthly
-          </Button>
+          {canManage && (
+            <Button size="sm" variant="outline" onClick={() => setTargetDialogOpen(true)}>
+              <Settings /> Configure targets
+            </Button>
+          )}
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Card className="gap-1 p-4">
-          <p className="text-xs text-muted-foreground">Scheduled this {isMonthly ? 'month' : 'week'}</p>
-          <p className="text-2xl font-medium">{formatCurrency(scheduledTotal)}</p>
+          <p className="text-xs text-muted-foreground">{isMonthly ? 'Monthly target' : 'Weekly target'}</p>
+          <p className="text-2xl font-medium">{formatCurrency(targetTotal)}</p>
+          {!monthlyTargetRow && (
+            <p className="text-xs text-muted-foreground">No target set for this month</p>
+          )}
         </Card>
         <Card className="gap-1 p-4">
-          <p className="text-xs text-muted-foreground">{isMonthly ? 'Monthly target' : 'Weekly pace target'}</p>
-          <p className="text-2xl font-medium">{formatCurrency(targetTotal)}</p>
+          <p className="text-xs text-muted-foreground">Scheduled this {isMonthly ? 'month' : 'week'}</p>
+          <p className="text-2xl font-medium">{formatCurrency(scheduledTotal)}</p>
         </Card>
         <Card className={`gap-1 p-4 ${gap < 0 ? 'bg-warning-bg' : 'bg-success-bg'}`}>
           <p className={`text-xs ${gap < 0 ? 'text-warning' : 'text-success'}`}>Gap to target</p>
           <p className={`text-2xl font-medium ${gap < 0 ? 'text-warning' : 'text-success'}`}>{formatCurrency(gap)}</p>
         </Card>
       </div>
+
+      <TargetConfigDialog open={targetDialogOpen} onOpenChange={setTargetDialogOpen} />
 
       <section className="space-y-3">
         <div>

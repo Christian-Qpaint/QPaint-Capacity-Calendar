@@ -6,6 +6,7 @@ import { useCurrentUser } from '@/context/AuthContext'
 import { isOfficeRole } from '@/lib/permissions'
 import { Login } from '@/pages/Login'
 import { CapacityBoard } from '@/pages/office/CapacityBoard'
+import { TargetHistory } from '@/pages/office/TargetHistory'
 import { JobsList } from '@/pages/office/JobsList'
 import { JobPhaseScheduling } from '@/pages/office/JobPhaseScheduling'
 import { ResourceCalendar } from '@/pages/office/ResourceCalendar'
@@ -29,6 +30,7 @@ function App() {
         <Route element={<RequireOfficeRole />}>
           <Route element={<OfficeLayout />}>
             <Route path="/capacity" element={<CapacityBoard />} />
+            <Route path="/capacity/history" element={<TargetHistory />} />
             <Route path="/jobs" element={<JobsList />} />
             <Route path="/jobs/:jobId" element={<JobPhaseScheduling />} />
             <Route path="/calendar" element={<ResourceCalendar />} />

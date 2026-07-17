@@ -196,3 +196,23 @@ export interface User {
 
 export type ComplianceFlag = 'red' | 'grey' | 'amber' | 'green'
 export type CapacityBand = 'green' | 'orange' | 'red'
+
+/** Manually-set $ target for one calendar month — replaces the old formula-derived Capacity
+ * Board target tile so the business can account for seasonal swings. */
+export interface MonthlyTarget {
+  id: string
+  year: number
+  month: number // 1-12
+  targetDollars: number
+}
+
+/** End-of-month "Actual vs Target" snapshot, captured manually so historical comparisons don't
+ * shift if schedule data changes after the fact. */
+export interface MonthlySnapshot {
+  id: string
+  year: number
+  month: number // 1-12
+  targetDollars: number
+  actualDollars: number
+  capturedAt: string // ISO timestamp
+}

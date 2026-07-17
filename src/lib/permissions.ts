@@ -45,3 +45,9 @@ export function isFieldRole(role: Role): boolean {
 export function canEditRanking(role: Role): boolean {
   return role === 'owner' || role === 'ops_manager'
 }
+
+/** Monthly $ targets and end-of-month snapshots — Owner/Ops Manager only, same Full-tier gating
+ * as Credentials and Ranking edits. Scheduler/PM can still view the Capacity Board and History. */
+export function canManageTargets(role: Role): boolean {
+  return role === 'owner' || role === 'ops_manager'
+}

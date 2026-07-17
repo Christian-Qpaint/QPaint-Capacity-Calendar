@@ -50,6 +50,13 @@ export function teamScheduledInWindow(db: DB, teamId: string, windowStart: Date,
   return { hours, dollars }
 }
 
+/** Total $ scheduled across every Team (QPaint + Contractor) in a window — the one figure the
+ * Capacity Board calls "Scheduled" and monthly snapshots call "Actual". Shared here so the live
+ * tile and a captured snapshot can never drift apart from re-deriving the same sum differently. */
+export function getScheduledDollarsInWindow(db: DB, windowStart: Date, windowEnd: Date): number {
+  return db.teams.reduce((sum, team) => sum + teamScheduledInWindow(db, team.id, windowStart, windowEnd).dollars, 0)
+}
+
 /** Additive weekly capacity a Team gains from active Floating memberships in a window. */
 function floatingCapacityBonus(db: DB, team: Team, windowStart: Date, windowEnd: Date): number {
   if (team.type !== 'QPaint' || !team.standardHoursPerWeek) return 0

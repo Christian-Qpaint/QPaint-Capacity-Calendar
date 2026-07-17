@@ -8,6 +8,8 @@ import type {
   Credential,
   DailyHoursEntry,
   Job,
+  MonthlySnapshot,
+  MonthlyTarget,
   ScheduleBlock,
   Team,
   TeamMembership,
@@ -26,6 +28,8 @@ interface DataState {
   scheduleBlocks: ScheduleBlock[]
   dailyHoursEntries: DailyHoursEntry[]
   weeklyActuals: WeeklyActual[]
+  monthlyTargets: MonthlyTarget[]
+  monthlySnapshots: MonthlySnapshot[]
 }
 
 interface DataContextValue extends DataState {
@@ -51,6 +55,8 @@ interface DataContextValue extends DataState {
   addTeamMembership: (membership: Omit<TeamMembership, 'id'>) => Promise<TeamMembership>
   updateTeamMembership: (id: string, patch: Partial<TeamMembership>) => Promise<void>
   deleteTeamMembership: (id: string) => Promise<void>
+  upsertMonthlyTarget: (year: number, month: number, targetDollars: number) => Promise<MonthlyTarget>
+  takeMonthlySnapshot: (year: number, month: number, actualDollars: number) => Promise<MonthlySnapshot>
 }
 
 const DataContext = createContext<DataContextValue | null>(null)
@@ -66,6 +72,8 @@ const EMPTY_STATE: DataState = {
   scheduleBlocks: [],
   dailyHoursEntries: [],
   weeklyActuals: [],
+  monthlyTargets: [],
+  monthlySnapshots: [],
 }
 
 export function DataProvider({ children }: { children: ReactNode }) {
@@ -82,7 +90,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
     setLoading(true)
     setError(null)
-    const [clients, contractors, credentials, teams, workers, teamMemberships, jobs, scheduleBlocks, dailyHoursEntries, weeklyActuals] =
+    const [
+      clients, contractors, credentials, teams, workers, teamMemberships, jobs, scheduleBlocks, dailyHoursEntries, weeklyActuals,
+      monthlyTargets, monthlySnapshots,
+    ] =
       await Promise.all([
         supabase.from('clients').select('*'),
         supabase.from('contractors_view').select('*'),
@@ -94,10 +105,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
         supabase.from('schedule_blocks').select('*'),
         supabase.from('daily_hours_entries').select('*'),
         supabase.from('weekly_actuals').select('*'),
+        supabase.from('monthly_targets').select('*'),
+        supabase.from('monthly_snapshots').select('*'),
       ])
 
     const firstError = [
       clients, contractors, credentials, teams, workers, teamMemberships, jobs, scheduleBlocks, dailyHoursEntries, weeklyActuals,
+      monthlyTargets, monthlySnapshots,
     ].find((r) => r.error)?.error
     if (firstError) {
       setError(firstError.message)
@@ -116,6 +130,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       scheduleBlocks: (scheduleBlocks.data ?? []).map(m.mapScheduleBlock),
       dailyHoursEntries: (dailyHoursEntries.data ?? []).map(m.mapDailyHoursEntry),
       weeklyActuals: (weeklyActuals.data ?? []).map(m.mapWeeklyActual),
+      monthlyTargets: (monthlyTargets.data ?? []).map(m.mapMonthlyTarget),
+      monthlySnapshots: (monthlySnapshots.data ?? []).map(m.mapMonthlySnapshot),
     })
     setLoading(false)
   }, [session])
@@ -262,6 +278,42 @@ export function DataProvider({ children }: { children: ReactNode }) {
         const { error } = await supabase.from('team_memberships').delete().eq('id', id)
         if (error) throw new Error(error.message)
         setState((prev) => ({ ...prev, teamMemberships: prev.teamMemberships.filter((tm) => tm.id !== id) }))
+      },
+
+      upsertMonthlyTarget: async (year, month, targetDollars) => {
+        const { data, error } = await supabase
+          .from('monthly_targets')
+          .upsert(
+            { year, month, target_dollars: targetDollars, updated_at: new Date().toISOString() },
+            { onConflict: 'year,month' },
+          )
+          .select()
+          .single()
+        if (error) throw new Error(error.message)
+        const saved = m.mapMonthlyTarget(data)
+        setState((prev) => ({
+          ...prev,
+          monthlyTargets: [...prev.monthlyTargets.filter((t) => !(t.year === year && t.month === month)), saved],
+        }))
+        return saved
+      },
+      takeMonthlySnapshot: async (year, month, actualDollars) => {
+        const target = state.monthlyTargets.find((t) => t.year === year && t.month === month)
+        const { data, error } = await supabase
+          .from('monthly_snapshots')
+          .upsert(
+            { year, month, target_dollars: target?.targetDollars ?? 0, actual_dollars: actualDollars },
+            { onConflict: 'year,month' },
+          )
+          .select()
+          .single()
+        if (error) throw new Error(error.message)
+        const saved = m.mapMonthlySnapshot(data)
+        setState((prev) => ({
+          ...prev,
+          monthlySnapshots: [...prev.monthlySnapshots.filter((s) => !(s.year === year && s.month === month)), saved],
+        }))
+        return saved
       },
     }),
     [state, loading, error, fetchAll],
