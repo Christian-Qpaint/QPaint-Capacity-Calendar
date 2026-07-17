@@ -53,7 +53,10 @@ export function ContractorsTab() {
               const compliance = da.getContractorCompliance(c.id)
               return (
                 <TableRow key={c.id} className="cursor-pointer" onClick={() => setSelected(c)}>
-                  <TableCell className="font-medium">{c.name}</TableCell>
+                  <TableCell className="font-medium">
+                    {c.name}
+                    {c.nickname && <span className="ml-1.5 font-normal text-muted-foreground">({c.nickname})</span>}
+                  </TableCell>
                   <TableCell>{formatCurrency(c.reportedMonthlyCapacity)}/mo</TableCell>
                   <TableCell className="text-muted-foreground">{formatCurrency(safetyTarget(c.reportedMonthlyCapacity))}/mo</TableCell>
                   <TableCell>{crewCount}</TableCell>

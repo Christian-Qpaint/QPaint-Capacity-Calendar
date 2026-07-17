@@ -114,6 +114,9 @@ export interface TeamMembership {
 export interface Contractor {
   id: string
   name: string
+  /** Short/friendly trading name shown in scheduling views (Calendar, Capacity Board, Assignment
+   * Modal); reports/exports/contracts always use the legal `name` above. Falls back to `name` when unset. */
+  nickname?: string
   reportedMonthlyCapacity: number // [financial]
   // Full-tier directory fields (Decision 20) — optional since Teams & Contractors Setup can create
   // a Contractor with just name + capacity; these fill in from a fuller import (e.g. the contractor

@@ -150,7 +150,7 @@ export function CapacityBoard() {
           {contractorRows.map((row) => (
             <Card key={row.contractor.id} className="gap-2 p-4">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <span className="text-sm font-medium">{row.contractor.name}</span>
+                <span className="text-sm font-medium">{row.contractor.nickname || row.contractor.name}</span>
                 <span className="text-xs text-muted-foreground">{row.activeTeams} team{row.activeTeams === 1 ? '' : 's'} active</span>
               </div>
               <div className="flex items-center gap-3">

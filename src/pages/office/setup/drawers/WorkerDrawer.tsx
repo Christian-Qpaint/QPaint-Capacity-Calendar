@@ -220,10 +220,15 @@ export function WorkerDrawer({
                   }}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue>{(v: string | null) => (v ? contractors.find((c) => c.id === v)?.name : 'Select a contractor')}</SelectValue>
+                    <SelectValue>
+                      {(v: string | null) => {
+                        const c = v ? contractors.find((ct) => ct.id === v) : undefined
+                        return c ? c.nickname || c.name : 'Select a contractor'
+                      }}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {contractors.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                    {contractors.map((c) => <SelectItem key={c.id} value={c.id}>{c.nickname || c.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

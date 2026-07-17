@@ -105,6 +105,7 @@ export function ContractorDrawer({
   const isEdit = !!contractor
 
   const [name, setName] = useState('')
+  const [nickname, setNickname] = useState('')
   const [capacity, setCapacity] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -124,9 +125,11 @@ export function ContractorDrawer({
     setCredExpiry('')
     if (contractor) {
       setName(contractor.name)
+      setNickname(contractor.nickname ?? '')
       setCapacity(String(contractor.reportedMonthlyCapacity))
     } else {
       setName('')
+      setNickname('')
       setCapacity('')
     }
   }, [open, contractor?.id])
@@ -141,10 +144,10 @@ export function ContractorDrawer({
     setError(null)
     try {
       if (isEdit && contractor) {
-        await updateContractor(contractor.id, { name, reportedMonthlyCapacity: Number(capacity) })
+        await updateContractor(contractor.id, { name, nickname: nickname || undefined, reportedMonthlyCapacity: Number(capacity) })
         toast.success('Contractor updated')
       } else {
-        await addContractor({ name, reportedMonthlyCapacity: Number(capacity) })
+        await addContractor({ name, nickname: nickname || undefined, reportedMonthlyCapacity: Number(capacity) })
         toast.success('Contractor added')
       }
       onOpenChange(false)
@@ -218,7 +221,7 @@ export function ContractorDrawer({
       <SheetContent className="p-0 sm:max-w-lg">
         <SheetHeader>
           <div className="flex items-center justify-between gap-2">
-            <SheetTitle>{isEdit ? contractor!.name : 'Add Contractor'}</SheetTitle>
+            <SheetTitle>{isEdit ? contractor!.nickname || contractor!.name : 'Add Contractor'}</SheetTitle>
             {compliance && <CompliancePill flag={compliance.flag} />}
           </div>
           <SheetDescription>
@@ -229,8 +232,12 @@ export function ContractorDrawer({
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4">
           <div className="grid grid-cols-1 gap-3">
             <div className="space-y-1.5">
-              <Label>Contractor name</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Acme Painting" />
+              <Label>Legal name</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Acme Painting Pty Ltd" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Nickname</Label>
+              <Input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="Acme (optional — shown in scheduling views)" />
             </div>
             <div className="space-y-1.5">
               <Label>Reported monthly capacity ($)</Label>

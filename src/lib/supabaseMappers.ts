@@ -28,6 +28,7 @@ export function mapContractor(r: any): Contractor {
   return {
     id: r.id,
     name: r.name,
+    nickname: r.nickname ?? undefined,
     reportedMonthlyCapacity: r.reported_monthly_capacity,
     tradingName: r.trading_name ?? undefined,
     abn: r.abn ?? undefined,
@@ -58,6 +59,7 @@ export function mapContractor(r: any): Contractor {
 export function contractorToRow(c: Omit<Contractor, 'id'>) {
   return {
     name: c.name,
+    nickname: c.nickname ?? null,
     reported_monthly_capacity: c.reportedMonthlyCapacity,
     trading_name: c.tradingName ?? null,
     abn: c.abn ?? null,

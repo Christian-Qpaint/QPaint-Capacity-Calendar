@@ -102,10 +102,10 @@ export function ResourceCalendar() {
       if (cTeams.length === 0) continue
       const allContractorTeams = teams.filter((t) => t.contractorId === c.id)
       if (allContractorTeams.length > 1) {
-        contractorRows.push({ key: c.id, label: c.name, indent: false, teamId: null })
+        contractorRows.push({ key: c.id, label: c.nickname || c.name, indent: false, teamId: null })
         for (const t of cTeams) contractorRows.push({ key: t.id, label: t.name, indent: true, teamId: t.id })
       } else {
-        contractorRows.push({ key: cTeams[0].id, label: c.name, indent: false, teamId: cTeams[0].id })
+        contractorRows.push({ key: cTeams[0].id, label: c.nickname || c.name, indent: false, teamId: cTeams[0].id })
       }
     }
     if (contractorRows.length > 0) {
@@ -209,7 +209,7 @@ export function ResourceCalendar() {
                         onCheckedChange={() => toggleTeam(t.id)}
                       >
                         <TeamColorDot team={t} className="mr-1.5" />
-                        {cTeams.length > 1 ? `${c.name} — ${t.name}` : c.name}
+                        {cTeams.length > 1 ? `${c.nickname || c.name} — ${t.name}` : c.nickname || c.name}
                       </DropdownMenuCheckboxItem>
                     ))}
                   </div>

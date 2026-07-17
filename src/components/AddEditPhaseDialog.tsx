@@ -157,7 +157,7 @@ export function AddEditPhaseDialog({
               <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             </div>
             <div className="space-y-1.5">
-              <Label>Phase hours</Label>
+              <Label>Phase target hours</Label>
               <Input type="number" placeholder="0" value={phaseHours} onChange={(e) => setPhaseHours(e.target.value)} />
             </div>
           </div>
