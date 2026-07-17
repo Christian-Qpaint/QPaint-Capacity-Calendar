@@ -39,6 +39,18 @@
     --color-card: var(--card);
     --color-foreground: var(--foreground);
     --color-background: var(--background);
+    --color-success: var(--success);
+    --color-success-bg: var(--success-bg);
+    --color-success-fill: var(--success-fill);
+    --color-warning: var(--warning);
+    --color-warning-bg: var(--warning-bg);
+    --color-warning-fill: var(--warning-fill);
+    --color-danger: var(--danger);
+    --color-danger-bg: var(--danger-bg);
+    --color-danger-fill: var(--danger-fill);
+    --color-info: var(--info);
+    --color-info-bg: var(--info-bg);
+    --color-info-fill: var(--info-fill);
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
@@ -81,6 +93,19 @@
     --sidebar-accent-foreground: oklch(0.205 0 0);
     --sidebar-border: oklch(0.922 0 0);
     --sidebar-ring: oklch(0.708 0 0);
+
+    --success: #3B6D11;
+    --success-bg: #EAF3DE;
+    --success-fill: #97C459;
+    --warning: #854F0B;
+    --warning-bg: #FAEEDA;
+    --warning-fill: #EF9F27;
+    --danger: #A32D2D;
+    --danger-bg: #FCEBEB;
+    --danger-fill: #E24B4A;
+    --info: #185FA5;
+    --info-bg: #E6F1FB;
+    --info-fill: #378ADD;
 }
 
 .dark {
@@ -115,6 +140,19 @@
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.556 0 0);
+
+    --success: #86D45C;
+    --success-bg: #1E2A12;
+    --success-fill: #6FAE3F;
+    --warning: #F5B84D;
+    --warning-bg: #332508;
+    --warning-fill: #D98F1F;
+    --danger: #F17C7C;
+    --danger-bg: #341414;
+    --danger-fill: #C93F3F;
+    --info: #6FB2EE;
+    --info-bg: #10233A;
+    --info-fill: #2E79C4;
 }
 
 @layer base {
@@ -127,4 +165,22 @@
   html {
     @apply font-sans;
     }
+}
+
+/* Circular native color-input trigger (ColorSwatchInput) — the browser's own swatch is normally a
+   rectangle filling the input's box; these pseudo-elements are the only way to restyle it, and
+   coverage differs by engine so both are declared. */
+.color-swatch-input {
+  overflow: hidden;
+}
+.color-swatch-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.color-swatch-input::-webkit-color-swatch {
+  border: none;
+  border-radius: 9999px;
+}
+.color-swatch-input::-moz-color-swatch {
+  border: none;
+  border-radius: 9999px;
 }

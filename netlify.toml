@@ -1,0 +1,10 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# SPA fallback — client-side routes like /jobs/:id or /capacity must all serve index.html
+# and let react-router handle the path, or a direct link/refresh 404s on Netlify's static host.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
