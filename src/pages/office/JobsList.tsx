@@ -7,8 +7,15 @@ import { PIPEDRIVE_STAGE_LABELS, PIPEDRIVE_TARGET_STAGE_IDS } from '@/lib/pipedr
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { StatusPill } from '@/components/StatusBadges'
+import { ClientTypeIcon } from '@/components/ClientTypeIcon'
+import { JOB_CATEGORY_ICONS } from '@/lib/jobCategoryIcons'
 import { formatCurrency } from '@/lib/formulas'
-import { RefreshCw } from 'lucide-react'
+import { MapPin, RefreshCw } from 'lucide-react'
+import type { Job } from '@/types'
+
+function jobDisplayName(job: Job) {
+  return job.pipedriveDealTitle || `${job.pipedriveDealId} - ${job.address}`
+}
 
 function deriveJobStatus(phaseStatuses: string[]): string {
   if (phaseStatuses.length === 0) return 'Unscheduled'
@@ -68,7 +75,7 @@ export function JobsList() {
           <TableHeader>
             <TableRow>
               <TableHead>Client</TableHead>
-              <TableHead>Address</TableHead>
+              <TableHead>Job</TableHead>
               <TableHead>Category</TableHead>
               <TableHead>Pipeline stage</TableHead>
               <TableHead>Total value</TableHead>
@@ -89,15 +96,31 @@ export function JobsList() {
               const blocks = scheduleBlocks.filter((b) => b.jobId === job.id)
               const allocatedHours = da.getJobPhaseHoursTotal(job.id)
               const status = deriveJobStatus(blocks.map((b) => b.status))
+              const CategoryIcon = JOB_CATEGORY_ICONS[job.category]
               return (
                 <TableRow
                   key={job.id}
                   className="cursor-pointer"
                   onClick={() => navigate(`/jobs/${job.id}`)}
                 >
-                  <TableCell className="font-medium">{client?.name ?? '—'}</TableCell>
-                  <TableCell className="text-muted-foreground">{job.address}</TableCell>
-                  <TableCell>{job.category}</TableCell>
+                  <TableCell className="font-medium">
+                    <span className="flex items-center gap-1.5">
+                      {client && <ClientTypeIcon type={client.type} />}
+                      {client?.name ?? '—'}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    <span className="flex items-center gap-1.5">
+                      <MapPin className="size-3.5 shrink-0" aria-hidden="true" />
+                      {jobDisplayName(job)}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="flex items-center gap-1.5">
+                      <CategoryIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                      {job.category}
+                    </span>
+                  </TableCell>
                   <TableCell className="text-muted-foreground">
                     {job.pipedriveStageId ? PIPEDRIVE_STAGE_LABELS[job.pipedriveStageId] : '—'}
                   </TableCell>

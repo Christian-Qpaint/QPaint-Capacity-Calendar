@@ -41,6 +41,8 @@ export interface Job {
   dateWon: string // ISO date
   /** Current Pipedrive Jobs Pipeline stage id — the Jobs List filters on this; null for jobs never synced from Pipedrive. */
   pipedriveStageId?: number
+  /** The deal's own title from Pipedrive, e.g. "41466 - 11 Dawson Street, Yeerongpilly (Genivieve Place CTS27991)" — already Quote-ID-prefixed in Pipedrive's own naming convention. */
+  pipedriveDealTitle?: string
 }
 
 export type WorkArea = 'External' | 'Internal' | 'Roof' | 'Epoxy Floors' | 'Decks'

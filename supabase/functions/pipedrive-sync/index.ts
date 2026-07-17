@@ -113,6 +113,7 @@ Deno.serve(async (req) => {
             target_hours: targetHours,
             date_won: dateWon,
             pipedrive_stage_id: deal.stage_id,
+            pipedrive_deal_title: deal.title ?? null,
           },
           { onConflict: 'pipedrive_deal_id' },
         )

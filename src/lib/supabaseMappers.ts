@@ -193,6 +193,7 @@ export function mapJob(r: any): Job {
     targetHours: r.target_hours,
     dateWon: r.date_won,
     pipedriveStageId: r.pipedrive_stage_id ?? undefined,
+    pipedriveDealTitle: r.pipedrive_deal_title ?? undefined,
   }
 }
 
