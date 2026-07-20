@@ -220,7 +220,7 @@ export function ResourceCalendar() {
         </DropdownMenu>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-border bg-card p-4 shadow-sm">
+      <div className="max-h-[70vh] overflow-auto rounded-xl border border-border bg-card p-4 shadow-sm">
         <div
           className="grid"
           style={{
@@ -242,17 +242,23 @@ export function ResourceCalendar() {
             )
           })}
 
-          {/* header row */}
+          {/* header row — sticky to the top of the scroll area so the dates stay visible while
+              scrolling down through many crews; the corner cell is sticky on both axes and needs
+              the highest z-index since it overlaps both the sticky header row and label column. */}
           <div
             style={{ gridColumn: 1, gridRow: 1 }}
-            className="flex items-end pb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase"
+            className="sticky top-0 left-0 z-30 flex items-end bg-card pb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase"
           >
             Team / Contractor
           </div>
           {days.map((d, i) => {
             const isToday = toIso(d) === todayIsoStr
             return (
-              <div key={i} style={{ gridColumn: i + 2, gridRow: 1 }} className="flex flex-col items-center justify-end gap-0.5 pb-2">
+              <div
+                key={i}
+                style={{ gridColumn: i + 2, gridRow: 1 }}
+                className="sticky top-0 z-20 flex flex-col items-center justify-end gap-0.5 bg-card pb-2"
+              >
                 <span className="text-[11px] text-muted-foreground">{d.toLocaleDateString('en-AU', { weekday: 'short' })}</span>
                 <span
                   className={
@@ -267,12 +273,13 @@ export function ResourceCalendar() {
             )
           })}
 
-          {/* row separators + labels */}
+          {/* row separators + labels — sticky to the left of the scroll area so crew names stay
+              visible while scrolling horizontally through days (frozen first column). */}
           {rows.map((row, rowIdx) => (
             <div
               key={`label-${row.key}`}
               style={{ gridColumn: 1, gridRow: rowIdx + 2 }}
-              className={`flex items-center gap-2 border-t border-border/60 pr-2 text-sm ${
+              className={`sticky left-0 z-20 flex items-center gap-2 border-t border-border/60 bg-card pr-2 text-sm ${
                 row.sectionHeader
                   ? 'mt-2 border-t-2 border-t-foreground/20 text-xs font-semibold tracking-wide text-muted-foreground uppercase'
                   : row.indent
