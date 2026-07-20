@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useData } from '@/context/DataContext'
 import { Button } from '@/components/ui/button'
 import {
@@ -34,6 +34,7 @@ import type { ScheduleBlock } from '@/types'
 type ViewMode = 'day' | 'week' | 'month'
 
 const ROW_HEIGHT = 56
+const HEADER_HEIGHT = 56
 const LABEL_COL_WIDTH = 220
 const DAY_COL_WIDTH: Record<ViewMode, number> = { day: 480, week: 128, month: 60 }
 
@@ -118,7 +119,22 @@ export function ResourceCalendar() {
 
   function dayColumn(d: Date): number {
     const offset = Math.round((d.getTime() - windowStart.getTime()) / 86400000)
-    return offset + 2 // col 1 is the row label
+    return offset + 1
+  }
+
+  // Frozen header row + label column are separate elements (not CSS `position: sticky` inside the
+  // grid) mirrored via scroll position — sticky-in-grid with both a frozen row AND frozen column
+  // simultaneously has real rendering glitches in Chromium (stale content bleeding over the frozen
+  // panes on scroll). This is the standard, reliable "frozen panes" technique instead.
+  const bodyScrollRef = useRef<HTMLDivElement>(null)
+  const headerScrollRef = useRef<HTMLDivElement>(null)
+  const labelScrollRef = useRef<HTMLDivElement>(null)
+
+  function handleBodyScroll() {
+    const body = bodyScrollRef.current
+    if (!body) return
+    if (headerScrollRef.current) headerScrollRef.current.scrollLeft = body.scrollLeft
+    if (labelScrollRef.current) labelScrollRef.current.scrollTop = body.scrollTop
   }
 
   function goPrev() {
@@ -220,70 +236,57 @@ export function ResourceCalendar() {
         </DropdownMenu>
       </div>
 
-      <div className="max-h-[70vh] overflow-auto rounded-xl border border-border bg-card p-4 shadow-sm">
+      <div className="relative overflow-hidden rounded-xl border border-border bg-card shadow-sm" style={{ height: '70vh' }}>
+        {/* corner — sits above both frozen panes */}
         <div
-          className="grid"
-          style={{
-            gridTemplateColumns: `${LABEL_COL_WIDTH}px repeat(${days.length}, ${colWidth}px)`,
-            gridAutoRows: `${ROW_HEIGHT}px`,
-            minWidth: LABEL_COL_WIDTH + days.length * colWidth,
-          }}
+          style={{ width: LABEL_COL_WIDTH, height: HEADER_HEIGHT }}
+          className="absolute top-0 left-0 z-30 flex items-end border-r border-b border-border bg-card p-4 pb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase"
         >
-          {/* column backgrounds: weekend tint + today highlight, full height */}
-          {days.map((d, i) => {
-            const isWeekend = d.getDay() === 0 || d.getDay() === 6
-            const isToday = toIso(d) === todayIsoStr
-            return (
-              <div
-                key={i}
-                style={{ gridColumn: i + 2, gridRow: `1 / ${rows.length + 2}` }}
-                className={`border-l border-border/60 ${isToday ? 'bg-info-bg/70' : isWeekend ? 'bg-muted/50' : ''}`}
-              />
-            )
-          })}
+          Team / Contractor
+        </div>
 
-          {/* header row — sticky to the top of the scroll area so the dates stay visible while
-              scrolling down through many crews; the corner cell is sticky on both axes and needs
-              the highest z-index since it overlaps both the sticky header row and label column. */}
-          <div
-            style={{ gridColumn: 1, gridRow: 1 }}
-            className="sticky top-0 left-0 z-30 flex items-end bg-card pb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase"
-          >
-            Team / Contractor
+        {/* frozen header row (dates) — horizontal position mirrors the body's scrollLeft via JS */}
+        <div
+          ref={headerScrollRef}
+          style={{ left: LABEL_COL_WIDTH, right: 0, height: HEADER_HEIGHT }}
+          className="absolute top-0 z-20 overflow-hidden border-b border-border bg-card"
+        >
+          <div className="flex" style={{ width: days.length * colWidth }}>
+            {days.map((d, i) => {
+              const isToday = toIso(d) === todayIsoStr
+              return (
+                <div key={i} style={{ width: colWidth }} className="flex flex-col items-center justify-end gap-0.5 pb-2">
+                  <span className="text-[11px] text-muted-foreground">{d.toLocaleDateString('en-AU', { weekday: 'short' })}</span>
+                  <span
+                    className={
+                      isToday
+                        ? 'flex size-6 items-center justify-center rounded-full bg-info text-xs font-semibold text-white'
+                        : 'text-sm font-medium'
+                    }
+                  >
+                    {d.getDate()}
+                  </span>
+                </div>
+              )
+            })}
           </div>
-          {days.map((d, i) => {
-            const isToday = toIso(d) === todayIsoStr
-            return (
-              <div
-                key={i}
-                style={{ gridColumn: i + 2, gridRow: 1 }}
-                className="sticky top-0 z-20 flex flex-col items-center justify-end gap-0.5 bg-card pb-2"
-              >
-                <span className="text-[11px] text-muted-foreground">{d.toLocaleDateString('en-AU', { weekday: 'short' })}</span>
-                <span
-                  className={
-                    isToday
-                      ? 'flex size-6 items-center justify-center rounded-full bg-info text-xs font-semibold text-white'
-                      : 'text-sm font-medium'
-                  }
-                >
-                  {d.getDate()}
-                </span>
-              </div>
-            )
-          })}
+        </div>
 
-          {/* row separators + labels — sticky to the left of the scroll area so crew names stay
-              visible while scrolling horizontally through days (frozen first column). */}
-          {rows.map((row, rowIdx) => (
+        {/* frozen label column — vertical position mirrors the body's scrollTop via JS */}
+        <div
+          ref={labelScrollRef}
+          style={{ top: HEADER_HEIGHT, bottom: 0, width: LABEL_COL_WIDTH }}
+          className="absolute left-0 z-20 overflow-hidden border-r border-border bg-card"
+        >
+          {rows.map((row) => (
             <div
               key={`label-${row.key}`}
-              style={{ gridColumn: 1, gridRow: rowIdx + 2 }}
-              className={`sticky left-0 z-20 flex items-center gap-2 border-t border-border/60 bg-card pr-2 text-sm ${
+              style={{ height: ROW_HEIGHT }}
+              className={`flex items-center gap-2 border-t border-border/60 pr-2 pl-4 text-sm ${
                 row.sectionHeader
                   ? 'mt-2 border-t-2 border-t-foreground/20 text-xs font-semibold tracking-wide text-muted-foreground uppercase'
                   : row.indent
-                    ? 'pl-4 text-muted-foreground'
+                    ? 'pl-8 text-muted-foreground'
                     : 'font-medium'
               }`}
             >
@@ -291,82 +294,113 @@ export function ResourceCalendar() {
                 <ColorSwatchInput
                   value={getTeamColors(teams.find((t) => t.id === row.teamId)!).bg}
                   onChange={(v) => updateTeam(row.teamId!, { color: v })}
-                  onClick={(e) => e.stopPropagation()}
                   title="Change crew color"
                 />
               )}
               <span className="truncate">{row.label}</span>
             </div>
           ))}
-          {/* row separators across the day columns (grid lines) */}
-          {rows.map((row, rowIdx) =>
-            days.map((_, i) => (
-              <div
-                key={`gridline-${row.key}-${i}`}
-                style={{ gridColumn: i + 2, gridRow: rowIdx + 2 }}
-                className="border-t border-border/60"
-              />
-            )),
-          )}
+        </div>
 
-          {rows.length === 0 && (
-            <div style={{ gridColumn: `1 / ${days.length + 2}`, gridRow: 2 }} className="py-6 text-center text-sm text-muted-foreground">
-              No crews selected — use the Crews filter above.
-            </div>
-          )}
-
-          {/* click-to-add targets */}
-          {rows.flatMap((row, rowIdx) => {
-            if (!row.teamId) return []
-            return days.map((d) => (
-              <button
-                key={`${row.key}-${toIso(d)}`}
-                type="button"
-                style={{ gridColumn: dayColumn(d), gridRow: rowIdx + 2 }}
-                className="h-full w-full cursor-pointer hover:bg-accent/40"
-                onClick={() => openCreate(row.teamId!, d)}
-                aria-label={`Add phase for ${row.label} on ${toIso(d)}`}
-              />
-            ))
-          })}
-
-          {/* schedule block bars */}
-          {rows.map((row, rowIdx) => {
-            if (!row.teamId) return null
-            const team = teams.find((t) => t.id === row.teamId)
-            const { gradient, text } = getTeamGradient(team!)
-            const blocks = scheduleBlocks.filter((b) => {
-              if (b.teamId !== row.teamId) return false
-              return toDate(b.startDate) <= windowEndOfDay && toDate(b.endDate) >= windowStart
-            })
-            return blocks.map((block) => {
-              const job = jobs.find((j) => j.id === block.jobId)
-              const blockStart = toDate(block.startDate)
-              const blockEnd = toDate(block.endDate)
-              const clippedStart = blockStart < windowStart ? windowStart : blockStart
-              const clippedEnd = blockEnd > windowEnd ? windowEnd : blockEnd
-              const warn = runsIntoWeekend(block.endDate)
-              const label = `${block.workArea} · ${job?.address ?? ''}`
+        {/* scrollable body — the only real scrollbar; header + label panes mirror this via JS */}
+        <div
+          ref={bodyScrollRef}
+          onScroll={handleBodyScroll}
+          style={{ top: HEADER_HEIGHT, left: LABEL_COL_WIDTH, right: 0, bottom: 0 }}
+          className="absolute overflow-auto"
+        >
+          <div
+            className="relative grid"
+            style={{
+              gridTemplateColumns: `repeat(${days.length}, ${colWidth}px)`,
+              gridAutoRows: `${ROW_HEIGHT}px`,
+              width: days.length * colWidth,
+              minHeight: rows.length * ROW_HEIGHT,
+            }}
+          >
+            {/* column backgrounds: weekend tint + today highlight, full height */}
+            {days.map((d, i) => {
+              const isWeekend = d.getDay() === 0 || d.getDay() === 6
+              const isToday = toIso(d) === todayIsoStr
               return (
-                <button
-                  key={block.id}
-                  type="button"
-                  style={{
-                    gridColumn: `${dayColumn(clippedStart)} / ${dayColumn(clippedEnd) + 1}`,
-                    gridRow: rowIdx + 2,
-                    backgroundImage: gradient,
-                    color: text,
-                  }}
-                  className="group m-1 flex min-w-0 items-center gap-1 rounded-md px-2.5 text-xs font-medium shadow-sm ring-1 ring-black/5 transition hover:brightness-105 hover:shadow-md"
-                  onClick={() => openEdit(block)}
-                  title={`${job?.address} — ${block.workArea}${warn ? ' (runs into weekend)' : ''}`}
-                >
-                  <span className="min-w-0 truncate">{label}</span>
-                  {warn && <TriangleAlert className="size-3 shrink-0" />}
-                </button>
+                <div
+                  key={i}
+                  style={{ gridColumn: i + 1, gridRow: `1 / ${rows.length + 1}` }}
+                  className={`border-l border-border/60 ${isToday ? 'bg-info-bg/70' : isWeekend ? 'bg-muted/50' : ''}`}
+                />
               )
-            })
-          })}
+            })}
+
+            {/* row separators across the day columns (grid lines) */}
+            {rows.map((row, rowIdx) =>
+              days.map((_, i) => (
+                <div
+                  key={`gridline-${row.key}-${i}`}
+                  style={{ gridColumn: i + 1, gridRow: rowIdx + 1 }}
+                  className="border-t border-border/60"
+                />
+              )),
+            )}
+
+            {rows.length === 0 && (
+              <div style={{ gridColumn: `1 / ${days.length + 1}`, gridRow: 1 }} className="py-6 text-center text-sm text-muted-foreground">
+                No crews selected — use the Crews filter above.
+              </div>
+            )}
+
+            {/* click-to-add targets */}
+            {rows.flatMap((row, rowIdx) => {
+              if (!row.teamId) return []
+              return days.map((d) => (
+                <button
+                  key={`${row.key}-${toIso(d)}`}
+                  type="button"
+                  style={{ gridColumn: dayColumn(d), gridRow: rowIdx + 1 }}
+                  className="h-full w-full cursor-pointer hover:bg-accent/40"
+                  onClick={() => openCreate(row.teamId!, d)}
+                  aria-label={`Add phase for ${row.label} on ${toIso(d)}`}
+                />
+              ))
+            })}
+
+            {/* schedule block bars */}
+            {rows.map((row, rowIdx) => {
+              if (!row.teamId) return null
+              const team = teams.find((t) => t.id === row.teamId)
+              const { gradient, text } = getTeamGradient(team!)
+              const blocks = scheduleBlocks.filter((b) => {
+                if (b.teamId !== row.teamId) return false
+                return toDate(b.startDate) <= windowEndOfDay && toDate(b.endDate) >= windowStart
+              })
+              return blocks.map((block) => {
+                const job = jobs.find((j) => j.id === block.jobId)
+                const blockStart = toDate(block.startDate)
+                const blockEnd = toDate(block.endDate)
+                const clippedStart = blockStart < windowStart ? windowStart : blockStart
+                const clippedEnd = blockEnd > windowEnd ? windowEnd : blockEnd
+                const warn = runsIntoWeekend(block.endDate)
+                const label = `${block.workArea} · ${job?.address ?? ''}`
+                return (
+                  <button
+                    key={block.id}
+                    type="button"
+                    style={{
+                      gridColumn: `${dayColumn(clippedStart)} / ${dayColumn(clippedEnd) + 1}`,
+                      gridRow: rowIdx + 1,
+                      backgroundImage: gradient,
+                      color: text,
+                    }}
+                    className="group m-1 flex min-w-0 items-center gap-1 rounded-md px-2.5 text-xs font-medium shadow-sm ring-1 ring-black/5 transition hover:brightness-105 hover:shadow-md"
+                    onClick={() => openEdit(block)}
+                    title={`${job?.address} — ${block.workArea}${warn ? ' (runs into weekend)' : ''}`}
+                  >
+                    <span className="min-w-0 truncate">{label}</span>
+                    {warn && <TriangleAlert className="size-3 shrink-0" />}
+                  </button>
+                )
+              })
+            })}
+          </div>
         </div>
       </div>
 
