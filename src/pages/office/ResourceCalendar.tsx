@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { useData } from '@/context/DataContext'
 import { Button } from '@/components/ui/button'
 import {
@@ -14,6 +15,7 @@ import { AddEditPhaseDialog, type PhaseDialogState } from '@/components/AddEditP
 import { ColorSwatchInput } from '@/components/ColorSwatchInput'
 import { TeamColorDot } from '@/components/TeamColorDot'
 import { getTeamColors, getTeamGradient } from '@/lib/teamColors'
+import { cn } from '@/lib/utils'
 import {
   addDays,
   addMonths,
@@ -30,6 +32,26 @@ import {
 } from '@/lib/schedule'
 import { ChevronLeft, ChevronRight, ListFilter, TriangleAlert } from 'lucide-react'
 import type { ScheduleBlock } from '@/types'
+
+type DragKind = 'move' | 'resize-start' | 'resize-end'
+
+/** Render-driving snapshot of the in-flight drag — mirrors DragMeta but only what the grid needs
+ * to compute a live preview position. Kept separate from DragMeta so drag reads/writes to the ref
+ * (synchronous, no re-render) don't have to fight React state batching mid-gesture. */
+interface DragPreview {
+  blockId: string
+  kind: DragKind
+  originRowIdx: number
+  dayDelta: number
+  rowDelta: number
+  dragging: boolean
+}
+
+interface DragMeta extends DragPreview {
+  block: ScheduleBlock
+  originClientX: number
+  originClientY: number
+}
 
 type ViewMode = 'day' | 'week' | 'month'
 
@@ -56,12 +78,14 @@ interface Row {
 }
 
 export function ResourceCalendar() {
-  const { teams, contractors, scheduleBlocks, jobs, updateTeam } = useData()
+  const { teams, contractors, scheduleBlocks, jobs, updateTeam, updateScheduleBlock } = useData()
   const [viewMode, setViewMode] = useState<ViewMode>('week')
   const [anchor, setAnchor] = useState(() => new Date())
   // 'all' means every team; once the user touches a checkbox it becomes an explicit id list.
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[] | 'all'>('all')
   const [dialogState, setDialogState] = useState<PhaseDialogState>({ open: false, block: null })
+  const [dragPreview, setDragPreview] = useState<DragPreview | null>(null)
+  const dragMetaRef = useRef<DragMeta | null>(null)
 
   const today = new Date()
   const todayIsoStr = toIso(today)
@@ -156,6 +180,90 @@ export function ResourceCalendar() {
   }
   function openEdit(block: ScheduleBlock) {
     setDialogState({ open: true, block })
+  }
+
+  const DRAG_THRESHOLD_PX = 4
+
+  // Custom pointer-driven drag — no dnd library in this project. A plain click (no movement past
+  // the threshold) still opens the edit dialog, exactly like before; movement past the threshold
+  // commits a move/resize on pointerup. dragMetaRef is the synchronous source of truth read by the
+  // window pointerup listener (a plain DOM callback can't rely on a fresh closure over React state);
+  // dragPreview is the state copy that actually drives the live re-render.
+  function startDrag(e: React.PointerEvent, block: ScheduleBlock, kind: DragKind, rowIdx: number) {
+    if (e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+
+    const meta: DragMeta = {
+      block,
+      blockId: block.id,
+      kind,
+      originRowIdx: rowIdx,
+      originClientX: e.clientX,
+      originClientY: e.clientY,
+      dayDelta: 0,
+      rowDelta: 0,
+      dragging: false,
+    }
+    dragMetaRef.current = meta
+    setDragPreview({ blockId: block.id, kind, originRowIdx: rowIdx, dayDelta: 0, rowDelta: 0, dragging: false })
+
+    function onMove(ev: PointerEvent) {
+      const cur = dragMetaRef.current
+      if (!cur) return
+      const dx = ev.clientX - cur.originClientX
+      const dy = ev.clientY - cur.originClientY
+      const dayDelta = Math.round(dx / colWidth)
+      const rowDelta = cur.kind === 'move' ? Math.round(dy / ROW_HEIGHT) : 0
+      const dragging = cur.dragging || Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX
+      if (cur.dayDelta === dayDelta && cur.rowDelta === rowDelta && cur.dragging === dragging) return
+      const next = { ...cur, dayDelta, rowDelta, dragging }
+      dragMetaRef.current = next
+      setDragPreview({ blockId: next.block.id, kind: next.kind, originRowIdx: next.originRowIdx, dayDelta, rowDelta, dragging })
+    }
+
+    async function onUp() {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      const final = dragMetaRef.current
+      dragMetaRef.current = null
+      setDragPreview(null)
+      if (!final) return
+      if (!final.dragging) {
+        openEdit(final.block)
+        return
+      }
+      if (final.dayDelta === 0 && final.rowDelta === 0) return
+
+      let newStart = final.block.startDate
+      let newEnd = final.block.endDate
+      let newTeamId = final.block.teamId
+      if (final.kind === 'move') {
+        newStart = toIso(addDays(toDate(final.block.startDate), final.dayDelta))
+        newEnd = toIso(addDays(toDate(final.block.endDate), final.dayDelta))
+        if (final.rowDelta !== 0) {
+          const targetRow = rows[final.originRowIdx + final.rowDelta]
+          if (targetRow?.teamId) newTeamId = targetRow.teamId
+        }
+      } else if (final.kind === 'resize-start') {
+        const candidate = addDays(toDate(final.block.startDate), final.dayDelta)
+        if (candidate <= toDate(final.block.endDate)) newStart = toIso(candidate)
+      } else {
+        const candidate = addDays(toDate(final.block.endDate), final.dayDelta)
+        if (candidate >= toDate(final.block.startDate)) newEnd = toIso(candidate)
+      }
+
+      if (newStart === final.block.startDate && newEnd === final.block.endDate && newTeamId === final.block.teamId) return
+      try {
+        await updateScheduleBlock(final.block.id, { startDate: newStart, endDate: newEnd, teamId: newTeamId })
+        toast.success('Phase updated — saved')
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Failed to save phase move')
+      }
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp, { once: true })
   }
 
   const periodLabel =
@@ -374,11 +482,39 @@ export function ResourceCalendar() {
               })
               return blocks.map((block) => {
                 const job = jobs.find((j) => j.id === block.jobId)
-                const blockStart = toDate(block.startDate)
-                const blockEnd = toDate(block.endDate)
-                const clippedStart = blockStart < windowStart ? windowStart : blockStart
-                const clippedEnd = blockEnd > windowEnd ? windowEnd : blockEnd
-                const warn = runsIntoWeekend(block.endDate)
+                const isDragging = dragPreview?.dragging && dragPreview.blockId === block.id
+                let effStart = toDate(block.startDate)
+                let effEnd = toDate(block.endDate)
+                let effRowIdx = rowIdx
+                let effGradient = gradient
+                let effText = text
+                if (isDragging && dragPreview) {
+                  if (dragPreview.kind === 'move') {
+                    effStart = addDays(effStart, dragPreview.dayDelta)
+                    effEnd = addDays(effEnd, dragPreview.dayDelta)
+                    if (dragPreview.rowDelta !== 0) {
+                      const targetRow = rows[rowIdx + dragPreview.rowDelta]
+                      if (targetRow?.teamId) {
+                        effRowIdx = rowIdx + dragPreview.rowDelta
+                        const targetTeam = teams.find((t) => t.id === targetRow.teamId)
+                        if (targetTeam) {
+                          const g = getTeamGradient(targetTeam)
+                          effGradient = g.gradient
+                          effText = g.text
+                        }
+                      }
+                    }
+                  } else if (dragPreview.kind === 'resize-start') {
+                    const candidate = addDays(effStart, dragPreview.dayDelta)
+                    if (candidate <= effEnd) effStart = candidate
+                  } else if (dragPreview.kind === 'resize-end') {
+                    const candidate = addDays(effEnd, dragPreview.dayDelta)
+                    if (candidate >= effStart) effEnd = candidate
+                  }
+                }
+                const clippedStart = effStart < windowStart ? windowStart : effStart
+                const clippedEnd = effEnd > windowEnd ? windowEnd : effEnd
+                const warn = runsIntoWeekend(toIso(effEnd))
                 const label = `${block.workArea} · ${job?.address ?? ''}`
                 return (
                   <button
@@ -386,16 +522,34 @@ export function ResourceCalendar() {
                     type="button"
                     style={{
                       gridColumn: `${dayColumn(clippedStart)} / ${dayColumn(clippedEnd) + 1}`,
-                      gridRow: rowIdx + 1,
-                      backgroundImage: gradient,
-                      color: text,
+                      gridRow: effRowIdx + 1,
+                      backgroundImage: effGradient,
+                      color: effText,
+                      touchAction: 'none',
                     }}
-                    className="group m-1 flex min-w-0 items-center gap-1 rounded-md px-2.5 text-xs font-medium shadow-sm ring-1 ring-black/5 transition hover:brightness-105 hover:shadow-md"
-                    onClick={() => openEdit(block)}
-                    title={`${job?.address} — ${block.workArea}${warn ? ' (runs into weekend)' : ''}`}
+                    className={cn(
+                      'group relative m-1 flex min-w-0 cursor-grab items-center gap-1 rounded-md px-2.5 text-xs font-medium shadow-sm ring-1 ring-black/5 transition hover:brightness-105 hover:shadow-md',
+                      isDragging && 'z-10 cursor-grabbing shadow-lg ring-2 ring-foreground/50 transition-none',
+                    )}
+                    onPointerDown={(e) => startDrag(e, block, 'move', rowIdx)}
+                    title={`${job?.address} — ${block.workArea}${warn ? ' (runs into weekend)' : ''} — drag to move, drag the edges to resize`}
                   >
+                    <span
+                      className="absolute inset-y-0 left-0 w-2 cursor-ew-resize rounded-l-md hover:bg-black/10"
+                      onPointerDown={(e) => {
+                        e.stopPropagation()
+                        startDrag(e, block, 'resize-start', rowIdx)
+                      }}
+                    />
                     <span className="min-w-0 truncate">{label}</span>
                     {warn && <TriangleAlert className="size-3 shrink-0" />}
+                    <span
+                      className="absolute inset-y-0 right-0 w-2 cursor-ew-resize rounded-r-md hover:bg-black/10"
+                      onPointerDown={(e) => {
+                        e.stopPropagation()
+                        startDrag(e, block, 'resize-end', rowIdx)
+                      }}
+                    />
                   </button>
                 )
               })
@@ -405,9 +559,9 @@ export function ResourceCalendar() {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Clicking an empty slot opens the Add Phase form pre-filled with that Team + date. Clicking an existing bar opens the same
-        form pre-filled for editing. No drag-to-move/resize in Stage 1. Click the color swatch next to a crew's name to change its
-        calendar color.
+        Clicking an empty slot opens the Add Phase form pre-filled with that Team + date. Click an existing bar to edit it, or drag it
+        to move the phase to a new date/crew — drag its left or right edge to shrink or extend it. Moves and resizes save
+        automatically. Click the color swatch next to a crew's name to change its calendar color.
       </p>
 
       <AddEditPhaseDialog state={dialogState} onOpenChange={(open) => setDialogState((s) => ({ ...s, open }))} />
