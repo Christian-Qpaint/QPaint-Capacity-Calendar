@@ -81,12 +81,17 @@ const EMPTY_STATE: DataState = {
 
 export function DataProvider({ children }: { children: ReactNode }) {
   const { session } = useAuth()
+  // Keyed off the user id (not the Session object) — supabase-js hands out a new Session
+  // reference on every silent token refresh (e.g. on tab focus regain), and keying this on the
+  // full object would re-run the fetch — and flash the whole app to "Loading data…", wiping any
+  // open dialog/in-progress form — on every one of those refreshes despite the user never changing.
+  const userId = session?.user.id
   const [state, setState] = useState<DataState>(EMPTY_STATE)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const fetchAll = useCallback(async () => {
-    if (!session) {
+    if (!userId) {
       setState(EMPTY_STATE)
       setLoading(false)
       return
@@ -137,7 +142,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       monthlySnapshots: (monthlySnapshots.data ?? []).map(m.mapMonthlySnapshot),
     })
     setLoading(false)
-  }, [session])
+  }, [userId])
 
   useEffect(() => {
     fetchAll()

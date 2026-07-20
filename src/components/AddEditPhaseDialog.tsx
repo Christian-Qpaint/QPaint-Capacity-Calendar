@@ -6,10 +6,80 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { formatCurrency, phaseValue } from '@/lib/formulas'
+import { jobDisplayName } from '@/lib/jobDisplay'
 import { TeamColorDot } from '@/components/TeamColorDot'
-import type { ScheduleBlock, WorkArea } from '@/types'
+import { cn } from '@/lib/utils'
+import { Search } from 'lucide-react'
+import type { Job, ScheduleBlock, WorkArea } from '@/types'
 
 const WORK_AREAS: WorkArea[] = ['External', 'Internal', 'Roof', 'Epoxy Floors', 'Decks']
+
+/** Searchable job picker — a plain <Select> becomes unusable to scroll through once there are
+ * dozens of synced Pipedrive jobs, so this filters by quote ID/address/client as you type. */
+function JobPicker({
+  jobs,
+  clients,
+  value,
+  onChange,
+}: {
+  jobs: Job[]
+  clients: { id: string; name: string }[]
+  value: string
+  onChange: (jobId: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+
+  const selectedJob = jobs.find((j) => j.id === value)
+  const filtered = jobs.filter((j) => {
+    if (!query) return true
+    const q = query.toLowerCase()
+    const clientName = clients.find((c) => c.id === j.clientId)?.name ?? ''
+    return jobDisplayName(j).toLowerCase().includes(q) || clientName.toLowerCase().includes(q)
+  })
+
+  return (
+    <div className="relative">
+      <div className="relative">
+        <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={open ? query : selectedJob ? jobDisplayName(selectedJob) : ''}
+          onChange={(e) => setQuery(e.target.value)}
+          onFocus={() => {
+            setQuery('')
+            setOpen(true)
+          }}
+          onBlur={() => setOpen(false)}
+          placeholder="Search job by address, quote ID, or client…"
+          className="pl-8"
+        />
+      </div>
+      {open && (
+        <div className="absolute top-full right-0 left-0 z-50 mt-1 max-h-56 overflow-y-auto rounded-lg border border-border bg-popover py-1 shadow-md">
+          {filtered.length === 0 && <p className="px-3 py-2 text-sm text-muted-foreground">No jobs match "{query}"</p>}
+          {filtered.map((j) => (
+            <button
+              key={j.id}
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                onChange(j.id)
+                setOpen(false)
+              }}
+              className={cn(
+                'flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left text-sm hover:bg-accent',
+                j.id === value && 'bg-accent',
+              )}
+            >
+              <span className="truncate">{jobDisplayName(j)}</span>
+              <span className="truncate text-xs text-muted-foreground">{clients.find((c) => c.id === j.clientId)?.name ?? 'Unknown client'}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export interface PhaseDialogState {
   open: boolean
@@ -30,7 +100,7 @@ export function AddEditPhaseDialog({
   /** When set (e.g. opened from within a single Job's page) the Job select is hidden and fixed. */
   lockedJobId?: string
 }) {
-  const { jobs, teams, addScheduleBlock, updateScheduleBlock } = useData()
+  const { jobs, clients, teams, addScheduleBlock, updateScheduleBlock } = useData()
   const isEdit = !!state.block
 
   const [jobId, setJobId] = useState('')
@@ -93,16 +163,7 @@ export function AddEditPhaseDialog({
         <div className="min-h-0 space-y-3 overflow-y-auto pr-1">
           <div className="space-y-1.5">
             <Label>Job</Label>
-            <Select value={jobId} onValueChange={(v) => setJobId(v ?? '')}>
-              <SelectTrigger className="w-full">
-                <SelectValue>{(v: string | null) => (v ? jobs.find((j) => j.id === v)?.address : 'Select a job')}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {jobs.map((j) => (
-                  <SelectItem key={j.id} value={j.id}>{j.address}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <JobPicker jobs={jobs} clients={clients} value={jobId} onChange={setJobId} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
