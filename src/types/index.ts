@@ -48,6 +48,11 @@ export interface Job {
    * schedule blocks (see getJobActualHours in dataAccess.ts). */
   actualHoursOverride?: number
   actualHoursSource: 'computed' | 'manual'
+  /** Manual override for Production % — set only when productionPercentSource is 'manual'. When
+   * 'computed', Production % is derived from each phase's Progress% weighted by that phase's $
+   * value (see getJobProgress in dataAccess.ts). */
+  productionPercentOverride?: number
+  productionPercentSource: 'computed' | 'manual'
 }
 
 export type WorkArea = 'External' | 'Internal' | 'Roof' | 'Epoxy Floors' | 'Decks'

@@ -60,6 +60,9 @@ interface DataContextValue extends DataState {
   /** Sets a manual Actual/Logged Hours override for a job, or pass `null` to resync (clear the
    * override so Actual Hours goes back to the computed sum of real logged hours). */
   updateJobActualHours: (jobId: string, override: number | null) => Promise<void>
+  /** Sets a manual Production % override for a job, or pass `null` to resync (clear the override
+   * so Production % goes back to the hours-weighted computed figure). */
+  updateJobProduction: (jobId: string, override: number | null) => Promise<void>
 }
 
 const DataContext = createContext<DataContextValue | null>(null)
@@ -333,6 +336,21 @@ export function DataProvider({ children }: { children: ReactNode }) {
           ...prev,
           jobs: prev.jobs.map((j) =>
             j.id === jobId ? { ...j, actualHoursOverride: override ?? undefined, actualHoursSource: override === null ? 'computed' : 'manual' } : j,
+          ),
+        }))
+      },
+      updateJobProduction: async (jobId, override) => {
+        const row = override === null
+          ? { production_percent_override: null, production_percent_source: 'computed' as const }
+          : { production_percent_override: override, production_percent_source: 'manual' as const }
+        const { error } = await supabase.from('jobs').update(row).eq('id', jobId)
+        if (error) throw new Error(error.message)
+        setState((prev) => ({
+          ...prev,
+          jobs: prev.jobs.map((j) =>
+            j.id === jobId
+              ? { ...j, productionPercentOverride: override ?? undefined, productionPercentSource: override === null ? 'computed' : 'manual' }
+              : j,
           ),
         }))
       },

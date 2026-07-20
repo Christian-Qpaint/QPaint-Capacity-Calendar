@@ -28,11 +28,14 @@ import type { JobProgress } from '@/lib/dataAccess'
 import type { Job, Team } from '@/types'
 
 function JobProgressCard({ job, progress, teams, canManage }: { job: Job; progress: JobProgress; teams: Team[]; canManage: boolean }) {
-  const { clients, updateJobActualHours } = useData()
+  const { clients, updateJobActualHours, updateJobProduction } = useData()
   const client = clients.find((c) => c.id === job.clientId)
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState('')
   const [saving, setSaving] = useState(false)
+  const [editingProduction, setEditingProduction] = useState(false)
+  const [productionValue, setProductionValue] = useState('')
+  const [savingProduction, setSavingProduction] = useState(false)
   const hoursPercent = progress.targetHours > 0 ? (progress.actualHours / progress.targetHours) * 100 : progress.actualHours > 0 ? 100 : 0
 
   function openEdit() {
@@ -66,6 +69,37 @@ function JobProgressCard({ job, progress, teams, canManage }: { job: Job; progre
     }
   }
 
+  function openEditProduction() {
+    setProductionValue(String(Math.round(progress.productionPercent)))
+    setEditingProduction(true)
+  }
+
+  async function handleSaveProduction() {
+    setSavingProduction(true)
+    try {
+      await updateJobProduction(job.id, Number(productionValue) || 0)
+      toast.success('Production % updated')
+      setEditingProduction(false)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to update production %')
+    } finally {
+      setSavingProduction(false)
+    }
+  }
+
+  async function handleResyncProduction() {
+    setSavingProduction(true)
+    try {
+      await updateJobProduction(job.id, null)
+      toast.success('Resynced to computed production %')
+      setEditingProduction(false)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to resync')
+    } finally {
+      setSavingProduction(false)
+    }
+  }
+
   return (
     <Card className="gap-3 p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -90,17 +124,50 @@ function JobProgressCard({ job, progress, teams, canManage }: { job: Job; progre
         </div>
       </div>
 
-      <div className="space-y-1">
+      <div className="space-y-1.5">
         <p className="text-xs font-medium text-muted-foreground">Production</p>
-        <div className="flex items-center gap-3">
-          <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-            <div className="h-full bg-success-fill" style={{ width: `${Math.min(100, Math.max(0, progress.productionPercent))}%` }} />
+
+        {editingProduction ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Input
+              type="number"
+              value={productionValue}
+              onChange={(e) => setProductionValue(e.target.value)}
+              className="h-7 w-20"
+              autoFocus
+            />
+            <span className="text-xs text-muted-foreground">%</span>
+            <Button size="sm" className="h-7" onClick={handleSaveProduction} disabled={savingProduction}>Save</Button>
+            <Button size="sm" variant="ghost" className="h-7" onClick={() => setEditingProduction(false)} disabled={savingProduction}>Cancel</Button>
+            {job.productionPercentSource === 'manual' && (
+              <Button size="sm" variant="outline" className="h-7" onClick={handleResyncProduction} disabled={savingProduction}>Resync</Button>
+            )}
           </div>
-          <span className="w-12 shrink-0 text-right text-sm font-medium">{Math.round(progress.productionPercent)}%</span>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          {formatCurrency(progress.actualDollars)} / {formatCurrency(progress.dealValue)}
-        </p>
+        ) : (
+          <>
+            <div className="flex items-center gap-3">
+              <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                <div className="h-full bg-success-fill" style={{ width: `${Math.min(100, Math.max(0, progress.productionPercent))}%` }} />
+              </div>
+              <span className="w-12 shrink-0 text-right text-sm font-medium">{Math.round(progress.productionPercent)}%</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">
+                {formatCurrency(progress.actualDollars)} / {formatCurrency(progress.dealValue)}
+              </p>
+              <div className="flex items-center gap-1.5">
+                <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                  {job.productionPercentSource === 'manual' ? 'Manual' : 'Computed'}
+                </span>
+                {canManage && (
+                  <button onClick={openEditProduction} aria-label="Edit production percent">
+                    <Pencil className="size-3.5 text-muted-foreground hover:text-foreground" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="space-y-1.5">
@@ -202,6 +269,11 @@ export function CapacityBoard() {
   const targetTotal = isMonthly ? monthlyTargetDollars : weeklyFromMonthly(monthlyTargetDollars)
   const gap = scheduledTotal - targetTotal
 
+  // Formula: Actual $ = Production% x Deal Value per job (see getJobProgress), summed across every
+  // active job — not scoped to the Weekly/Monthly toggle, since Production % tracks a job's overall
+  // completion to date rather than work done in a particular window.
+  const actualTotal = jobRows.reduce((sum, { progress }) => sum + progress.actualDollars, 0)
+
   const canManage = canManageTargets(currentUser.role)
 
   return (
@@ -230,7 +302,7 @@ export function CapacityBoard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Card className="gap-1 p-4">
           <p className="text-xs text-muted-foreground">{isMonthly ? 'Monthly target' : 'Weekly target'}</p>
           <p className="text-2xl font-medium">{formatCurrency(targetTotal)}</p>
@@ -241,6 +313,11 @@ export function CapacityBoard() {
         <Card className="gap-1 p-4">
           <p className="text-xs text-muted-foreground">Scheduled this {isMonthly ? 'month' : 'week'}</p>
           <p className="text-2xl font-medium">{formatCurrency(scheduledTotal)}</p>
+        </Card>
+        <Card className="gap-1 p-4">
+          <p className="text-xs text-muted-foreground">Actual</p>
+          <p className="text-2xl font-medium">{formatCurrency(actualTotal)}</p>
+          <p className="text-xs text-muted-foreground">Production % × deal value, across active jobs</p>
         </Card>
         <Card className={`gap-1 p-4 ${gap < 0 ? 'bg-warning-bg' : 'bg-success-bg'}`}>
           <p className={`text-xs ${gap < 0 ? 'text-warning' : 'text-success'}`}>Gap to target</p>

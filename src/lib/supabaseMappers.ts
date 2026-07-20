@@ -200,6 +200,8 @@ export function mapJob(r: any): Job {
     pipedriveDealTitle: r.pipedrive_deal_title ?? undefined,
     actualHoursOverride: r.actual_hours_override ?? undefined,
     actualHoursSource: r.actual_hours_source ?? 'computed',
+    productionPercentOverride: r.production_percent_override ?? undefined,
+    productionPercentSource: r.production_percent_source ?? 'computed',
   }
 }
 

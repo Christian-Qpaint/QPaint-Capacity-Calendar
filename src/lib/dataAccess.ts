@@ -185,9 +185,10 @@ export function getJobLoggedHours(db: DB, jobId: string): number {
 
 export interface JobProgress {
   job: Job
-  /** Formula: Actual Dollars = Production% x Deal Value, computed here as the sum of each phase's
-   * $ value x that phase's Progress% — mathematically the hours-weighted version of Production%
-   * across phases, since a phase's $ value is itself proportional to its hours. */
+  /** Formula: Actual Dollars = Production% x Deal Value. When productionPercentSource is
+   * 'computed', this is the sum of each phase's $ value x that phase's Progress% — mathematically
+   * the hours-weighted version of Production% across phases, since a phase's $ value is itself
+   * proportional to its hours. When 'manual', this is the override % x Deal Value directly. */
   actualDollars: number
   dealValue: number
   productionPercent: number
@@ -201,9 +202,12 @@ export interface JobProgress {
 
 export function getJobProgress(db: DB, job: Job): JobProgress {
   const phases = db.scheduleBlocks.filter((b) => b.jobId === job.id)
-  const actualDollars = phases.reduce((sum, b) => sum + blockValue(b, job) * (b.percentComplete / 100), 0)
   const dealValue = job.totalValue
-  const productionPercent = dealValue > 0 ? (actualDollars / dealValue) * 100 : 0
+  const computedActualDollars = phases.reduce((sum, b) => sum + blockValue(b, job) * (b.percentComplete / 100), 0)
+  const computedProductionPercent = dealValue > 0 ? (computedActualDollars / dealValue) * 100 : 0
+  const useOverride = job.productionPercentSource === 'manual' && job.productionPercentOverride != null
+  const productionPercent = useOverride ? job.productionPercentOverride! : computedProductionPercent
+  const actualDollars = useOverride ? dealValue * (productionPercent / 100) : computedActualDollars
   const loggedHours = getJobLoggedHours(db, job.id)
   const actualHours = job.actualHoursSource === 'manual' && job.actualHoursOverride != null ? job.actualHoursOverride : loggedHours
   const targetHours = job.targetHours
