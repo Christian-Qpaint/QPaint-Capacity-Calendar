@@ -284,7 +284,7 @@ export function ResourceCalendar() {
               style={{ height: ROW_HEIGHT }}
               className={`flex items-center gap-2 border-t border-border/60 pr-2 pl-4 text-sm ${
                 row.sectionHeader
-                  ? 'mt-2 border-t-2 border-t-foreground/20 text-xs font-semibold tracking-wide text-muted-foreground uppercase'
+                  ? 'border-t-2 border-t-foreground/20 text-xs font-semibold tracking-wide text-muted-foreground uppercase'
                   : row.indent
                     ? 'pl-8 text-muted-foreground'
                     : 'font-medium'

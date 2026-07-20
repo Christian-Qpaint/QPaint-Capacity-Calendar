@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { StatusPill, CategoryPill, JOB_ROW_STATUS_STYLES } from '@/components/StatusBadges'
 import { ClientTypeIcon } from '@/components/ClientTypeIcon'
 import { JobsAdvancedFilterDialog } from '@/components/JobsAdvancedFilterDialog'
+import { AddEditPhaseDialog, type PhaseDialogState } from '@/components/AddEditPhaseDialog'
 import {
   applyConditions,
   sortRows,
@@ -22,7 +23,7 @@ import {
 } from '@/lib/jobFilters'
 import { formatCurrency } from '@/lib/formulas'
 import { jobDisplayName } from '@/lib/jobDisplay'
-import { ArrowDown, ArrowUp, ArrowUpDown, ListFilter, MapPin, RefreshCw, Search, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpDown, ListFilter, MapPin, Plus, RefreshCw, Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 function deriveJobStatus(phaseStatuses: string[]): string {
@@ -76,6 +77,8 @@ export function JobsList() {
   const [filterOpen, setFilterOpen] = useState(false)
   const [conditions, setConditions] = useState<FilterCondition[]>([])
   const [matchMode, setMatchMode] = useState<MatchMode>('AND')
+  const [phaseDialogState, setPhaseDialogState] = useState<PhaseDialogState>({ open: false, block: null })
+  const [phaseDialogJobId, setPhaseDialogJobId] = useState<string | null>(null)
 
   const visibleJobs = jobs.filter((j) => j.pipedriveStageId != null && PIPEDRIVE_TARGET_STAGE_IDS.includes(j.pipedriveStageId))
 
@@ -184,6 +187,7 @@ export function JobsList() {
               <SortableHead label="Total value" sortKey="totalValue" sort={sort} onSort={toggleSort} />
               <SortableHead label="Target hours" sortKey="targetHours" sort={sort} onSort={toggleSort} />
               <SortableHead label="Status" sortKey="status" sort={sort} onSort={toggleSort} />
+              <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -229,6 +233,20 @@ export function JobsList() {
                   <TableCell>
                     <StatusPill status={status} />
                   </TableCell>
+                  <TableCell>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Add phase for ${row.jobName}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setPhaseDialogJobId(job.id)
+                        setPhaseDialogState({ open: true, block: null })
+                      }}
+                    >
+                      <Plus />
+                    </Button>
+                  </TableCell>
                 </TableRow>
               )
             })}
@@ -245,6 +263,12 @@ export function JobsList() {
           setConditions(next)
           setMatchMode(mode)
         }}
+      />
+
+      <AddEditPhaseDialog
+        state={phaseDialogState}
+        onOpenChange={(open) => setPhaseDialogState((s) => ({ ...s, open }))}
+        lockedJobId={phaseDialogJobId ?? undefined}
       />
     </div>
   )

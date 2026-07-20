@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useData } from '@/context/DataContext'
+import { useDataAccess } from '@/hooks/useDataAccess'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,7 +10,7 @@ import { formatCurrency, phaseValue } from '@/lib/formulas'
 import { jobDisplayName } from '@/lib/jobDisplay'
 import { TeamColorDot } from '@/components/TeamColorDot'
 import { cn } from '@/lib/utils'
-import { Search } from 'lucide-react'
+import { MapPin, Search, Trash2 } from 'lucide-react'
 import type { Job, ScheduleBlock, WorkArea } from '@/types'
 
 const WORK_AREAS: WorkArea[] = ['External', 'Internal', 'Roof', 'Epoxy Floors', 'Decks']
@@ -100,7 +101,8 @@ export function AddEditPhaseDialog({
   /** When set (e.g. opened from within a single Job's page) the Job select is hidden and fixed. */
   lockedJobId?: string
 }) {
-  const { jobs, clients, teams, addScheduleBlock, updateScheduleBlock } = useData()
+  const { jobs, clients, teams, addScheduleBlock, updateScheduleBlock, deleteScheduleBlock } = useData()
+  const da = useDataAccess()
   const isEdit = !!state.block
 
   const [jobId, setJobId] = useState('')
@@ -111,10 +113,13 @@ export function AddEditPhaseDialog({
   const [phaseHours, setPhaseHours] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     if (!state.open) return
     setError(null)
+    setConfirmingDelete(false)
     if (state.block) {
       setJobId(state.block.jobId)
       setTeamId(state.block.teamId)
@@ -131,6 +136,18 @@ export function AddEditPhaseDialog({
       setPhaseHours('')
     }
   }, [state])
+
+  // New phases only — prefill from the job's Pipedrive-synced Target Hours (minus whatever's
+  // already allocated to its other phases) so the common single-phase job needs no re-typing.
+  // Only kicks in while the field is untouched, so it never clobbers a manual edit.
+  useEffect(() => {
+    if (!state.open || isEdit || phaseHours !== '') return
+    const job = jobs.find((j) => j.id === jobId)
+    if (!job) return
+    const remaining = job.targetHours - da.getJobPhaseHoursTotal(job.id)
+    if (remaining > 0) setPhaseHours(String(remaining))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId, state.open, isEdit])
 
   const job = jobs.find((j) => j.id === jobId)
   const previewValue = job ? phaseValue(job.totalValue, Number(phaseHours) || 0, job.targetHours) : 0
@@ -154,6 +171,20 @@ export function AddEditPhaseDialog({
     }
   }
 
+  async function handleDelete() {
+    if (!state.block) return
+    setDeleting(true)
+    setError(null)
+    try {
+      await deleteScheduleBlock(state.block.id)
+      onOpenChange(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete phase')
+      setDeleting(false)
+      setConfirmingDelete(false)
+    }
+  }
+
   return (
     <Dialog open={state.open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -163,7 +194,14 @@ export function AddEditPhaseDialog({
         <div className="min-h-0 space-y-3 overflow-y-auto pr-1">
           <div className="space-y-1.5">
             <Label>Job</Label>
-            <JobPicker jobs={jobs} clients={clients} value={jobId} onChange={setJobId} />
+            {lockedJobId ? (
+              <p className="flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+                <MapPin className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                {job ? jobDisplayName(job) : 'Unknown job'}
+              </p>
+            ) : (
+              <JobPicker jobs={jobs} clients={clients} value={jobId} onChange={setJobId} />
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
@@ -227,12 +265,33 @@ export function AddEditPhaseDialog({
           </p>
           {error && <p className="text-sm text-danger">{error}</p>}
         </div>
-        <DialogFooter>
-          <Button variant="secondary" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleSave} disabled={!canSave || saving}>
-            {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Add phase'}
-          </Button>
-        </DialogFooter>
+        {confirmingDelete ? (
+          <div className="flex items-center justify-between gap-3 rounded-md border border-danger/30 bg-danger-bg px-3 py-2.5">
+            <span className="text-xs text-danger">Delete this phase? This can't be undone.</span>
+            <div className="flex gap-2">
+              <Button size="sm" variant="secondary" onClick={() => setConfirmingDelete(false)} disabled={deleting}>Cancel</Button>
+              <Button size="sm" variant="destructive" onClick={handleDelete} disabled={deleting}>
+                {deleting ? 'Deleting…' : 'Delete'}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <DialogFooter>
+            {isEdit && (
+              <Button
+                variant="ghost"
+                className="mr-auto text-danger hover:bg-danger-bg hover:text-danger"
+                onClick={() => setConfirmingDelete(true)}
+              >
+                <Trash2 /> Delete phase
+              </Button>
+            )}
+            <Button variant="secondary" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button onClick={handleSave} disabled={!canSave || saving}>
+              {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Add phase'}
+            </Button>
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   )
