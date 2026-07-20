@@ -23,7 +23,7 @@ import {
   weekEnd,
   weekStart,
 } from '@/lib/schedule'
-import { History, Pencil, Settings, TriangleAlert } from 'lucide-react'
+import { History, MapPin, Pencil, Settings, TriangleAlert } from 'lucide-react'
 import type { JobProgress } from '@/lib/dataAccess'
 import type { Job, Team } from '@/types'
 
@@ -70,10 +70,13 @@ function JobProgressCard({ job, progress, teams, canManage }: { job: Job; progre
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 space-y-1">
           <div className="flex items-center gap-1.5 text-sm font-medium">
-            {client && <ClientTypeIcon type={client.type} />}
-            <span className="truncate">{client?.name ?? 'Unknown client'}</span>
+            <MapPin className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span className="truncate">{jobDisplayName(job)}</span>
           </div>
-          <p className="truncate text-xs text-muted-foreground">{jobDisplayName(job)}</p>
+          <p className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+            {client && <ClientTypeIcon type={client.type} />}
+            {client?.name ?? 'Unknown client'}
+          </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-1.5">
           <CategoryPill category={job.category} />

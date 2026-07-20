@@ -14,6 +14,7 @@ import { AddEditPhaseDialog, type PhaseDialogState } from '@/components/AddEditP
 import { StatusPill } from '@/components/StatusBadges'
 import { TeamColorDot } from '@/components/TeamColorDot'
 import { formatCurrency, phaseValue } from '@/lib/formulas'
+import { jobDisplayName } from '@/lib/jobDisplay'
 import { WORK_AREA_STYLES } from '@/lib/workAreaStyles'
 import {
   ArrowLeft,
@@ -21,6 +22,7 @@ import {
   CalendarRange,
   CheckCircle2,
   Clock,
+  MapPin,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -86,8 +88,11 @@ export function JobPhaseScheduling() {
       <Card className="gap-3 p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-base font-medium">{client?.name ?? 'Unknown client'}</p>
-            <p className="text-sm text-muted-foreground">{job.address}</p>
+            <p className="flex items-center gap-1.5 text-base font-medium">
+              <MapPin className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              {jobDisplayName(job)}
+            </p>
+            <p className="text-sm text-muted-foreground">{client?.name ?? 'Unknown client'}</p>
           </div>
           <span className="rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">{job.category}</span>
         </div>

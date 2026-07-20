@@ -177,8 +177,8 @@ export function JobsList() {
         <Table>
           <TableHeader>
             <TableRow>
-              <SortableHead label="Client" sortKey="clientName" sort={sort} onSort={toggleSort} />
               <SortableHead label="Job" sortKey="jobName" sort={sort} onSort={toggleSort} />
+              <SortableHead label="Client" sortKey="clientName" sort={sort} onSort={toggleSort} />
               <SortableHead label="Category" sortKey="category" sort={sort} onSort={toggleSort} />
               <SortableHead label="Pipeline stage" sortKey="pipelineStage" sort={sort} onSort={toggleSort} />
               <SortableHead label="Total value" sortKey="totalValue" sort={sort} onSort={toggleSort} />
@@ -206,14 +206,14 @@ export function JobsList() {
                 >
                   <TableCell className="font-medium">
                     <span className="flex items-center gap-1.5">
-                      <ClientTypeIcon type={clients.find((c) => c.id === job.clientId)?.type ?? 'Individual'} />
-                      {row.clientName || '—'}
+                      <MapPin className="size-3.5 shrink-0" aria-hidden="true" />
+                      {row.jobName}
                     </span>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     <span className="flex items-center gap-1.5">
-                      <MapPin className="size-3.5 shrink-0" aria-hidden="true" />
-                      {row.jobName}
+                      <ClientTypeIcon type={clients.find((c) => c.id === job.clientId)?.type ?? 'Individual'} />
+                      {row.clientName || '—'}
                     </span>
                   </TableCell>
                   <TableCell>
