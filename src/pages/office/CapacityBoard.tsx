@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { useData } from '@/context/DataContext'
 import { useCurrentUser } from '@/context/AuthContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
-import { canManageTargets } from '@/lib/permissions'
+import { canManageTargets, isOfficeRole } from '@/lib/permissions'
 import { PIPEDRIVE_TARGET_STAGE_IDS } from '@/lib/pipedriveStages'
 import { jobDisplayName } from '@/lib/jobDisplay'
 import { Card } from '@/components/ui/card'
@@ -28,7 +28,19 @@ import { History, MapPin, Pencil, Settings, TriangleAlert } from 'lucide-react'
 import type { JobProgress } from '@/lib/dataAccess'
 import type { Job, Team } from '@/types'
 
-function JobProgressCard({ job, progress, teams, canManage }: { job: Job; progress: JobProgress; teams: Team[]; canManage: boolean }) {
+function JobProgressCard({
+  job,
+  progress,
+  teams,
+  canEditProgress,
+}: {
+  job: Job
+  progress: JobProgress
+  teams: Team[]
+  /** Any office/admin role can log what's actually done — this isn't gated to Owner/Ops Manager
+   * like Configure Targets, since it's someone checking the job and typing what they found. */
+  canEditProgress: boolean
+}) {
   const { clients, updateJobActualHours, updateJobProduction } = useData()
   const client = clients.find((c) => c.id === job.clientId)
   const [editing, setEditing] = useState(false)
@@ -165,7 +177,7 @@ function JobProgressCard({ job, progress, teams, canManage }: { job: Job; progre
                 <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                   {job.productionPercentSource === 'manual' ? 'Manual' : 'Computed'}
                 </span>
-                {canManage && (
+                {canEditProgress && (
                   <button onClick={openEditProduction} aria-label="Edit production percent">
                     <Pencil className="size-3.5 text-muted-foreground hover:text-foreground" />
                   </button>
@@ -223,7 +235,7 @@ function JobProgressCard({ job, progress, teams, canManage }: { job: Job; progre
                 <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                   {job.actualHoursSource === 'manual' ? 'Manual' : 'Logged'}
                 </span>
-                {canManage && (
+                {canEditProgress && (
                   <button onClick={openEdit} aria-label="Edit actual hours">
                     <Pencil className="size-3.5 text-muted-foreground hover:text-foreground" />
                   </button>
@@ -281,6 +293,7 @@ export function CapacityBoard() {
   const actualTotal = jobRows.reduce((sum, { progress }) => sum + progress.actualDollars, 0)
 
   const canManage = canManageTargets(currentUser.role)
+  const canEditProgress = isOfficeRole(currentUser.role)
 
   return (
     <div className="space-y-8">
@@ -345,7 +358,7 @@ export function CapacityBoard() {
             </p>
           )}
           {jobRows.map(({ job, progress, teams: jobTeams }) => (
-            <JobProgressCard key={job.id} job={job} progress={progress} teams={jobTeams} canManage={canManage} />
+            <JobProgressCard key={job.id} job={job} progress={progress} teams={jobTeams} canEditProgress={canEditProgress} />
           ))}
         </div>
       </section>
