@@ -33,6 +33,7 @@ function JobProgressCard({ job, progress, teams, canManage }: { job: Job; progre
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState('')
   const [saving, setSaving] = useState(false)
+  const hoursPercent = progress.targetHours > 0 ? (progress.actualHours / progress.targetHours) * 100 : progress.actualHours > 0 ? 100 : 0
 
   function openEdit() {
     setValue(String(Math.round(progress.actualHours)))
@@ -69,10 +70,10 @@ function JobProgressCard({ job, progress, teams, canManage }: { job: Job; progre
     <Card className="gap-3 p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 space-y-1">
-          <div className="flex items-center gap-1.5 text-sm font-medium">
+          <Link to={`/jobs/${job.id}`} className="flex items-center gap-1.5 text-sm font-medium hover:underline">
             <MapPin className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
             <span className="truncate">{jobDisplayName(job)}</span>
-          </div>
+          </Link>
           <p className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
             {client && <ClientTypeIcon type={client.type} />}
             {client?.name ?? 'Unknown client'}
@@ -129,21 +130,34 @@ function JobProgressCard({ job, progress, teams, canManage }: { job: Job; progre
             )}
           </div>
         ) : (
-          <div className="flex items-center justify-between">
-            <span className={`text-sm font-medium ${progress.isOverBudget ? 'text-danger' : 'text-foreground'}`}>
-              {Math.round(progress.actualHours)} / {progress.targetHours} hrs
-            </span>
-            <div className="flex items-center gap-1.5">
-              <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                {job.actualHoursSource === 'manual' ? 'Manual' : 'Logged'}
+          <>
+            <div className="flex items-center gap-3">
+              <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className={`h-full ${progress.isOverBudget ? 'bg-danger-fill' : 'bg-info-fill'}`}
+                  style={{ width: `${Math.min(100, Math.max(0, hoursPercent))}%` }}
+                />
+              </div>
+              <span className={`w-12 shrink-0 text-right text-sm font-medium ${progress.isOverBudget ? 'text-danger' : ''}`}>
+                {Math.round(hoursPercent)}%
               </span>
-              {canManage && (
-                <button onClick={openEdit} aria-label="Edit actual hours">
-                  <Pencil className="size-3.5 text-muted-foreground hover:text-foreground" />
-                </button>
-              )}
             </div>
-          </div>
+            <div className="flex items-center justify-between">
+              <span className={`text-sm font-medium ${progress.isOverBudget ? 'text-danger' : 'text-foreground'}`}>
+                {Math.round(progress.actualHours)} / {progress.targetHours} hrs
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                  {job.actualHoursSource === 'manual' ? 'Manual' : 'Logged'}
+                </span>
+                {canManage && (
+                  <button onClick={openEdit} aria-label="Edit actual hours">
+                    <Pencil className="size-3.5 text-muted-foreground hover:text-foreground" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </>
         )}
       </div>
     </Card>
