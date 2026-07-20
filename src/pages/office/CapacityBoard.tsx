@@ -10,6 +10,7 @@ import { jobDisplayName } from '@/lib/jobDisplay'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Slider } from '@/components/ui/slider'
 import { CategoryPill } from '@/components/StatusBadges'
 import { ClientTypeIcon } from '@/components/ClientTypeIcon'
 import { TeamColorDot } from '@/components/TeamColorDot'
@@ -34,7 +35,7 @@ function JobProgressCard({ job, progress, teams, canManage }: { job: Job; progre
   const [value, setValue] = useState('')
   const [saving, setSaving] = useState(false)
   const [editingProduction, setEditingProduction] = useState(false)
-  const [productionValue, setProductionValue] = useState('')
+  const [productionValue, setProductionValue] = useState(0)
   const [savingProduction, setSavingProduction] = useState(false)
   const hoursPercent = progress.targetHours > 0 ? (progress.actualHours / progress.targetHours) * 100 : progress.actualHours > 0 ? 100 : 0
 
@@ -70,14 +71,14 @@ function JobProgressCard({ job, progress, teams, canManage }: { job: Job; progre
   }
 
   function openEditProduction() {
-    setProductionValue(String(Math.round(progress.productionPercent)))
+    setProductionValue(Math.round(Math.min(100, Math.max(0, progress.productionPercent))))
     setEditingProduction(true)
   }
 
   async function handleSaveProduction() {
     setSavingProduction(true)
     try {
-      await updateJobProduction(job.id, Number(productionValue) || 0)
+      await updateJobProduction(job.id, productionValue)
       toast.success('Production % updated')
       setEditingProduction(false)
     } catch (e) {
@@ -128,20 +129,25 @@ function JobProgressCard({ job, progress, teams, canManage }: { job: Job; progre
         <p className="text-xs font-medium text-muted-foreground">Production</p>
 
         {editingProduction ? (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Input
-              type="number"
-              value={productionValue}
-              onChange={(e) => setProductionValue(e.target.value)}
-              className="h-7 w-20"
-              autoFocus
-            />
-            <span className="text-xs text-muted-foreground">%</span>
-            <Button size="sm" className="h-7" onClick={handleSaveProduction} disabled={savingProduction}>Save</Button>
-            <Button size="sm" variant="ghost" className="h-7" onClick={() => setEditingProduction(false)} disabled={savingProduction}>Cancel</Button>
-            {job.productionPercentSource === 'manual' && (
-              <Button size="sm" variant="outline" className="h-7" onClick={handleResyncProduction} disabled={savingProduction}>Resync</Button>
-            )}
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <Slider
+                value={[productionValue]}
+                min={0}
+                max={100}
+                step={1}
+                onValueChange={(v) => setProductionValue(Array.isArray(v) ? v[0] : v)}
+                className="flex-1"
+              />
+              <span className="w-12 shrink-0 text-right text-sm font-medium">{productionValue}%</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Button size="sm" className="h-7" onClick={handleSaveProduction} disabled={savingProduction}>Save</Button>
+              <Button size="sm" variant="ghost" className="h-7" onClick={() => setEditingProduction(false)} disabled={savingProduction}>Cancel</Button>
+              {job.productionPercentSource === 'manual' && (
+                <Button size="sm" variant="outline" className="h-7" onClick={handleResyncProduction} disabled={savingProduction}>Resync</Button>
+              )}
+            </div>
           </div>
         ) : (
           <>
