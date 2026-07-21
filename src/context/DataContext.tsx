@@ -46,6 +46,15 @@ interface DataContextValue extends DataState {
   addContractor: (contractor: Omit<Contractor, 'id'>) => Promise<Contractor>
   updateContractor: (id: string, patch: Partial<Contractor>) => Promise<void>
   deleteContractor: (id: string) => Promise<void>
+  addClient: (client: Omit<Client, 'id'>) => Promise<Client>
+  /** Manually add a job outside the Pipedrive sync — gets a synthetic `MANUAL-<uuid>`
+   * pipedriveDealId (real deal ids are always numeric strings) so it satisfies the same
+   * not-null/unique column the sync relies on without colliding with a real deal. */
+  addJob: (job: Omit<Job, 'id' | 'pipedriveDealId' | 'actualHoursSource' | 'productionPercentSource'>) => Promise<Job>
+  updateJob: (id: string, patch: Partial<Job>) => Promise<void>
+  /** Deletes the job and, via ON DELETE CASCADE, every schedule block/hours entry logged against
+   * it — the caller is responsible for warning the user about that before calling this. */
+  deleteJob: (id: string) => Promise<void>
   addCredential: (credential: Omit<Credential, 'id'>) => Promise<Credential>
   updateCredential: (id: string, patch: Partial<Credential>) => Promise<void>
   deleteCredential: (id: string) => Promise<void>
@@ -226,6 +235,44 @@ export function DataProvider({ children }: { children: ReactNode }) {
         const { error } = await supabase.from('contractors').delete().eq('id', id)
         if (error) throw new Error(error.message)
         setState((prev) => ({ ...prev, contractors: prev.contractors.filter((c) => c.id !== id) }))
+      },
+
+      addClient: async (client) => {
+        const { data, error } = await supabase.from('clients').insert(m.clientToRow(client)).select().single()
+        if (error) throw new Error(error.message)
+        const created = m.mapClient(data)
+        setState((prev) => ({ ...prev, clients: [...prev.clients, created] }))
+        return created
+      },
+      addJob: async (job) => {
+        const full: Omit<Job, 'id'> = {
+          ...job,
+          pipedriveDealId: `MANUAL-${crypto.randomUUID()}`,
+          actualHoursSource: 'computed',
+          productionPercentSource: 'computed',
+        }
+        const { data, error } = await supabase.from('jobs').insert(m.jobToRow(full)).select().single()
+        if (error) throw new Error(error.message)
+        const created = m.mapJob(data)
+        setState((prev) => ({ ...prev, jobs: [...prev.jobs, created] }))
+        return created
+      },
+      updateJob: async (id, patch) => {
+        const current = state.jobs.find((j) => j.id === id)
+        if (!current) throw new Error('Job not found')
+        const merged = { ...current, ...patch }
+        const { error } = await supabase.from('jobs').update(m.jobToRow(merged)).eq('id', id)
+        if (error) throw new Error(error.message)
+        setState((prev) => ({ ...prev, jobs: prev.jobs.map((j) => (j.id === id ? merged : j)) }))
+      },
+      deleteJob: async (id) => {
+        const { error } = await supabase.from('jobs').delete().eq('id', id)
+        if (error) throw new Error(error.message)
+        setState((prev) => ({
+          ...prev,
+          jobs: prev.jobs.filter((j) => j.id !== id),
+          scheduleBlocks: prev.scheduleBlocks.filter((b) => b.jobId !== id),
+        }))
       },
 
       addCredential: async (credential) => {

@@ -204,6 +204,23 @@ export function mapJob(r: any): Job {
     productionPercentSource: r.production_percent_source ?? 'computed',
   }
 }
+export function jobToRow(j: Omit<Job, 'id'>) {
+  return {
+    pipedrive_deal_id: j.pipedriveDealId,
+    client_id: j.clientId,
+    address: j.address,
+    category: j.category,
+    total_value: j.totalValue,
+    target_hours: j.targetHours,
+    date_won: j.dateWon,
+    pipedrive_stage_id: j.pipedriveStageId ?? null,
+    pipedrive_deal_title: j.pipedriveDealTitle ?? null,
+    actual_hours_override: j.actualHoursOverride ?? null,
+    actual_hours_source: j.actualHoursSource,
+    production_percent_override: j.productionPercentOverride ?? null,
+    production_percent_source: j.productionPercentSource,
+  }
+}
 
 export function mapScheduleBlock(r: any): ScheduleBlock {
   return {

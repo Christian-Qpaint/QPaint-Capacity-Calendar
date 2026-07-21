@@ -5,6 +5,7 @@ import { useDataAccess } from '@/hooks/useDataAccess'
 import { supabase } from '@/lib/supabaseClient'
 import { isSchedulableStage, stageLabel } from '@/lib/pipedriveStages'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -12,6 +13,7 @@ import { StatusPill, CategoryPill, JOB_ROW_STATUS_STYLES } from '@/components/St
 import { ClientTypeIcon } from '@/components/ClientTypeIcon'
 import { JobsAdvancedFilterDialog } from '@/components/JobsAdvancedFilterDialog'
 import { AddEditPhaseDialog, type PhaseDialogState } from '@/components/AddEditPhaseDialog'
+import { JobFormDialog, type JobFormState } from '@/components/JobFormDialog'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -32,18 +34,23 @@ import {
   ArrowUpDown,
   ChevronLeft,
   ChevronRight,
+  Columns3,
   Lock,
   ListFilter,
   MapPin,
+  Pencil,
   Plus,
   RefreshCw,
+  Rows3,
   Search,
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import type { ClientType } from '@/types'
 
 const PAGE_SIZE_OPTIONS = [10, 50, 100] as const
 type PageSize = (typeof PAGE_SIZE_OPTIONS)[number] | 'all'
+type ViewMode = 'table' | 'kanban'
 
 function deriveJobStatus(phaseStatuses: string[]): string {
   if (phaseStatuses.length === 0) return 'Unscheduled'
@@ -82,6 +89,79 @@ function SortableHead({
   )
 }
 
+function JobKanbanCard({
+  row,
+  clientType,
+  onNavigate,
+  onAddPhase,
+  onEdit,
+}: {
+  row: JobFilterContext
+  clientType: ClientType
+  onNavigate: () => void
+  onAddPhase: () => void
+  onEdit: () => void
+}) {
+  const { job, status, allocatedHours } = row
+  const schedulable = isSchedulableStage(job.pipedriveStageId)
+  const lockReason = `"${stageLabel(job.pipedriveStageId)}" isn't a schedulable stage — only Ready to Schedule, Booked, and In Progress jobs can be added to the Calendar.`
+  return (
+    <Card
+      className={cn('cursor-pointer gap-2 p-3 transition hover:shadow-md', !schedulable && 'opacity-70 grayscale-[35%]')}
+      onClick={onNavigate}
+      title={schedulable ? undefined : lockReason}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
+          <MapPin className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="truncate">{row.jobName}</span>
+        </span>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="size-6"
+            aria-label={`Edit ${row.jobName}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              onEdit()
+            }}
+          >
+            <Pencil className="size-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className={cn('size-6', schedulable ? undefined : 'cursor-not-allowed')}
+            aria-label={schedulable ? `Add phase for ${row.jobName}` : `Can't add a phase — ${lockReason}`}
+            title={schedulable ? undefined : lockReason}
+            disabled={!schedulable}
+            onClick={(e) => {
+              e.stopPropagation()
+              if (!schedulable) return
+              onAddPhase()
+            }}
+          >
+            {schedulable ? <Plus className="size-3.5" /> : <Lock className="size-3.5" />}
+          </Button>
+        </div>
+      </div>
+      <p className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+        <ClientTypeIcon type={clientType} />
+        {row.clientName || '—'}
+      </p>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <CategoryPill category={job.category} />
+        <StatusPill status={status} />
+      </div>
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">{formatCurrency(job.totalValue)}</span>
+        <span>{allocatedHours} / {job.targetHours} hrs</span>
+      </div>
+    </Card>
+  )
+}
+
 export function JobsList() {
   const { jobs, clients, scheduleBlocks, refetch } = useData()
   const da = useDataAccess()
@@ -101,6 +181,8 @@ export function JobsList() {
   const [showUnavailable, setShowUnavailable] = useState(true)
   const [pageSize, setPageSize] = useState<PageSize>(10)
   const [page, setPage] = useState(1)
+  const [viewMode, setViewMode] = useState<ViewMode>('table')
+  const [jobFormState, setJobFormState] = useState<JobFormState>({ open: false, job: null })
 
   // Every synced job shows up here now, not just the 3 schedulable stages — jobs outside those
   // (Quoting, Admin, Done, whatever else the pipeline has) still render, just visually disabled,
@@ -143,6 +225,24 @@ export function JobsList() {
     [sorted, showUnavailable],
   )
 
+  // Kanban groups the same filtered/searched/sorted set the table uses — just re-bucketed by
+  // stage instead of paginated, so both views always agree on which jobs are in scope.
+  const kanbanColumns = useMemo(() => {
+    const byStage = new Map<number, JobFilterContext[]>()
+    for (const row of displayed) {
+      const id = row.job.pipedriveStageId ?? -1
+      if (!byStage.has(id)) byStage.set(id, [])
+      byStage.get(id)!.push(row)
+    }
+    return Array.from(byStage.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([stageId, columnRows]) => ({
+        stageId,
+        rows: columnRows,
+        totalValue: columnRows.reduce((sum, r) => sum + r.job.totalValue, 0),
+      }))
+  }, [displayed])
+
   const totalPages = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(displayed.length / pageSize))
   const safePage = Math.min(page, totalPages)
   const paginated = useMemo(
@@ -180,12 +280,25 @@ export function JobsList() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-medium">Jobs List</h1>
-        <Button size="sm" variant="outline" onClick={handleSync} disabled={syncing}>
-          <RefreshCw className={syncing ? 'animate-spin' : ''} />
-          {syncing ? 'Syncing…' : 'Sync from Pipedrive'}
-        </Button>
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1.5 rounded-md border border-border bg-card p-1">
+            <Button size="sm" variant={viewMode === 'table' ? 'secondary' : 'ghost'} onClick={() => setViewMode('table')}>
+              <Rows3 /> Table
+            </Button>
+            <Button size="sm" variant={viewMode === 'kanban' ? 'secondary' : 'ghost'} onClick={() => setViewMode('kanban')}>
+              <Columns3 /> Kanban
+            </Button>
+          </div>
+          <Button size="sm" variant="outline" onClick={handleSync} disabled={syncing}>
+            <RefreshCw className={syncing ? 'animate-spin' : ''} />
+            {syncing ? 'Syncing…' : 'Sync from Pipedrive'}
+          </Button>
+          <Button size="sm" onClick={() => setJobFormState({ open: true, job: null })}>
+            <Plus /> New job
+          </Button>
+        </div>
       </div>
 
       {syncMessage && <p className="text-sm text-success">{syncMessage}</p>}
@@ -236,6 +349,7 @@ export function JobsList() {
         </div>
       </div>
 
+      {viewMode === 'table' && (
       <div className="overflow-hidden rounded-lg border border-border bg-card">
         <Table>
           <TableHeader>
@@ -247,7 +361,7 @@ export function JobsList() {
               <SortableHead label="Total value" sortKey="totalValue" sort={sort} onSort={toggleSort} />
               <SortableHead label="Target hours" sortKey="targetHours" sort={sort} onSort={toggleSort} />
               <SortableHead label="Status" sortKey="status" sort={sort} onSort={toggleSort} />
-              <TableHead className="w-10" />
+              <TableHead className="w-20" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -304,22 +418,35 @@ export function JobsList() {
                     <StatusPill status={status} />
                   </TableCell>
                   <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={schedulable ? `Add phase for ${row.jobName}` : `Can't add a phase — ${lockReason}`}
-                      title={schedulable ? undefined : lockReason}
-                      disabled={!schedulable}
-                      className={schedulable ? undefined : 'cursor-not-allowed'}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        if (!schedulable) return
-                        setPhaseDialogJobId(job.id)
-                        setPhaseDialogState({ open: true, block: null })
-                      }}
-                    >
-                      {schedulable ? <Plus /> : <Lock />}
-                    </Button>
+                    <div className="flex items-center gap-0.5">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Edit ${row.jobName}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setJobFormState({ open: true, job })
+                        }}
+                      >
+                        <Pencil />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={schedulable ? `Add phase for ${row.jobName}` : `Can't add a phase — ${lockReason}`}
+                        title={schedulable ? undefined : lockReason}
+                        disabled={!schedulable}
+                        className={schedulable ? undefined : 'cursor-not-allowed'}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (!schedulable) return
+                          setPhaseDialogJobId(job.id)
+                          setPhaseDialogState({ open: true, block: null })
+                        }}
+                      >
+                        {schedulable ? <Plus /> : <Lock />}
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               )
@@ -327,7 +454,9 @@ export function JobsList() {
           </TableBody>
         </Table>
       </div>
+      )}
 
+      {viewMode === 'table' && (
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span>Rows per page</span>
@@ -378,6 +507,48 @@ export function JobsList() {
           </div>
         )}
       </div>
+      )}
+
+      {viewMode === 'kanban' && (
+        <div className="flex gap-3 overflow-x-auto pb-2">
+          {kanbanColumns.length === 0 && (
+            <p className="rounded-md border border-dashed border-border py-8 text-center text-sm text-muted-foreground w-full">
+              {visibleJobs.length === 0 ? 'No jobs synced yet — try syncing from Pipedrive.' : 'No jobs match your search / filter.'}
+            </p>
+          )}
+          {kanbanColumns.map(({ stageId, rows: columnRows, totalValue }) => {
+            const schedulable = isSchedulableStage(stageId)
+            return (
+              <div key={stageId} className="flex w-72 shrink-0 flex-col rounded-lg border border-border bg-muted/30">
+                <div className="space-y-0.5 border-b border-border p-3">
+                  <p className="flex items-center gap-1.5 text-sm font-medium">
+                    {!schedulable && <Lock className="size-3.5 shrink-0 text-warning" aria-hidden="true" />}
+                    <span className="truncate">{stageLabel(stageId)}</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {columnRows.length} job{columnRows.length === 1 ? '' : 's'} · {formatCurrency(totalValue)}
+                  </p>
+                </div>
+                <div className="max-h-[65vh] space-y-2 overflow-y-auto p-2">
+                  {columnRows.map((row) => (
+                    <JobKanbanCard
+                      key={row.job.id}
+                      row={row}
+                      clientType={clients.find((c) => c.id === row.job.clientId)?.type ?? 'Individual'}
+                      onNavigate={() => navigate(`/jobs/${row.job.id}`)}
+                      onAddPhase={() => {
+                        setPhaseDialogJobId(row.job.id)
+                        setPhaseDialogState({ open: true, block: null })
+                      }}
+                      onEdit={() => setJobFormState({ open: true, job: row.job })}
+                    />
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       <JobsAdvancedFilterDialog
         open={filterOpen}
@@ -395,6 +566,8 @@ export function JobsList() {
         onOpenChange={(open) => setPhaseDialogState((s) => ({ ...s, open }))}
         lockedJobId={phaseDialogJobId ?? undefined}
       />
+
+      <JobFormDialog state={jobFormState} onOpenChange={(open) => setJobFormState((s) => ({ ...s, open }))} />
     </div>
   )
 }
