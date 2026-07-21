@@ -19,6 +19,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
@@ -30,6 +31,8 @@ const CREDENTIAL_TYPES: CredentialType[] = [
   'Licence', 'Insurance', 'WorkCover', 'Public Liability', 'White Card', 'Blue Card', 'Police Check', 'WHS Induction', 'Driver Licence', 'Other',
 ]
 const JOB_TYPE_SCOPES: CredentialJobTypeScope[] = ['All', 'Residential', 'Government', 'Corporate', 'Commercial']
+const AU_STATES = ['QLD', 'NSW', 'VIC', 'ACT', 'SA', 'WA', 'TAS', 'NT']
+const YES_NO = ['Yes', 'No']
 
 function CrewMembers({ teamId, contractorId }: { teamId: string; contractorId: string }) {
   const { workers, teamMemberships, addTeamMembership, deleteTeamMembership } = useData()
@@ -111,6 +114,31 @@ export function ContractorDrawer({
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
+  // Business/compliance detail fields — optional, filled in from a fuller import or manual entry.
+  const [tradingName, setTradingName] = useState('')
+  const [abn, setAbn] = useState('')
+  const [acn, setAcn] = useState('')
+  const [gstRegistered, setGstRegistered] = useState(false)
+  const [licenceCategory, setLicenceCategory] = useState('')
+  const [address, setAddress] = useState('')
+  const [suburb, setSuburb] = useState('')
+  const [state, setContractorState] = useState('')
+  const [postcode, setPostcode] = useState('')
+  const [primaryContactName, setPrimaryContactName] = useState('')
+  const [primaryContactMobile, setPrimaryContactMobile] = useState('')
+  const [primaryContactEmail, setPrimaryContactEmail] = useState('')
+  const [preferredArea, setPreferredArea] = useState('')
+  const [afterHoursAvailable, setAfterHoursAvailable] = useState('')
+  const [ownEquipment, setOwnEquipment] = useState('')
+  const [ownTransport, setOwnTransport] = useState('')
+  const [yearsExperience, setYearsExperience] = useState('')
+  const [reference1Name, setReference1Name] = useState('')
+  const [reference1Phone, setReference1Phone] = useState('')
+  const [reference2Name, setReference2Name] = useState('')
+  const [reference2Phone, setReference2Phone] = useState('')
+  const [approved, setApproved] = useState('')
+  const [active, setActive] = useState('')
+
   const [newTeamName, setNewTeamName] = useState('')
   const [credType, setCredType] = useState<CredentialType>('Insurance')
   const [credNumber, setCredNumber] = useState('')
@@ -127,10 +155,56 @@ export function ContractorDrawer({
       setName(contractor.name)
       setNickname(contractor.nickname ?? '')
       setCapacity(String(contractor.reportedMonthlyCapacity))
+      setTradingName(contractor.tradingName ?? '')
+      setAbn(contractor.abn ?? '')
+      setAcn(contractor.acn ?? '')
+      setGstRegistered(contractor.gstRegistered ?? false)
+      setLicenceCategory(contractor.licenceCategory ?? '')
+      setAddress(contractor.address ?? '')
+      setSuburb(contractor.suburb ?? '')
+      setContractorState(contractor.state ?? '')
+      setPostcode(contractor.postcode ?? '')
+      setPrimaryContactName(contractor.primaryContactName ?? '')
+      setPrimaryContactMobile(contractor.primaryContactMobile ?? '')
+      setPrimaryContactEmail(contractor.primaryContactEmail ?? '')
+      setPreferredArea(contractor.preferredArea ?? '')
+      setAfterHoursAvailable(contractor.afterHoursAvailable ?? '')
+      setOwnEquipment(contractor.ownEquipment ?? '')
+      setOwnTransport(contractor.ownTransport ?? '')
+      setYearsExperience(contractor.yearsExperience != null ? String(contractor.yearsExperience) : '')
+      setReference1Name(contractor.reference1Name ?? '')
+      setReference1Phone(contractor.reference1Phone ?? '')
+      setReference2Name(contractor.reference2Name ?? '')
+      setReference2Phone(contractor.reference2Phone ?? '')
+      setApproved(contractor.approved ?? '')
+      setActive(contractor.active ?? '')
     } else {
       setName('')
       setNickname('')
       setCapacity('')
+      setTradingName('')
+      setAbn('')
+      setAcn('')
+      setGstRegistered(false)
+      setLicenceCategory('')
+      setAddress('')
+      setSuburb('')
+      setContractorState('')
+      setPostcode('')
+      setPrimaryContactName('')
+      setPrimaryContactMobile('')
+      setPrimaryContactEmail('')
+      setPreferredArea('')
+      setAfterHoursAvailable('')
+      setOwnEquipment('')
+      setOwnTransport('')
+      setYearsExperience('')
+      setReference1Name('')
+      setReference1Phone('')
+      setReference2Name('')
+      setReference2Phone('')
+      setApproved('')
+      setActive('')
     }
   }, [open, contractor?.id])
 
@@ -138,16 +212,47 @@ export function ContractorDrawer({
   const contractorCredentials = contractor ? credentials.filter((c) => c.contractorId === contractor.id) : []
   const compliance = contractor ? da.getContractorCompliance(contractor.id) : null
 
+  function buildPayload() {
+    return {
+      name,
+      nickname: nickname || undefined,
+      reportedMonthlyCapacity: Number(capacity),
+      tradingName: tradingName || undefined,
+      abn: abn || undefined,
+      acn: acn || undefined,
+      gstRegistered,
+      licenceCategory: licenceCategory || undefined,
+      address: address || undefined,
+      suburb: suburb || undefined,
+      state: state || undefined,
+      postcode: postcode || undefined,
+      primaryContactName: primaryContactName || undefined,
+      primaryContactMobile: primaryContactMobile || undefined,
+      primaryContactEmail: primaryContactEmail || undefined,
+      preferredArea: preferredArea || undefined,
+      afterHoursAvailable: afterHoursAvailable || undefined,
+      ownEquipment: ownEquipment || undefined,
+      ownTransport: ownTransport || undefined,
+      yearsExperience: yearsExperience ? Number(yearsExperience) : undefined,
+      reference1Name: reference1Name || undefined,
+      reference1Phone: reference1Phone || undefined,
+      reference2Name: reference2Name || undefined,
+      reference2Phone: reference2Phone || undefined,
+      approved: approved || undefined,
+      active: active || undefined,
+    }
+  }
+
   async function handleSave() {
     if (!name || !capacity) return
     setSaving(true)
     setError(null)
     try {
       if (isEdit && contractor) {
-        await updateContractor(contractor.id, { name, nickname: nickname || undefined, reportedMonthlyCapacity: Number(capacity) })
+        await updateContractor(contractor.id, buildPayload())
         toast.success('Contractor updated')
       } else {
-        await addContractor({ name, nickname: nickname || undefined, reportedMonthlyCapacity: Number(capacity) })
+        await addContractor(buildPayload())
         toast.success('Contractor added')
       }
       onOpenChange(false)
@@ -248,16 +353,166 @@ export function ContractorDrawer({
             </p>
           </div>
 
-          {isEdit && contractor && (contractor.abn || contractor.address || contractor.primaryContactName) && (
-            <div className="space-y-1 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">
-              {contractor.abn && <p>ABN {contractor.abn}{contractor.acn ? ` · ACN ${contractor.acn}` : ''}</p>}
-              {contractor.address && <p>{contractor.address}, {contractor.suburb} {contractor.state} {contractor.postcode}</p>}
-              {contractor.primaryContactName && <p>{contractor.primaryContactName} · {contractor.primaryContactMobile} · {contractor.primaryContactEmail}</p>}
-              {contractor.licenceCategory && <p>Licence category: {contractor.licenceCategory}</p>}
-              {contractor.yearsExperience != null && <p>{contractor.yearsExperience} years experience</p>}
-              {(contractor.approved || contractor.active) && <p>Approved: {contractor.approved ?? '—'} · Active: {contractor.active ?? '—'}</p>}
+          <Separator />
+          <div className="space-y-3">
+            <p className="text-sm font-medium">Business details</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2 space-y-1.5">
+                <Label>Trading name</Label>
+                <Input value={tradingName} onChange={(e) => setTradingName(e.target.value)} placeholder="Optional — if different from legal name" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>ABN</Label>
+                <Input value={abn} onChange={(e) => setAbn(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>ACN</Label>
+                <Input value={acn} onChange={(e) => setAcn(e.target.value)} />
+              </div>
+              <div className="col-span-2 flex items-center gap-2 pt-1">
+                <Checkbox id="gst-registered" checked={gstRegistered} onCheckedChange={(v) => setGstRegistered(!!v)} />
+                <Label htmlFor="gst-registered" className="font-normal">GST registered</Label>
+              </div>
+              <div className="col-span-2 space-y-1.5">
+                <Label>Licence category</Label>
+                <Input value={licenceCategory} onChange={(e) => setLicenceCategory(e.target.value)} placeholder="Painter / Builder / Carpenter" />
+              </div>
             </div>
-          )}
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-sm font-medium">Address</p>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label>Street address</Label>
+                <Input value={address} onChange={(e) => setAddress(e.target.value)} />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Suburb</Label>
+                  <Input value={suburb} onChange={(e) => setSuburb(e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>State</Label>
+                  <Select value={state} onValueChange={(v) => setContractorState(v ?? '')}>
+                    <SelectTrigger className="w-full"><SelectValue placeholder="—" /></SelectTrigger>
+                    <SelectContent>
+                      {AU_STATES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Postcode</Label>
+                  <Input value={postcode} onChange={(e) => setPostcode(e.target.value)} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-sm font-medium">Primary contact</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2 space-y-1.5">
+                <Label>Name</Label>
+                <Input value={primaryContactName} onChange={(e) => setPrimaryContactName(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Mobile</Label>
+                <Input value={primaryContactMobile} onChange={(e) => setPrimaryContactMobile(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Email</Label>
+                <Input type="email" value={primaryContactEmail} onChange={(e) => setPrimaryContactEmail(e.target.value)} />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-sm font-medium">Work profile</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Preferred area</Label>
+                <Input value={preferredArea} onChange={(e) => setPreferredArea(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Years experience</Label>
+                <Input type="number" value={yearsExperience} onChange={(e) => setYearsExperience(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>After hours available</Label>
+                <Select value={afterHoursAvailable} onValueChange={(v) => setAfterHoursAvailable(v ?? '')}>
+                  <SelectTrigger className="w-full"><SelectValue placeholder="—" /></SelectTrigger>
+                  <SelectContent>
+                    {YES_NO.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Own equipment</Label>
+                <Select value={ownEquipment} onValueChange={(v) => setOwnEquipment(v ?? '')}>
+                  <SelectTrigger className="w-full"><SelectValue placeholder="—" /></SelectTrigger>
+                  <SelectContent>
+                    {YES_NO.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Own transport</Label>
+                <Select value={ownTransport} onValueChange={(v) => setOwnTransport(v ?? '')}>
+                  <SelectTrigger className="w-full"><SelectValue placeholder="—" /></SelectTrigger>
+                  <SelectContent>
+                    {YES_NO.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-sm font-medium">References</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Reference 1 name</Label>
+                <Input value={reference1Name} onChange={(e) => setReference1Name(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Reference 1 phone</Label>
+                <Input value={reference1Phone} onChange={(e) => setReference1Phone(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Reference 2 name</Label>
+                <Input value={reference2Name} onChange={(e) => setReference2Name(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Reference 2 phone</Label>
+                <Input value={reference2Phone} onChange={(e) => setReference2Phone(e.target.value)} />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-sm font-medium">Status</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Approved</Label>
+                <Select value={approved} onValueChange={(v) => setApproved(v ?? '')}>
+                  <SelectTrigger className="w-full"><SelectValue placeholder="—" /></SelectTrigger>
+                  <SelectContent>
+                    {YES_NO.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Active</Label>
+                <Select value={active} onValueChange={(v) => setActive(v ?? '')}>
+                  <SelectTrigger className="w-full"><SelectValue placeholder="—" /></SelectTrigger>
+                  <SelectContent>
+                    {YES_NO.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
 
           {error && <p className="text-sm text-danger">{error}</p>}
 
