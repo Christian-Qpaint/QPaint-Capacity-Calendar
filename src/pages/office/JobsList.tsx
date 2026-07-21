@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useData } from '@/context/DataContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
 import { supabase } from '@/lib/supabaseClient'
-import { PIPEDRIVE_STAGE_LABELS, PIPEDRIVE_TARGET_STAGE_IDS } from '@/lib/pipedriveStages'
+import { isSchedulableStage, stageLabel } from '@/lib/pipedriveStages'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,7 +23,7 @@ import {
 } from '@/lib/jobFilters'
 import { formatCurrency } from '@/lib/formulas'
 import { jobDisplayName } from '@/lib/jobDisplay'
-import { ArrowDown, ArrowUp, ArrowUpDown, ListFilter, MapPin, Plus, RefreshCw, Search, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpDown, Lock, ListFilter, MapPin, Plus, RefreshCw, Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 function deriveJobStatus(phaseStatuses: string[]): string {
@@ -80,7 +80,10 @@ export function JobsList() {
   const [phaseDialogState, setPhaseDialogState] = useState<PhaseDialogState>({ open: false, block: null })
   const [phaseDialogJobId, setPhaseDialogJobId] = useState<string | null>(null)
 
-  const visibleJobs = jobs.filter((j) => j.pipedriveStageId != null && PIPEDRIVE_TARGET_STAGE_IDS.includes(j.pipedriveStageId))
+  // Every synced job shows up here now, not just the 3 schedulable stages — jobs outside those
+  // (Quoting, Admin, Done, whatever else the pipeline has) still render, just visually disabled,
+  // so a deal can never again be invisible/un-addable purely because of its Pipedrive stage.
+  const visibleJobs = jobs.filter((j) => j.pipedriveStageId != null)
 
   const rows: JobFilterContext[] = useMemo(
     () =>
@@ -107,7 +110,7 @@ export function JobsList() {
         r.jobName.toLowerCase().includes(q) ||
         r.job.category.toLowerCase().includes(q) ||
         r.status.toLowerCase().includes(q) ||
-        (r.job.pipedriveStageId ? PIPEDRIVE_STAGE_LABELS[r.job.pipedriveStageId].toLowerCase().includes(q) : false),
+        stageLabel(r.job.pipedriveStageId).toLowerCase().includes(q),
     )
   }, [rows, search])
 
@@ -195,18 +198,25 @@ export function JobsList() {
               <TableRow>
                 <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
                   {visibleJobs.length === 0
-                    ? 'No jobs in Ready to Schedule, Booked, or In Progress yet — try syncing from Pipedrive.'
+                    ? 'No jobs synced yet — try syncing from Pipedrive.'
                     : 'No jobs match your search / filter.'}
                 </TableCell>
               </TableRow>
             )}
             {displayed.map((row) => {
               const { job, status, allocatedHours } = row
+              const schedulable = isSchedulableStage(job.pipedriveStageId)
+              const stageText = stageLabel(job.pipedriveStageId)
+              const lockReason = `"${stageText}" isn't a schedulable stage — only Ready to Schedule, Booked, and In Progress jobs can be added to the Calendar.`
               return (
                 <TableRow
                   key={job.id}
-                  className={cn('cursor-pointer', JOB_ROW_STATUS_STYLES[status])}
+                  className={cn(
+                    'cursor-pointer',
+                    schedulable ? JOB_ROW_STATUS_STYLES[status] : 'opacity-60 grayscale-[35%] hover:opacity-80',
+                  )}
                   onClick={() => navigate(`/jobs/${job.id}`)}
+                  title={schedulable ? undefined : lockReason}
                 >
                   <TableCell className="font-medium">
                     <span className="flex items-center gap-1.5">
@@ -224,7 +234,10 @@ export function JobsList() {
                     <CategoryPill category={job.category} />
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {job.pipedriveStageId ? PIPEDRIVE_STAGE_LABELS[job.pipedriveStageId] : '—'}
+                    <span className="flex items-center gap-1.5">
+                      {!schedulable && <Lock className="size-3.5 shrink-0 text-warning" aria-hidden="true" />}
+                      {stageText}
+                    </span>
                   </TableCell>
                   <TableCell>{formatCurrency(job.totalValue)}</TableCell>
                   <TableCell>
@@ -237,14 +250,18 @@ export function JobsList() {
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      aria-label={`Add phase for ${row.jobName}`}
+                      aria-label={schedulable ? `Add phase for ${row.jobName}` : `Can't add a phase — ${lockReason}`}
+                      title={schedulable ? undefined : lockReason}
+                      disabled={!schedulable}
+                      className={schedulable ? undefined : 'cursor-not-allowed'}
                       onClick={(e) => {
                         e.stopPropagation()
+                        if (!schedulable) return
                         setPhaseDialogJobId(job.id)
                         setPhaseDialogState({ open: true, block: null })
                       }}
                     >
-                      <Plus />
+                      {schedulable ? <Plus /> : <Lock />}
                     </Button>
                   </TableCell>
                 </TableRow>
