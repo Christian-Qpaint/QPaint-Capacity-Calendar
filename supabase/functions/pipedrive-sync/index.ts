@@ -1,17 +1,21 @@
-// Pulls deals from the three requested Jobs Pipeline stages (Ready to Schedule, Booked, In
-// Progress) and upserts them into public.jobs — read-only against Pipedrive, per the locked spec
-// ("No write-back to Pipedrive, ever"). Uses the CALLING USER's own JWT (not a service-role key) so
-// the existing clients_write_office / jobs_write_office RLS policies are what actually gate who can
-// run a sync — consistent with every other write path in this app.
+// Pulls every deal from the whole Jobs Pipeline (all stages — Quoting through Admin/Done, whatever
+// exists) and upserts them into public.jobs — read-only against Pipedrive, per the locked spec ("No
+// write-back to Pipedrive, ever"). Uses the CALLING USER's own JWT (not a service-role key) so the
+// existing clients_write_office / jobs_write_office RLS policies are what actually gate who can run
+// a sync — consistent with every other write path in this app.
 //
-// Known limitation: this only ever queries these 3 stages. If a deal moves to a later stage
-// (e.g. "5. Completed"), re-running sync won't see it move and its last-synced pipedrive_stage_id
-// stays put — it will keep appearing on the Jobs List until a broader full-pipeline poll or a
-// Pipedrive webhook is added. Flagged here rather than silently assumed solved.
+// Previously this only queried 3 hardcoded stage ids (Ready to Schedule/Booked/In Progress), so any
+// deal that moved to a later stage (Admin, Done, ...) or that was won while still in an earlier
+// stage (Quoting) was never fetched at all — not "lost", just never pulled in, with no way for a
+// user to add it by hand either. Querying the whole pipeline once removes that hole structurally:
+// nothing in the Jobs Pipeline can fall outside it again, including stages added in Pipedrive later.
+// Which of those stages actually show up as an "active, schedulable" job is a Jobs List/Capacity
+// Board display filter (PIPEDRIVE_TARGET_STAGE_IDS in src/lib/pipedriveStages.ts) — a separate,
+// easy follow-up — not a sync/data-availability concern anymore.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-const TARGET_STAGE_IDS = [26, 27, 28] // 2. Ready to Schedule, 3. Booked, 4. In Progress
+const JOBS_PIPELINE_ID = 3
 
 const FIELD_TARGET_HOURS = 'ad1cfb10c0818b49d646c93cfcb44b8dfa31a911'
 const FIELD_CATEGORY = '27b0830b634b7730cc4cc6680db2ac2c7391ee77'
@@ -31,22 +35,23 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-async function fetchStageDeals(stageId: number, token: string) {
+async function fetchPipelineDeals(pipelineId: number, token: string) {
   const deals: any[] = []
   let start = 0
   while (true) {
-    // Deals in this Jobs Pipeline are marked "won" at deal acceptance and then move through
-    // stages afterward for job tracking — "open" excludes them entirely. "lost" deals sitting in
-    // an active stage are treated as stale/abandoned cards, not real jobs, so they're excluded too.
-    const url = `https://api.pipedrive.com/v1/deals?stage_id=${stageId}&status=won&start=${start}&limit=100&api_token=${token}`
+    // The pipeline-scoped deals endpoint (unlike /v1/deals) has no documented server-side status
+    // filter, so "won" filtering happens client-side below instead of trusting a query param here —
+    // deals are marked "won" at deal acceptance and then move through the pipeline afterward for
+    // job tracking; "open" and "lost" deals sitting in a stage are not real jobs.
+    const url = `https://api.pipedrive.com/v1/pipelines/${pipelineId}/deals?start=${start}&limit=100&api_token=${token}`
     const res = await fetch(url)
     const json = await res.json()
-    if (!json.success) throw new Error(json.error ?? `Pipedrive API error fetching stage ${stageId}`)
+    if (!json.success) throw new Error(json.error ?? `Pipedrive API error fetching pipeline ${pipelineId} deals`)
     deals.push(...(json.data ?? []))
     if (!json.additional_data?.pagination?.more_items_in_collection) break
     start = json.additional_data.pagination.next_start
   }
-  return deals
+  return deals.filter((d) => d.status === 'won')
 }
 
 Deno.serve(async (req) => {
@@ -65,8 +70,7 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: authHeader } } },
     )
 
-    const dealLists = await Promise.all(TARGET_STAGE_IDS.map((id) => fetchStageDeals(id, pipedriveToken)))
-    const deals = dealLists.flat()
+    const deals = await fetchPipelineDeals(JOBS_PIPELINE_ID, pipedriveToken)
 
     let synced = 0
     let skipped = 0
