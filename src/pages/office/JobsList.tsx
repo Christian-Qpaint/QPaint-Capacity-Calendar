@@ -12,6 +12,9 @@ import { StatusPill, CategoryPill, JOB_ROW_STATUS_STYLES } from '@/components/St
 import { ClientTypeIcon } from '@/components/ClientTypeIcon'
 import { JobsAdvancedFilterDialog } from '@/components/JobsAdvancedFilterDialog'
 import { AddEditPhaseDialog, type PhaseDialogState } from '@/components/AddEditPhaseDialog'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   applyConditions,
   sortRows,
@@ -23,8 +26,24 @@ import {
 } from '@/lib/jobFilters'
 import { formatCurrency } from '@/lib/formulas'
 import { jobDisplayName } from '@/lib/jobDisplay'
-import { ArrowDown, ArrowUp, ArrowUpDown, Lock, ListFilter, MapPin, Plus, RefreshCw, Search, X } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
+  Lock,
+  ListFilter,
+  MapPin,
+  Plus,
+  RefreshCw,
+  Search,
+  X,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+const PAGE_SIZE_OPTIONS = [10, 50, 100] as const
+type PageSize = (typeof PAGE_SIZE_OPTIONS)[number] | 'all'
 
 function deriveJobStatus(phaseStatuses: string[]): string {
   if (phaseStatuses.length === 0) return 'Unscheduled'
@@ -79,6 +98,9 @@ export function JobsList() {
   const [matchMode, setMatchMode] = useState<MatchMode>('AND')
   const [phaseDialogState, setPhaseDialogState] = useState<PhaseDialogState>({ open: false, block: null })
   const [phaseDialogJobId, setPhaseDialogJobId] = useState<string | null>(null)
+  const [showUnavailable, setShowUnavailable] = useState(true)
+  const [pageSize, setPageSize] = useState<PageSize>(10)
+  const [page, setPage] = useState(1)
 
   // Every synced job shows up here now, not just the 3 schedulable stages — jobs outside those
   // (Quoting, Admin, Done, whatever else the pipeline has) still render, just visually disabled,
@@ -115,10 +137,24 @@ export function JobsList() {
   }, [rows, search])
 
   const filtered = useMemo(() => applyConditions(searched, conditions, matchMode), [searched, conditions, matchMode])
-  const displayed = useMemo(() => sortRows(filtered, sort), [filtered, sort])
+  const sorted = useMemo(() => sortRows(filtered, sort), [filtered, sort])
+  const displayed = useMemo(
+    () => (showUnavailable ? sorted : sorted.filter((r) => isSchedulableStage(r.job.pipedriveStageId))),
+    [sorted, showUnavailable],
+  )
+
+  const totalPages = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(displayed.length / pageSize))
+  const safePage = Math.min(page, totalPages)
+  const paginated = useMemo(
+    () => (pageSize === 'all' ? displayed : displayed.slice((safePage - 1) * pageSize, safePage * pageSize)),
+    [displayed, pageSize, safePage],
+  )
+  const rangeStart = displayed.length === 0 ? 0 : pageSize === 'all' ? 1 : (safePage - 1) * pageSize + 1
+  const rangeEnd = pageSize === 'all' ? displayed.length : Math.min(safePage * pageSize, displayed.length)
 
   function toggleSort(key: FilterFieldKey) {
     setSort((s) => (s.key === key ? { key, direction: s.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' }))
+    setPage(1)
   }
 
   async function handleSync() {
@@ -160,7 +196,10 @@ export function JobsList() {
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value)
+              setPage(1)
+            }}
             placeholder="Search client, job, category, status…"
             className="pl-8"
           />
@@ -170,13 +209,31 @@ export function JobsList() {
           {conditions.length > 0 && <Badge variant="secondary">{conditions.length}</Badge>}
         </Button>
         {conditions.length > 0 && (
-          <Button variant="ghost" size="sm" onClick={() => setConditions([])}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setConditions([])
+              setPage(1)
+            }}
+          >
             <X /> Clear filter
           </Button>
         )}
-        <span className="ml-auto text-xs text-muted-foreground">
-          {displayed.length} of {visibleJobs.length} jobs
-        </span>
+        <div className="ml-auto flex items-center gap-2">
+          <Switch
+            id="show-unavailable"
+            checked={showUnavailable}
+            onCheckedChange={(v) => {
+              setShowUnavailable(!!v)
+              setPage(1)
+            }}
+          />
+          <Label htmlFor="show-unavailable" className="flex items-center gap-1 text-xs font-normal text-muted-foreground">
+            <Lock className="size-3 shrink-0" aria-hidden="true" />
+            Show unavailable jobs
+          </Label>
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-lg border border-border bg-card">
@@ -203,7 +260,7 @@ export function JobsList() {
                 </TableCell>
               </TableRow>
             )}
-            {displayed.map((row) => {
+            {paginated.map((row) => {
               const { job, status, allocatedHours } = row
               const schedulable = isSchedulableStage(job.pipedriveStageId)
               const stageText = stageLabel(job.pipedriveStageId)
@@ -269,6 +326,57 @@ export function JobsList() {
             })}
           </TableBody>
         </Table>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>Rows per page</span>
+          <Select
+            value={String(pageSize)}
+            onValueChange={(v) => {
+              setPageSize(v === 'all' ? 'all' : (Number(v) as (typeof PAGE_SIZE_OPTIONS)[number]))
+              setPage(1)
+            }}
+          >
+            <SelectTrigger size="sm" className="w-20">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PAGE_SIZE_OPTIONS.map((n) => (
+                <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+              ))}
+              <SelectItem value="all">All</SelectItem>
+            </SelectContent>
+          </Select>
+          <span>
+            {rangeStart}–{rangeEnd} of {displayed.length} jobs
+          </span>
+        </div>
+        {pageSize !== 'all' && totalPages > 1 && (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label="Previous page"
+              disabled={safePage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              <ChevronLeft />
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              Page {safePage} of {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label="Next page"
+              disabled={safePage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              <ChevronRight />
+            </Button>
+          </div>
+        )}
       </div>
 
       <JobsAdvancedFilterDialog

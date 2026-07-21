@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { formatCurrency, phaseValue } from '@/lib/formulas'
 import { jobDisplayName } from '@/lib/jobDisplay'
+import { isSchedulableStage } from '@/lib/pipedriveStages'
 import { TeamColorDot } from '@/components/TeamColorDot'
 import { cn } from '@/lib/utils'
 import { MapPin, Search, Trash2 } from 'lucide-react'
@@ -200,7 +201,15 @@ export function AddEditPhaseDialog({
                 {job ? jobDisplayName(job) : 'Unknown job'}
               </p>
             ) : (
-              <JobPicker jobs={jobs} clients={clients} value={jobId} onChange={setJobId} />
+              // Only schedulable-stage jobs are pickable for a NEW selection — always keeps the
+              // currently-selected job visible too, so editing a phase whose job has since moved to
+              // a non-schedulable stage doesn't leave the picker looking blank/broken.
+              <JobPicker
+                jobs={jobs.filter((j) => isSchedulableStage(j.pipedriveStageId) || j.id === jobId)}
+                clients={clients}
+                value={jobId}
+                onChange={setJobId}
+              />
             )}
           </div>
           <div className="grid grid-cols-2 gap-3">
