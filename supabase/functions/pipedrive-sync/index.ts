@@ -7,11 +7,15 @@
 // Previously this only queried 3 hardcoded stage ids (Ready to Schedule/Booked/In Progress), so any
 // deal that moved to a later stage (Admin, Done, ...) or that was won while still in an earlier
 // stage (Quoting) was never fetched at all — not "lost", just never pulled in, with no way for a
-// user to add it by hand either. Querying the whole pipeline once removes that hole structurally:
-// nothing in the Jobs Pipeline can fall outside it again, including stages added in Pipedrive later.
-// Which of those stages actually show up as an "active, schedulable" job is a Jobs List/Capacity
-// Board display filter (PIPEDRIVE_TARGET_STAGE_IDS in src/lib/pipedriveStages.ts) — a separate,
-// easy follow-up — not a sync/data-availability concern anymore.
+// user to add it by hand either.
+//
+// First attempt at the fix used GET /v1/pipelines/{id}/deals to fetch the whole pipeline in one
+// call — verified against the real account and it came back empty (that endpoint doesn't return
+// won deals the way the plain deals list does). Reverted to the proven-working per-stage
+// GET /v1/deals?stage_id=X&status=won call, but the stage id LIST is now fetched dynamically from
+// GET /v1/stages?pipeline_id=3 instead of a hardcoded array — so every stage that exists in the
+// pipeline right now is covered automatically, including ones added later, without depending on an
+// endpoint that turned out not to behave as expected.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -35,23 +39,30 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-async function fetchPipelineDeals(pipelineId: number, token: string) {
+async function fetchPipelineStageIds(pipelineId: number, token: string): Promise<number[]> {
+  const url = `https://api.pipedrive.com/v1/stages?pipeline_id=${pipelineId}&api_token=${token}`
+  const res = await fetch(url)
+  const json = await res.json()
+  if (!json.success) throw new Error(json.error ?? `Pipedrive API error fetching stages for pipeline ${pipelineId}`)
+  return (json.data ?? []).map((s: any) => s.id)
+}
+
+async function fetchStageDeals(stageId: number, token: string) {
   const deals: any[] = []
   let start = 0
   while (true) {
-    // The pipeline-scoped deals endpoint (unlike /v1/deals) has no documented server-side status
-    // filter, so "won" filtering happens client-side below instead of trusting a query param here —
-    // deals are marked "won" at deal acceptance and then move through the pipeline afterward for
-    // job tracking; "open" and "lost" deals sitting in a stage are not real jobs.
-    const url = `https://api.pipedrive.com/v1/pipelines/${pipelineId}/deals?start=${start}&limit=100&api_token=${token}`
+    // Deals in this Jobs Pipeline are marked "won" at deal acceptance and then move through
+    // stages afterward for job tracking — "open" excludes them entirely. "lost" deals sitting in
+    // an active stage are treated as stale/abandoned cards, not real jobs, so they're excluded too.
+    const url = `https://api.pipedrive.com/v1/deals?stage_id=${stageId}&status=won&start=${start}&limit=100&api_token=${token}`
     const res = await fetch(url)
     const json = await res.json()
-    if (!json.success) throw new Error(json.error ?? `Pipedrive API error fetching pipeline ${pipelineId} deals`)
+    if (!json.success) throw new Error(json.error ?? `Pipedrive API error fetching stage ${stageId}`)
     deals.push(...(json.data ?? []))
     if (!json.additional_data?.pagination?.more_items_in_collection) break
     start = json.additional_data.pagination.next_start
   }
-  return deals.filter((d) => d.status === 'won')
+  return deals
 }
 
 Deno.serve(async (req) => {
@@ -70,7 +81,9 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: authHeader } } },
     )
 
-    const deals = await fetchPipelineDeals(JOBS_PIPELINE_ID, pipedriveToken)
+    const stageIds = await fetchPipelineStageIds(JOBS_PIPELINE_ID, pipedriveToken)
+    const dealLists = await Promise.all(stageIds.map((id) => fetchStageDeals(id, pipedriveToken)))
+    const deals = dealLists.flat()
 
     let synced = 0
     let skipped = 0
