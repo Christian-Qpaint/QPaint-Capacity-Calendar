@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useData } from '@/context/DataContext'
 import { Button } from '@/components/ui/button'
@@ -24,6 +24,7 @@ import {
   formatDateRange,
   formatFullDate,
   formatMonthLabel,
+  formatMonthRangeLabel,
   formatQuarterLabel,
   formatYearLabel,
   monthEnd,
@@ -60,7 +61,7 @@ interface DragMeta extends DragPreview {
   originClientY: number
 }
 
-type ViewMode = 'day' | 'week' | 'month' | 'quarter' | 'year'
+type ViewMode = 'day' | 'week' | 'month' | 'rolling3' | 'quarter' | 'year'
 
 const ROW_HEIGHT = 56
 const HEADER_HEIGHT = 56
@@ -68,7 +69,7 @@ const LABEL_COL_WIDTH = 220
 // Quarter/year are deliberately zoomed way out — a bird's-eye view of what's booked, not a
 // precise editing surface — so their columns are narrow and the grid just scrolls a long way
 // horizontally rather than trying to compress a whole quarter/year to a readable day width.
-const DAY_COL_WIDTH: Record<ViewMode, number> = { day: 480, week: 128, month: 60, quarter: 32, year: 12 }
+const DAY_COL_WIDTH: Record<ViewMode, number> = { day: 480, week: 128, month: 60, rolling3: 40, quarter: 32, year: 12 }
 
 function toIso(d: Date): string {
   // Format local Y-M-D directly — toISOString() converts to UTC first, which shifts the date
@@ -112,6 +113,10 @@ export function ResourceCalendar() {
   const days = useMemo(() => {
     if (viewMode === 'day') return [anchor]
     if (viewMode === 'month') return eachDayInRange(monthStart(anchor), monthEnd(anchor))
+    // Rolling 3-month carousel: always the anchor month plus the one either side (e.g. looking at
+    // Feb shows Jan–Feb–Mar), sliding by a single month at a time — unlike Quarter, which is
+    // pinned to calendar-quarter boundaries and jumps by 3 months.
+    if (viewMode === 'rolling3') return eachDayInRange(monthStart(addMonths(anchor, -1)), monthEnd(addMonths(anchor, 1)))
     if (viewMode === 'quarter') return eachDayInRange(quarterStart(anchor), quarterEnd(quarterStart(anchor)))
     if (viewMode === 'year') return eachDayInRange(yearStart(anchor), yearEnd(anchor))
     return eachDayInRange(weekStart(anchor), weekEnd(weekStart(anchor)))
@@ -166,23 +171,43 @@ export function ResourceCalendar() {
   const headerScrollRef = useRef<HTMLDivElement>(null)
   const labelScrollRef = useRef<HTMLDivElement>(null)
 
+  // On the long-scroll views (3 Months/Quarter/Year), the date header only labels each month once
+  // at its first column — once you've scrolled past that, there's nothing on screen saying which
+  // month you're actually looking at. This tracks scroll position and shows it as a pinned badge.
+  const [visibleMonthLabel, setVisibleMonthLabel] = useState('')
+  const showVisibleMonthBadge = viewMode === 'rolling3' || viewMode === 'quarter' || viewMode === 'year'
+
+  function updateVisibleMonth(scrollLeft: number) {
+    const cw = DAY_COL_WIDTH[viewMode]
+    const idx = Math.max(0, Math.min(days.length - 1, Math.floor(scrollLeft / cw)))
+    const d = days[idx]
+    if (!d) return
+    setVisibleMonthLabel(d.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' }))
+  }
+
+  useEffect(() => {
+    updateVisibleMonth(bodyScrollRef.current?.scrollLeft ?? 0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, days])
+
   function handleBodyScroll() {
     const body = bodyScrollRef.current
     if (!body) return
     if (headerScrollRef.current) headerScrollRef.current.scrollLeft = body.scrollLeft
     if (labelScrollRef.current) labelScrollRef.current.scrollTop = body.scrollTop
+    updateVisibleMonth(body.scrollLeft)
   }
 
   function goPrev() {
     if (viewMode === 'day') setAnchor((a) => addDays(a, -1))
-    else if (viewMode === 'month') setAnchor((a) => addMonths(a, -1))
+    else if (viewMode === 'month' || viewMode === 'rolling3') setAnchor((a) => addMonths(a, -1))
     else if (viewMode === 'quarter') setAnchor((a) => addMonths(a, -3))
     else if (viewMode === 'year') setAnchor((a) => addMonths(a, -12))
     else setAnchor((a) => addDays(a, -7))
   }
   function goNext() {
     if (viewMode === 'day') setAnchor((a) => addDays(a, 1))
-    else if (viewMode === 'month') setAnchor((a) => addMonths(a, 1))
+    else if (viewMode === 'month' || viewMode === 'rolling3') setAnchor((a) => addMonths(a, 1))
     else if (viewMode === 'quarter') setAnchor((a) => addMonths(a, 3))
     else if (viewMode === 'year') setAnchor((a) => addMonths(a, 12))
     else setAnchor((a) => addDays(a, 7))
@@ -293,11 +318,13 @@ export function ResourceCalendar() {
       ? formatFullDate(anchor)
       : viewMode === 'month'
         ? formatMonthLabel(anchor)
-        : viewMode === 'quarter'
-          ? formatQuarterLabel(windowStart)
-          : viewMode === 'year'
-            ? formatYearLabel(windowStart)
-            : `Week of ${formatDateRange(windowStart, windowEnd)}`
+        : viewMode === 'rolling3'
+          ? formatMonthRangeLabel(windowStart, windowEnd)
+          : viewMode === 'quarter'
+            ? formatQuarterLabel(windowStart)
+            : viewMode === 'year'
+              ? formatYearLabel(windowStart)
+              : `Week of ${formatDateRange(windowStart, windowEnd)}`
 
   const selectedCount = effectiveSelected.length
   const totalCount = teams.length
@@ -311,6 +338,7 @@ export function ResourceCalendar() {
           <Button size="sm" variant={viewMode === 'day' ? 'secondary' : 'ghost'} onClick={() => setViewMode('day')}>Day</Button>
           <Button size="sm" variant={viewMode === 'week' ? 'secondary' : 'ghost'} onClick={() => setViewMode('week')}>Week</Button>
           <Button size="sm" variant={viewMode === 'month' ? 'secondary' : 'ghost'} onClick={() => setViewMode('month')}>Month</Button>
+          <Button size="sm" variant={viewMode === 'rolling3' ? 'secondary' : 'ghost'} onClick={() => setViewMode('rolling3')}>3 Months</Button>
           <Button size="sm" variant={viewMode === 'quarter' ? 'secondary' : 'ghost'} onClick={() => setViewMode('quarter')}>Quarter</Button>
           <Button size="sm" variant={viewMode === 'year' ? 'secondary' : 'ghost'} onClick={() => setViewMode('year')}>Year</Button>
         </div>
@@ -405,6 +433,15 @@ export function ResourceCalendar() {
         >
           Team / Contractor
         </div>
+
+        {/* Pinned on screen (doesn't scroll with the grid) — shows whichever month is currently
+            in view while scrolling through 3 Months/Quarter/Year, since the header only labels
+            each month once at its first column. */}
+        {showVisibleMonthBadge && visibleMonthLabel && (
+          <div className="absolute top-2 right-3 z-30 rounded-full border border-border bg-popover px-3 py-1 text-xs font-medium shadow-sm">
+            {visibleMonthLabel}
+          </div>
+        )}
 
         {/* frozen header row (dates) — horizontal position mirrors the body's scrollLeft via JS */}
         <div

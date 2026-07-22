@@ -113,6 +113,15 @@ export function formatYearLabel(start: Date): string {
   return String(start.getFullYear())
 }
 
+/** e.g. "Jan – Mar 2026" for a same-year span, "Dec 2025 – Feb 2026" across a year boundary. */
+export function formatMonthRangeLabel(start: Date, end: Date): string {
+  const endLabel = end.toLocaleDateString('en-AU', { month: 'short', year: 'numeric' })
+  if (start.getFullYear() === end.getFullYear()) {
+    return `${start.toLocaleDateString('en-AU', { month: 'short' })} – ${endLabel}`
+  }
+  return `${start.toLocaleDateString('en-AU', { month: 'short', year: 'numeric' })} – ${endLabel}`
+}
+
 export function formatDateRange(start: Date, end: Date): string {
   const sameMonth = start.getMonth() === end.getMonth()
   const dayFmt = (d: Date) => d.getDate()
