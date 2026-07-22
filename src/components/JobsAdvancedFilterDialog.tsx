@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { StageColorDot } from '@/components/StagePill'
 import { Plus, X } from 'lucide-react'
 import {
   FILTER_FIELDS,
@@ -144,10 +145,34 @@ export function JobsAdvancedFilterDialog({
 
                   {config.type === 'enum' ? (
                     <Select value={condition.value} onValueChange={(v) => updateCondition(condition.id, { value: v ?? '' })}>
-                      <SelectTrigger className="min-w-36 flex-1"><SelectValue>{(v: string | null) => config.options?.find((o) => o.value === v)?.label ?? 'Select…'}</SelectValue></SelectTrigger>
+                      <SelectTrigger className="min-w-36 flex-1">
+                        <SelectValue>
+                          {(v: string | null) => {
+                            const opt = config.options?.find((o) => o.value === v)
+                            if (!opt) return 'Select…'
+                            return condition.field === 'pipelineStage' ? (
+                              <span className="flex items-center gap-1.5">
+                                <StageColorDot stageId={Number(opt.value)} />
+                                {opt.label}
+                              </span>
+                            ) : (
+                              opt.label
+                            )
+                          }}
+                        </SelectValue>
+                      </SelectTrigger>
                       <SelectContent>
                         {config.options?.map((o) => (
-                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                          <SelectItem key={o.value} value={o.value}>
+                            {condition.field === 'pipelineStage' ? (
+                              <span className="flex items-center gap-1.5">
+                                <StageColorDot stageId={Number(o.value)} />
+                                {o.label}
+                              </span>
+                            ) : (
+                              o.label
+                            )}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>

@@ -44,3 +44,28 @@ export function allKnownStageIds(jobs: { pipedriveStageId?: number | null }[]): 
   }
   return Array.from(ids).sort((a, b) => a - b)
 }
+
+// Hand-picked so the color roughly tracks progress through the pipeline (cool/neutral early,
+// warm while active, green once producing, red when stuck) rather than being arbitrary.
+const STAGE_COLORS: Record<number, string> = {
+  25: '#94A3B8', // Admin — slate, pre-production admin work
+  26: '#6FB2EE', // Ready to Schedule — blue, ready to go
+  27: '#AFA9EC', // Booked — violet, committed to the calendar
+  28: '#EF9F27', // In Progress — amber, actively being painted
+  29: '#5DCAA5', // Completed — teal, production finished
+  38: '#ED6A6A', // On Hold — red, stalled/blocked
+  45: '#9BCB6B', // All Done & Paid — green, fully closed out
+}
+// Stable fallback for any stage id without a hand-picked color above (a new/unmapped stage).
+const FALLBACK_PALETTE = ['#F0997B', '#E2A8E0', '#F2C14E', '#7FD1C6', '#ED93B1']
+
+function hashStageId(id: number): number {
+  return Math.abs(Math.sin(id) * 10000) % FALLBACK_PALETTE.length | 0
+}
+
+/** Background color for a stage id, for use in pills/columns/dots. Not affected by dark mode —
+ * these are deliberately saturated brand-ish colors, same as the crew color palette. */
+export function stageColor(stageId: number | undefined): string {
+  if (stageId == null) return '#94A3B8'
+  return STAGE_COLORS[stageId] ?? FALLBACK_PALETTE[hashStageId(stageId)]
+}

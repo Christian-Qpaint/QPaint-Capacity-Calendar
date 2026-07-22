@@ -28,7 +28,7 @@ export function defaultColorForTeam(teamId: string): string {
 }
 
 /** Perceived-brightness check (YIQ) to pick readable black/white text on an arbitrary bg color. */
-function readableTextColor(hexBg: string): string {
+export function readableTextColor(hexBg: string): string {
   const { r, g, b } = hexToRgb(hexBg)
   const yiq = (r * 299 + g * 587 + b * 114) / 1000
   return yiq >= 150 ? '#08060d' : '#ffffff'

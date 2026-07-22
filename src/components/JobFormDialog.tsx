@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { StageColorDot } from '@/components/StagePill'
 import { JOB_CATEGORIES } from '@/lib/jobFilters'
 import { PIPEDRIVE_TARGET_STAGE_IDS, allKnownStageIds, stageLabel } from '@/lib/pipedriveStages'
 import { cn } from '@/lib/utils'
@@ -245,11 +246,27 @@ export function JobFormDialog({ state, onOpenChange }: { state: JobFormState; on
               <Label>Pipeline stage</Label>
               <Select value={stageId} onValueChange={(v) => v && setStageId(v)}>
                 <SelectTrigger className="w-full">
-                  <SelectValue>{(v: string | null) => (v ? stageLabel(Number(v)) : 'Select a stage')}</SelectValue>
+                  <SelectValue>
+                    {(v: string | null) =>
+                      v ? (
+                        <span className="flex items-center gap-1.5">
+                          <StageColorDot stageId={Number(v)} />
+                          {stageLabel(Number(v))}
+                        </span>
+                      ) : (
+                        'Select a stage'
+                      )
+                    }
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {stageIds.map((id) => (
-                    <SelectItem key={id} value={String(id)}>{stageLabel(id)}</SelectItem>
+                    <SelectItem key={id} value={String(id)}>
+                      <span className="flex items-center gap-1.5">
+                        <StageColorDot stageId={id} />
+                        {stageLabel(id)}
+                      </span>
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>

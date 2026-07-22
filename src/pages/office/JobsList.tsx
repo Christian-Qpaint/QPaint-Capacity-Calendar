@@ -2,13 +2,14 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '@/context/DataContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
-import { allKnownStageIds, isSchedulableStage, stageLabel } from '@/lib/pipedriveStages'
+import { allKnownStageIds, isSchedulableStage, stageColor, stageLabel } from '@/lib/pipedriveStages'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { StatusPill, CategoryPill, JOB_ROW_STATUS_STYLES } from '@/components/StatusBadges'
+import { StagePill, StageColorDot } from '@/components/StagePill'
 import { ClientTypeIcon } from '@/components/ClientTypeIcon'
 import { JobsAdvancedFilterDialog } from '@/components/JobsAdvancedFilterDialog'
 import { AddEditPhaseDialog, type PhaseDialogState } from '@/components/AddEditPhaseDialog'
@@ -389,10 +390,10 @@ export function JobsList() {
                   <TableCell>
                     <CategoryPill category={job.category} />
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell>
                     <span className="flex items-center gap-1.5">
                       {!schedulable && <Lock className="size-3.5 shrink-0 text-warning" aria-hidden="true" />}
-                      {stageText}
+                      <StagePill stageId={job.pipedriveStageId} />
                     </span>
                   </TableCell>
                   <TableCell>{formatCurrency(job.totalValue)}</TableCell>
@@ -506,10 +507,15 @@ export function JobsList() {
           {kanbanColumns.map(({ stageId, rows: columnRows, totalValue }) => {
             const schedulable = isSchedulableStage(stageId)
             return (
-              <div key={stageId} className="flex w-72 shrink-0 flex-col rounded-lg border border-border bg-muted/30">
+              <div
+                key={stageId}
+                className="flex w-72 shrink-0 flex-col rounded-lg border border-border bg-muted/30 border-t-4"
+                style={{ borderTopColor: stageColor(stageId) }}
+              >
                 <div className="space-y-0.5 border-b border-border p-3">
                   <p className="flex items-center gap-1.5 text-sm font-medium">
                     {!schedulable && <Lock className="size-3.5 shrink-0 text-warning" aria-hidden="true" />}
+                    <StageColorDot stageId={stageId} />
                     <span className="truncate">{stageLabel(stageId)}</span>
                   </p>
                   <p className="text-xs text-muted-foreground">
