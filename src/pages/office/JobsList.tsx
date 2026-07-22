@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '@/context/DataContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
-import { allKnownStageIds, isSchedulableStage, stageColor, stageLabel } from '@/lib/pipedriveStages'
+import { allKnownStageIds, stageColor, stageLabel } from '@/lib/pipedriveStages'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -14,8 +14,6 @@ import { ClientTypeIcon } from '@/components/ClientTypeIcon'
 import { JobsAdvancedFilterDialog } from '@/components/JobsAdvancedFilterDialog'
 import { AddEditPhaseDialog, type PhaseDialogState } from '@/components/AddEditPhaseDialog'
 import { JobFormDialog, type JobFormState } from '@/components/JobFormDialog'
-import { Switch } from '@/components/ui/switch'
-import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   applyConditions,
@@ -35,7 +33,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Columns3,
-  Lock,
   ListFilter,
   MapPin,
   Pencil,
@@ -102,14 +99,8 @@ function JobKanbanCard({
   onEdit: () => void
 }) {
   const { job, status, allocatedHours, actualDollars, productionPercent } = row
-  const schedulable = isSchedulableStage(job.pipedriveStageId)
-  const lockReason = `"${stageLabel(job.pipedriveStageId)}" isn't a schedulable stage — only Ready to Schedule, Booked, and In Progress jobs can be added to the Calendar.`
   return (
-    <Card
-      className={cn('cursor-pointer gap-2 p-3 transition hover:shadow-md', !schedulable && 'opacity-40 grayscale-[90%] hover:opacity-60')}
-      onClick={onNavigate}
-      title={schedulable ? undefined : lockReason}
-    >
+    <Card className="cursor-pointer gap-2 p-3 transition hover:shadow-md" onClick={onNavigate}>
       <div className="flex items-start justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
           <MapPin className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -131,17 +122,14 @@ function JobKanbanCard({
           <Button
             variant="ghost"
             size="icon-sm"
-            className={cn('size-6', schedulable ? undefined : 'cursor-not-allowed')}
-            aria-label={schedulable ? `Add phase for ${row.jobName}` : `Can't add a phase — ${lockReason}`}
-            title={schedulable ? undefined : lockReason}
-            disabled={!schedulable}
+            className="size-6"
+            aria-label={`Add phase for ${row.jobName}`}
             onClick={(e) => {
               e.stopPropagation()
-              if (!schedulable) return
               onAddPhase()
             }}
           >
-            {schedulable ? <Plus className="size-3.5" /> : <Lock className="size-3.5" />}
+            <Plus className="size-3.5" />
           </Button>
         </div>
       </div>
@@ -177,15 +165,13 @@ export function JobsList() {
   const [matchMode, setMatchMode] = useState<MatchMode>('AND')
   const [phaseDialogState, setPhaseDialogState] = useState<PhaseDialogState>({ open: false, block: null })
   const [phaseDialogJobId, setPhaseDialogJobId] = useState<string | null>(null)
-  const [showUnavailable, setShowUnavailable] = useState(true)
   const [pageSize, setPageSize] = useState<PageSize>(10)
   const [page, setPage] = useState(1)
   const [viewMode, setViewMode] = useState<ViewMode>('table')
   const [jobFormState, setJobFormState] = useState<JobFormState>({ open: false, job: null })
 
-  // Every synced job shows up here now, not just the 3 schedulable stages — jobs outside those
-  // (Quoting, Admin, Done, whatever else the pipeline has) still render, just visually disabled,
-  // so a deal can never again be invisible/un-addable purely because of its Pipedrive stage.
+  // Every synced job shows up here, and can be scheduled onto the Calendar, regardless of its
+  // Pipedrive stage — so nothing is ever invisible or un-addable purely because of its stage.
   const visibleJobs = jobs.filter((j) => j.pipedriveStageId != null)
 
   const rows: JobFilterContext[] = useMemo(
@@ -221,11 +207,7 @@ export function JobsList() {
   }, [rows, search])
 
   const filtered = useMemo(() => applyConditions(searched, conditions, matchMode), [searched, conditions, matchMode])
-  const sorted = useMemo(() => sortRows(filtered, sort), [filtered, sort])
-  const displayed = useMemo(
-    () => (showUnavailable ? sorted : sorted.filter((r) => isSchedulableStage(r.job.pipedriveStageId))),
-    [sorted, showUnavailable],
-  )
+  const displayed = useMemo(() => sortRows(filtered, sort), [filtered, sort])
 
   // Kanban groups the same filtered/searched/sorted set the table uses — just re-bucketed by
   // stage instead of paginated, so both views always agree on which jobs are in scope.
@@ -317,20 +299,6 @@ export function JobsList() {
             <X /> Clear filter
           </Button>
         )}
-        <div className="ml-auto flex items-center gap-2">
-          <Switch
-            id="show-unavailable"
-            checked={showUnavailable}
-            onCheckedChange={(v) => {
-              setShowUnavailable(!!v)
-              setPage(1)
-            }}
-          />
-          <Label htmlFor="show-unavailable" className="flex items-center gap-1 text-xs font-normal text-muted-foreground">
-            <Lock className="size-3 shrink-0" aria-hidden="true" />
-            Show unavailable jobs
-          </Label>
-        </div>
       </div>
 
       {viewMode === 'table' && (
@@ -362,18 +330,11 @@ export function JobsList() {
             )}
             {paginated.map((row) => {
               const { job, status, allocatedHours, actualDollars, productionPercent } = row
-              const schedulable = isSchedulableStage(job.pipedriveStageId)
-              const stageText = stageLabel(job.pipedriveStageId)
-              const lockReason = `"${stageText}" isn't a schedulable stage — only Ready to Schedule, Booked, and In Progress jobs can be added to the Calendar.`
               return (
                 <TableRow
                   key={job.id}
-                  className={cn(
-                    'cursor-pointer',
-                    schedulable ? JOB_ROW_STATUS_STYLES[status] : 'opacity-40 grayscale-[90%] hover:opacity-60',
-                  )}
+                  className={cn('cursor-pointer', JOB_ROW_STATUS_STYLES[status])}
                   onClick={() => navigate(`/jobs/${job.id}`)}
-                  title={schedulable ? undefined : lockReason}
                 >
                   <TableCell className="font-medium">
                     <span className="flex items-center gap-1.5">
@@ -391,10 +352,7 @@ export function JobsList() {
                     <CategoryPill category={job.category} />
                   </TableCell>
                   <TableCell>
-                    <span className="flex items-center gap-1.5">
-                      {!schedulable && <Lock className="size-3.5 shrink-0 text-warning" aria-hidden="true" />}
-                      <StagePill stageId={job.pipedriveStageId} />
-                    </span>
+                    <StagePill stageId={job.pipedriveStageId} />
                   </TableCell>
                   <TableCell>{formatCurrency(job.totalValue)}</TableCell>
                   <TableCell>
@@ -421,18 +379,14 @@ export function JobsList() {
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        aria-label={schedulable ? `Add phase for ${row.jobName}` : `Can't add a phase — ${lockReason}`}
-                        title={schedulable ? undefined : lockReason}
-                        disabled={!schedulable}
-                        className={schedulable ? undefined : 'cursor-not-allowed'}
+                        aria-label={`Add phase for ${row.jobName}`}
                         onClick={(e) => {
                           e.stopPropagation()
-                          if (!schedulable) return
                           setPhaseDialogJobId(job.id)
                           setPhaseDialogState({ open: true, block: null })
                         }}
                       >
-                        {schedulable ? <Plus /> : <Lock />}
+                        <Plus />
                       </Button>
                     </div>
                   </TableCell>
@@ -505,7 +459,6 @@ export function JobsList() {
             </p>
           )}
           {kanbanColumns.map(({ stageId, rows: columnRows, totalValue }) => {
-            const schedulable = isSchedulableStage(stageId)
             return (
               <div
                 key={stageId}
@@ -514,7 +467,6 @@ export function JobsList() {
               >
                 <div className="space-y-0.5 border-b border-border p-3">
                   <p className="flex items-center gap-1.5 text-sm font-medium">
-                    {!schedulable && <Lock className="size-3.5 shrink-0 text-warning" aria-hidden="true" />}
                     <StageColorDot stageId={stageId} />
                     <span className="truncate">{stageLabel(stageId)}</span>
                   </p>

@@ -15,7 +15,6 @@ import { StatusPill } from '@/components/StatusBadges'
 import { TeamColorDot } from '@/components/TeamColorDot'
 import { formatCurrency, phaseValue } from '@/lib/formulas'
 import { jobDisplayName } from '@/lib/jobDisplay'
-import { isSchedulableStage, stageLabel } from '@/lib/pipedriveStages'
 import { WORK_AREA_STYLES } from '@/lib/workAreaStyles'
 import {
   ArrowLeft,
@@ -23,7 +22,6 @@ import {
   CalendarRange,
   CheckCircle2,
   Clock,
-  Lock,
   MapPin,
   MoreHorizontal,
   Pencil,
@@ -65,11 +63,7 @@ export function JobPhaseScheduling() {
   const allocatedHours = phases.reduce((sum, p) => sum + p.phaseHours, 0)
   const reconciled = allocatedHours === job.targetHours
   const overAllocated = allocatedHours > job.targetHours
-  const schedulable = isSchedulableStage(job.pipedriveStageId)
-  const lockReason = `"${stageLabel(job.pipedriveStageId)}" isn't a schedulable stage — only Ready to Schedule, Booked, and In Progress jobs can have new phases added.`
-
   function openCreate() {
-    if (!schedulable) return
     setDialogState({ open: true, block: null })
   }
   function openEdit(block: ScheduleBlock) {
@@ -128,18 +122,11 @@ export function JobPhaseScheduling() {
         </span>
       </div>
 
-      {!schedulable && (
-        <div className="flex items-center gap-2 rounded-md bg-muted px-4 py-3 text-sm text-muted-foreground">
-          <Lock className="size-4 shrink-0 text-warning" />
-          <span>{lockReason}</span>
-        </div>
-      )}
-
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-medium">Phases</h2>
-          <Button size="sm" onClick={openCreate} disabled={!schedulable} title={schedulable ? undefined : lockReason}>
-            {schedulable ? <Plus /> : <Lock />} Add phase
+          <Button size="sm" onClick={openCreate}>
+            <Plus /> Add phase
           </Button>
         </div>
 

@@ -5,7 +5,6 @@ import { useData } from '@/context/DataContext'
 import { useCurrentUser } from '@/context/AuthContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
 import { canManageTargets, isOfficeRole } from '@/lib/permissions'
-import { PIPEDRIVE_TARGET_STAGE_IDS } from '@/lib/pipedriveStages'
 import { jobDisplayName } from '@/lib/jobDisplay'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -263,10 +262,7 @@ export function CapacityBoard() {
   const scheduledTotal = da.getScheduledDollarsInWindow(windowStart, windowEnd)
 
   const activeJobs = useMemo(
-    () =>
-      jobs.filter(
-        (j) => j.pipedriveStageId != null && PIPEDRIVE_TARGET_STAGE_IDS.includes(j.pipedriveStageId) && scheduleBlocks.some((b) => b.jobId === j.id),
-      ),
+    () => jobs.filter((j) => scheduleBlocks.some((b) => b.jobId === j.id)),
     [jobs, scheduleBlocks],
   )
   const jobRows = useMemo(

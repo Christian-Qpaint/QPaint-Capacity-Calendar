@@ -1,9 +1,6 @@
 // Pipedrive Jobs Pipeline (pipeline_id 3) stage ids this app cares about. Must stay in sync with
 // TARGET_STAGE_IDS in supabase/functions/pipedrive-sync/index.ts — duplicated rather than shared
 // since the Edge Function (Deno) and this frontend (Vite/browser) aren't part of the same build.
-//
-// This is the full stage list, for display everywhere (dropdowns, filters, Kanban columns) — not
-// all of these are schedulable, see PIPEDRIVE_TARGET_STAGE_IDS below for that subset.
 export const PIPEDRIVE_STAGE_LABELS: Record<number, string> = {
   25: 'Admin',
   26: 'Ready to Schedule',
@@ -14,17 +11,9 @@ export const PIPEDRIVE_STAGE_LABELS: Record<number, string> = {
   45: 'All Done & Paid',
 }
 
-/** The subset of stages that can be scheduled onto the Calendar. Kept as an explicit list
- * (not derived from PIPEDRIVE_STAGE_LABELS) so adding more real stage names above never silently
- * changes what's schedulable. */
+// Every job can be scheduled onto the Calendar regardless of its Pipedrive stage — this is just
+// the default stage offered when manually adding a new job.
 export const PIPEDRIVE_TARGET_STAGE_IDS = [26, 27, 28]
-
-/** Whether a job's synced stage is one of the schedulable ones above — everything else (earlier
- * stages like Quoting, or later ones like Admin/Done) still syncs in (see the pipeline-wide fetch
- * in supabase/functions/pipedrive-sync) but can't be added to the Calendar. */
-export function isSchedulableStage(stageId: number | undefined): boolean {
-  return stageId != null && PIPEDRIVE_TARGET_STAGE_IDS.includes(stageId)
-}
 
 /** Human label for any stage id, falling back to a raw id when it's outside the ones we have real
  * names for — we don't know the exact names of every stage in the pipeline, so this stays honest
