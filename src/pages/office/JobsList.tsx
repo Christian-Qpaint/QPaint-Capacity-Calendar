@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '@/context/DataContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
-import { supabase } from '@/lib/supabaseClient'
 import { isSchedulableStage, stageLabel } from '@/lib/pipedriveStages'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Card } from '@/components/ui/card'
@@ -40,7 +39,6 @@ import {
   MapPin,
   Pencil,
   Plus,
-  RefreshCw,
   Rows3,
   Search,
   X,
@@ -163,13 +161,9 @@ function JobKanbanCard({
 }
 
 export function JobsList() {
-  const { jobs, clients, scheduleBlocks, refetch } = useData()
+  const { jobs, clients, scheduleBlocks } = useData()
   const da = useDataAccess()
   const navigate = useNavigate()
-
-  const [syncing, setSyncing] = useState(false)
-  const [syncMessage, setSyncMessage] = useState<string | null>(null)
-  const [syncError, setSyncError] = useState<string | null>(null)
 
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortState>({ key: null, direction: 'asc' })
@@ -257,27 +251,6 @@ export function JobsList() {
     setPage(1)
   }
 
-  async function handleSync() {
-    setSyncing(true)
-    setSyncError(null)
-    setSyncMessage(null)
-    try {
-      const { data, error } = await supabase.functions.invoke('pipedrive-sync', { method: 'POST' })
-      if (error) throw error
-      if (data?.error) throw new Error(data.error)
-      setSyncMessage(
-        `Synced ${data.synced} job${data.synced === 1 ? '' : 's'}` +
-          (data.skipped ? ` · skipped ${data.skipped} (no Target Hours set)` : '') +
-          (data.errors?.length ? ` · ${data.errors.length} error(s)` : ''),
-      )
-      await refetch()
-    } catch (e) {
-      setSyncError(e instanceof Error ? e.message : 'Sync failed')
-    } finally {
-      setSyncing(false)
-    }
-  }
-
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -291,18 +264,16 @@ export function JobsList() {
               <Columns3 /> Kanban
             </Button>
           </div>
-          <Button size="sm" variant="outline" onClick={handleSync} disabled={syncing}>
-            <RefreshCw className={syncing ? 'animate-spin' : ''} />
-            {syncing ? 'Syncing…' : 'Sync from Pipedrive'}
-          </Button>
           <Button size="sm" onClick={() => setJobFormState({ open: true, job: null })}>
             <Plus /> New job
           </Button>
         </div>
       </div>
 
-      {syncMessage && <p className="text-sm text-success">{syncMessage}</p>}
-      {syncError && <p className="text-sm text-danger">{syncError}</p>}
+      <p className="text-xs text-muted-foreground">
+        New jobs are copied in automatically from Pipedrive once won — this list is now this app's own
+        copy, independent of anything that happens in Pipedrive afterward.
+      </p>
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative w-full max-w-xs">
@@ -369,7 +340,7 @@ export function JobsList() {
               <TableRow>
                 <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
                   {visibleJobs.length === 0
-                    ? 'No jobs synced yet — try syncing from Pipedrive.'
+                    ? 'No jobs yet — they appear here automatically once won in Pipedrive, or add one manually.'
                     : 'No jobs match your search / filter.'}
                 </TableCell>
               </TableRow>
@@ -513,7 +484,7 @@ export function JobsList() {
         <div className="flex gap-3 overflow-x-auto pb-2">
           {kanbanColumns.length === 0 && (
             <p className="rounded-md border border-dashed border-border py-8 text-center text-sm text-muted-foreground w-full">
-              {visibleJobs.length === 0 ? 'No jobs synced yet — try syncing from Pipedrive.' : 'No jobs match your search / filter.'}
+              {visibleJobs.length === 0 ? 'No jobs yet — they appear here automatically once won in Pipedrive, or add one manually.' : 'No jobs match your search / filter.'}
             </p>
           )}
           {kanbanColumns.map(({ stageId, rows: columnRows, totalValue }) => {
