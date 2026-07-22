@@ -64,12 +64,14 @@ interface DragMeta extends DragPreview {
 type ViewMode = 'day' | 'week' | 'month' | 'rolling3' | 'quarter' | 'year'
 
 const ROW_HEIGHT = 56
-const HEADER_HEIGHT = 56
+const MONTH_BAND_HEIGHT = 24
+const DAY_HEADER_HEIGHT = 56
+const HEADER_HEIGHT = MONTH_BAND_HEIGHT + DAY_HEADER_HEIGHT
 const LABEL_COL_WIDTH = 220
 // Quarter/year are deliberately zoomed way out — a bird's-eye view of what's booked, not a
 // precise editing surface — so their columns are narrow and the grid just scrolls a long way
 // horizontally rather than trying to compress a whole quarter/year to a readable day width.
-const DAY_COL_WIDTH: Record<ViewMode, number> = { day: 480, week: 128, month: 60, rolling3: 40, quarter: 32, year: 12 }
+const DAY_COL_WIDTH: Record<ViewMode, number> = { day: 480, week: 128, month: 60, rolling3: 40, quarter: 32, year: 22 }
 
 function toIso(d: Date): string {
   // Format local Y-M-D directly — toISOString() converts to UTC first, which shifts the date
@@ -122,6 +124,19 @@ export function ResourceCalendar() {
     return eachDayInRange(weekStart(anchor), weekEnd(weekStart(anchor)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, anchor.getTime()])
+
+  // Groups consecutive days sharing a month into one labelled band, so every view (not just the
+  // zoomed-out ones) shows which month its columns belong to instead of just a bare day number.
+  const monthSegments = useMemo(() => {
+    const segments: { label: string; span: number }[] = []
+    for (const d of days) {
+      const label = d.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' })
+      const last = segments[segments.length - 1]
+      if (last && last.label === label) last.span += 1
+      else segments.push({ label, span: 1 })
+    }
+    return segments
+  }, [days])
 
   const windowStart = days[0]
   const windowEnd = days[days.length - 1]
@@ -449,36 +464,45 @@ export function ResourceCalendar() {
           style={{ left: LABEL_COL_WIDTH, right: 0, height: HEADER_HEIGHT }}
           className="absolute top-0 z-20 overflow-hidden border-b border-border bg-card"
         >
-          <div className="flex" style={{ width: days.length * colWidth }}>
-            {days.map((d, i) => {
-              const isToday = toIso(d) === todayIsoStr
-              // Quarter/Year columns are too narrow for a weekday label — just the day number,
-              // plus a small month tag at each month boundary so it's still possible to tell where
-              // you are while scrolling through a long zoomed-out range.
-              const compact = colWidth < 24
-              const isMonthStart = d.getDate() === 1
-              return (
-                <div key={i} style={{ width: colWidth }} className="relative flex flex-col items-center justify-end gap-0.5 pb-2">
-                  {compact && isMonthStart && (
-                    <span className="absolute top-1 left-0.5 text-[8px] font-semibold tracking-wide whitespace-nowrap text-muted-foreground uppercase">
-                      {d.toLocaleDateString('en-AU', { month: 'short' })}
-                    </span>
+          <div style={{ width: days.length * colWidth }}>
+            {/* month band — one labelled segment per month, spanning every day column it covers */}
+            <div className="flex border-b border-border/60" style={{ height: MONTH_BAND_HEIGHT }}>
+              {monthSegments.map((seg, i) => (
+                <div
+                  key={i}
+                  style={{ width: seg.span * colWidth }}
+                  className={cn(
+                    'flex items-center justify-center truncate border-l border-border/40 text-xs font-semibold text-muted-foreground',
+                    i === 0 && 'border-l-0',
                   )}
-                  {!compact && <span className="text-[11px] text-muted-foreground">{d.toLocaleDateString('en-AU', { weekday: 'short' })}</span>}
-                  <span
-                    className={
-                      isToday
-                        ? `flex items-center justify-center rounded-full bg-info font-semibold text-white ${compact ? 'size-4 text-[9px]' : 'size-6 text-xs'}`
-                        : compact
-                          ? 'text-[10px]'
-                          : 'text-sm font-medium'
-                    }
-                  >
-                    {d.getDate()}
-                  </span>
+                >
+                  {seg.label}
                 </div>
-              )
-            })}
+              ))}
+            </div>
+            <div className="flex" style={{ height: DAY_HEADER_HEIGHT }}>
+              {days.map((d, i) => {
+                const isToday = toIso(d) === todayIsoStr
+                // Quarter/Year columns are too narrow for a weekday label — just the day number.
+                const compact = colWidth < 24
+                return (
+                  <div key={i} style={{ width: colWidth }} className="flex flex-col items-center justify-end gap-0.5 pb-2">
+                    {!compact && <span className="text-[11px] text-muted-foreground">{d.toLocaleDateString('en-AU', { weekday: 'short' })}</span>}
+                    <span
+                      className={
+                        isToday
+                          ? `flex items-center justify-center rounded-full bg-info font-semibold text-white ${compact ? 'size-4 text-[9px]' : 'size-6 text-xs'}`
+                          : compact
+                            ? 'text-[10px]'
+                            : 'text-sm font-medium'
+                      }
+                    >
+                      {d.getDate()}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </div>
 
