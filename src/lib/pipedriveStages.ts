@@ -1,25 +1,46 @@
 // Pipedrive Jobs Pipeline (pipeline_id 3) stage ids this app cares about. Must stay in sync with
 // TARGET_STAGE_IDS in supabase/functions/pipedrive-sync/index.ts — duplicated rather than shared
 // since the Edge Function (Deno) and this frontend (Vite/browser) aren't part of the same build.
+//
+// This is the full stage list, for display everywhere (dropdowns, filters, Kanban columns) — not
+// all of these are schedulable, see PIPEDRIVE_TARGET_STAGE_IDS below for that subset.
 export const PIPEDRIVE_STAGE_LABELS: Record<number, string> = {
+  25: 'Admin',
   26: 'Ready to Schedule',
   27: 'Booked',
   28: 'In Progress',
+  29: 'Completed',
+  38: 'On Hold',
+  45: 'All Done & Paid',
 }
 
-export const PIPEDRIVE_TARGET_STAGE_IDS = Object.keys(PIPEDRIVE_STAGE_LABELS).map(Number)
+/** The subset of stages that can be scheduled onto the Calendar. Kept as an explicit list
+ * (not derived from PIPEDRIVE_STAGE_LABELS) so adding more real stage names above never silently
+ * changes what's schedulable. */
+export const PIPEDRIVE_TARGET_STAGE_IDS = [26, 27, 28]
 
-/** Whether a job's synced stage is one of the 3 schedulable ones above — everything else (earlier
+/** Whether a job's synced stage is one of the schedulable ones above — everything else (earlier
  * stages like Quoting, or later ones like Admin/Done) still syncs in (see the pipeline-wide fetch
  * in supabase/functions/pipedrive-sync) but can't be added to the Calendar. */
 export function isSchedulableStage(stageId: number | undefined): boolean {
   return stageId != null && PIPEDRIVE_TARGET_STAGE_IDS.includes(stageId)
 }
 
-/** Human label for any stage id, falling back to a raw id when it's outside the 3 we have real
+/** Human label for any stage id, falling back to a raw id when it's outside the ones we have real
  * names for — we don't know the exact names of every stage in the pipeline, so this stays honest
  * rather than guessing "Admin"/"Done"/etc. */
 export function stageLabel(stageId: number | undefined): string {
   if (stageId == null) return '—'
   return PIPEDRIVE_STAGE_LABELS[stageId] ?? `Stage #${stageId}`
+}
+
+/** Every stage id worth showing as an option (in the Add Job form, Advanced Filter, etc): every
+ * stage we have a real name for, unioned with any stage id actually seen on a loaded job — so a
+ * not-yet-named stage still shows up (as "Stage #N") rather than being impossible to select. */
+export function allKnownStageIds(jobs: { pipedriveStageId?: number | null }[]): number[] {
+  const ids = new Set<number>(Object.keys(PIPEDRIVE_STAGE_LABELS).map(Number))
+  for (const j of jobs) {
+    if (j.pipedriveStageId != null) ids.add(j.pipedriveStageId)
+  }
+  return Array.from(ids).sort((a, b) => a - b)
 }

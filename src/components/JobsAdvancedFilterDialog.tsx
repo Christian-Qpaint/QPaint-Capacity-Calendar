@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,16 +24,25 @@ export function JobsAdvancedFilterDialog({
   conditions,
   matchMode,
   onApply,
+  stageOptions,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   conditions: FilterCondition[]
   matchMode: MatchMode
   onApply: (conditions: FilterCondition[], matchMode: MatchMode) => void
+  /** All Pipeline stage options to offer, computed from live job data — overrides the static
+   * (schedulable-only) options baked into FILTER_FIELDS so every stage can be filtered on. */
+  stageOptions: { value: string; label: string }[]
 }) {
   const [draft, setDraft] = useState<FilterCondition[]>(conditions)
   const [draftMode, setDraftMode] = useState<MatchMode>(matchMode)
   const nextId = useRef(0)
+
+  const fields = useMemo(
+    () => FILTER_FIELDS.map((f) => (f.key === 'pipelineStage' ? { ...f, options: stageOptions } : f)),
+    [stageOptions],
+  )
 
   useEffect(() => {
     if (!open) return
@@ -55,7 +64,7 @@ export function JobsAdvancedFilterDialog({
   }
 
   function changeField(id: string, field: FilterFieldKey) {
-    const config = FILTER_FIELDS.find((f) => f.key === field)!
+    const config = fields.find((f) => f.key === field)!
     updateCondition(id, { field, operator: operatorsForType(config.type)[0].value, value: '' })
   }
 
@@ -111,14 +120,14 @@ export function JobsAdvancedFilterDialog({
 
           <div className="space-y-2">
             {draft.map((condition) => {
-              const config = FILTER_FIELDS.find((f) => f.key === condition.field)!
+              const config = fields.find((f) => f.key === condition.field)!
               const ops = operatorsForType(config.type)
               return (
                 <div key={condition.id} className="flex flex-wrap items-center gap-2 rounded-md border border-border p-2">
                   <Select value={condition.field} onValueChange={(v) => v && changeField(condition.id, v as FilterFieldKey)}>
-                    <SelectTrigger className="w-36"><SelectValue>{(v: string | null) => FILTER_FIELDS.find((f) => f.key === v)?.label}</SelectValue></SelectTrigger>
+                    <SelectTrigger className="w-36"><SelectValue>{(v: string | null) => fields.find((f) => f.key === v)?.label}</SelectValue></SelectTrigger>
                     <SelectContent>
-                      {FILTER_FIELDS.map((f) => (
+                      {fields.map((f) => (
                         <SelectItem key={f.key} value={f.key}>{f.label}</SelectItem>
                       ))}
                     </SelectContent>

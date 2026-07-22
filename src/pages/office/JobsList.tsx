@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '@/context/DataContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
-import { isSchedulableStage, stageLabel } from '@/lib/pipedriveStages'
+import { allKnownStageIds, isSchedulableStage, stageLabel } from '@/lib/pipedriveStages'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -100,7 +100,7 @@ function JobKanbanCard({
   onAddPhase: () => void
   onEdit: () => void
 }) {
-  const { job, status, allocatedHours } = row
+  const { job, status, allocatedHours, actualDollars, productionPercent } = row
   const schedulable = isSchedulableStage(job.pipedriveStageId)
   const lockReason = `"${stageLabel(job.pipedriveStageId)}" isn't a schedulable stage — only Ready to Schedule, Booked, and In Progress jobs can be added to the Calendar.`
   return (
@@ -156,6 +156,10 @@ function JobKanbanCard({
         <span className="font-medium text-foreground">{formatCurrency(job.totalValue)}</span>
         <span>{allocatedHours} / {job.targetHours} hrs</span>
       </div>
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>{formatCurrency(actualDollars)} production</span>
+        <span>{Math.round(productionPercent)}%</span>
+      </div>
     </Card>
   )
 }
@@ -188,12 +192,15 @@ export function JobsList() {
       visibleJobs.map((job) => {
         const client = clients.find((c) => c.id === job.clientId)
         const blocks = scheduleBlocks.filter((b) => b.jobId === job.id)
+        const progress = da.getJobProgress(job)
         return {
           job,
           clientName: client?.name ?? '',
           jobName: jobDisplayName(job),
           status: deriveJobStatus(blocks.map((b) => b.status)),
           allocatedHours: da.getJobPhaseHoursTotal(job.id),
+          actualDollars: progress.actualDollars,
+          productionPercent: progress.productionPercent,
         }
       }),
     [visibleJobs, clients, scheduleBlocks, da],
@@ -236,6 +243,11 @@ export function JobsList() {
         totalValue: columnRows.reduce((sum, r) => sum + r.job.totalValue, 0),
       }))
   }, [displayed])
+
+  const stageOptions = useMemo(
+    () => allKnownStageIds(jobs).map((id) => ({ value: String(id), label: stageLabel(id) })),
+    [jobs],
+  )
 
   const totalPages = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(displayed.length / pageSize))
   const safePage = Math.min(page, totalPages)
@@ -331,6 +343,8 @@ export function JobsList() {
               <SortableHead label="Pipeline stage" sortKey="pipelineStage" sort={sort} onSort={toggleSort} />
               <SortableHead label="Total value" sortKey="totalValue" sort={sort} onSort={toggleSort} />
               <SortableHead label="Target hours" sortKey="targetHours" sort={sort} onSort={toggleSort} />
+              <SortableHead label="Production $" sortKey="actualDollars" sort={sort} onSort={toggleSort} />
+              <SortableHead label="Production %" sortKey="productionPercent" sort={sort} onSort={toggleSort} />
               <SortableHead label="Status" sortKey="status" sort={sort} onSort={toggleSort} />
               <TableHead className="w-20" />
             </TableRow>
@@ -338,7 +352,7 @@ export function JobsList() {
           <TableBody>
             {displayed.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={9} className="py-8 text-center text-sm text-muted-foreground">
                   {visibleJobs.length === 0
                     ? 'No jobs yet — they appear here automatically once won in Pipedrive, or add one manually.'
                     : 'No jobs match your search / filter.'}
@@ -346,7 +360,7 @@ export function JobsList() {
               </TableRow>
             )}
             {paginated.map((row) => {
-              const { job, status, allocatedHours } = row
+              const { job, status, allocatedHours, actualDollars, productionPercent } = row
               const schedulable = isSchedulableStage(job.pipedriveStageId)
               const stageText = stageLabel(job.pipedriveStageId)
               const lockReason = `"${stageText}" isn't a schedulable stage — only Ready to Schedule, Booked, and In Progress jobs can be added to the Calendar.`
@@ -385,6 +399,8 @@ export function JobsList() {
                   <TableCell>
                     {allocatedHours} / {job.targetHours}
                   </TableCell>
+                  <TableCell>{formatCurrency(actualDollars)}</TableCell>
+                  <TableCell>{Math.round(productionPercent)}%</TableCell>
                   <TableCell>
                     <StatusPill status={status} />
                   </TableCell>
@@ -526,6 +542,7 @@ export function JobsList() {
         onOpenChange={setFilterOpen}
         conditions={conditions}
         matchMode={matchMode}
+        stageOptions={stageOptions}
         onApply={(next, mode) => {
           setConditions(next)
           setMatchMode(mode)

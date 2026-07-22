@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { JOB_CATEGORIES } from '@/lib/jobFilters'
-import { PIPEDRIVE_STAGE_LABELS, PIPEDRIVE_TARGET_STAGE_IDS, stageLabel } from '@/lib/pipedriveStages'
+import { PIPEDRIVE_TARGET_STAGE_IDS, allKnownStageIds, stageLabel } from '@/lib/pipedriveStages'
 import { cn } from '@/lib/utils'
 import { Info, Search, Trash2, TriangleAlert } from 'lucide-react'
 import type { Client, ClientType, Job } from '@/types'
@@ -77,7 +77,8 @@ export interface JobFormState {
 }
 
 export function JobFormDialog({ state, onOpenChange }: { state: JobFormState; onOpenChange: (open: boolean) => void }) {
-  const { clients, addClient, addJob, updateJob, deleteJob, scheduleBlocks } = useData()
+  const { clients, jobs, addClient, addJob, updateJob, deleteJob, scheduleBlocks } = useData()
+  const stageIds = allKnownStageIds(jobs)
   const isEdit = !!state.job
   const isManual = state.job ? state.job.pipedriveDealId.startsWith('MANUAL-') : true
 
@@ -247,8 +248,8 @@ export function JobFormDialog({ state, onOpenChange }: { state: JobFormState; on
                   <SelectValue>{(v: string | null) => (v ? stageLabel(Number(v)) : 'Select a stage')}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {PIPEDRIVE_TARGET_STAGE_IDS.map((id) => (
-                    <SelectItem key={id} value={String(id)}>{PIPEDRIVE_STAGE_LABELS[id]}</SelectItem>
+                  {stageIds.map((id) => (
+                    <SelectItem key={id} value={String(id)}>{stageLabel(id)}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

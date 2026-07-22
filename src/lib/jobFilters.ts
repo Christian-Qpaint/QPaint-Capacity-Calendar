@@ -13,6 +13,8 @@ export type FilterFieldKey =
   | 'totalValue'
   | 'targetHours'
   | 'allocatedHours'
+  | 'actualDollars'
+  | 'productionPercent'
   | 'dateWon'
 
 export type FilterFieldType = 'text' | 'number' | 'enum' | 'date'
@@ -38,6 +40,8 @@ export const FILTER_FIELDS: FilterFieldConfig[] = [
   { key: 'totalValue', label: 'Total value ($)', type: 'number' },
   { key: 'targetHours', label: 'Target hours', type: 'number' },
   { key: 'allocatedHours', label: 'Allocated hours', type: 'number' },
+  { key: 'actualDollars', label: 'Production $', type: 'number' },
+  { key: 'productionPercent', label: 'Production %', type: 'number' },
   { key: 'dateWon', label: 'Date won', type: 'date' },
 ]
 
@@ -92,6 +96,8 @@ export interface JobFilterContext {
   jobName: string
   status: string
   allocatedHours: number
+  actualDollars: number
+  productionPercent: number
 }
 
 function getFieldValue(ctx: JobFilterContext, key: FilterFieldKey): string | number {
@@ -112,6 +118,10 @@ function getFieldValue(ctx: JobFilterContext, key: FilterFieldKey): string | num
       return ctx.job.targetHours
     case 'allocatedHours':
       return ctx.allocatedHours
+    case 'actualDollars':
+      return ctx.actualDollars
+    case 'productionPercent':
+      return ctx.productionPercent
     case 'dateWon':
       return ctx.job.dateWon
   }
