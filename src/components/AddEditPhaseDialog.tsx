@@ -111,6 +111,10 @@ export function AddEditPhaseDialog({
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [phaseHours, setPhaseHours] = useState('')
+  // Tracks whether the user has actually typed into Phase target hours themselves, as opposed to
+  // it just holding whatever the last auto-fill wrote — only a real edit should stop the prefill
+  // from updating when a different job is picked.
+  const [phaseHoursTouched, setPhaseHoursTouched] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
@@ -120,6 +124,7 @@ export function AddEditPhaseDialog({
     if (!state.open) return
     setError(null)
     setConfirmingDelete(false)
+    setPhaseHoursTouched(false)
     if (state.block) {
       setJobId(state.block.jobId)
       setTeamId(state.block.teamId)
@@ -139,15 +144,21 @@ export function AddEditPhaseDialog({
 
   // New phases only — prefill from the job's Pipedrive-synced Target Hours (minus whatever's
   // already allocated to its other phases) so the common single-phase job needs no re-typing.
-  // Only kicks in while the field is untouched, so it never clobbers a manual edit.
+  // Re-runs on every job change (not just once) so picking a different job always refreshes the
+  // suggested hours — it only stops once the user has actually typed into the field themselves,
+  // so it never clobbers a manual edit. Clamped to 0 rather than skipped when a job's already
+  // fully allocated, so the field always shows a number instead of silently staying blank.
   useEffect(() => {
-    if (!state.open || isEdit || phaseHours !== '') return
+    if (!state.open || isEdit || phaseHoursTouched) return
     const job = jobs.find((j) => j.id === jobId)
-    if (!job) return
-    const remaining = job.targetHours - da.getJobPhaseHoursTotal(job.id)
-    if (remaining > 0) setPhaseHours(String(remaining))
+    if (!job) {
+      setPhaseHours('')
+      return
+    }
+    const remaining = Math.max(0, job.targetHours - da.getJobPhaseHoursTotal(job.id))
+    setPhaseHours(String(remaining))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId, state.open, isEdit])
+  }, [jobId, state.open, isEdit, phaseHoursTouched])
 
   const job = jobs.find((j) => j.id === jobId)
   const previewValue = job ? phaseValue(job.totalValue, Number(phaseHours) || 0, job.targetHours) : 0
@@ -187,7 +198,11 @@ export function AddEditPhaseDialog({
 
   return (
     <Dialog open={state.open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      {/* Editing an existing phase: don't auto-focus into the Job field on open — it's a search
+          box that opens its own dropdown on focus, which would otherwise pop open unprompted and
+          cover the rest of the modal the moment you click a booked phase. Creating a new phase
+          keeps the default (jump straight into picking a job when none is locked in yet). */}
+      <DialogContent initialFocus={isEdit ? false : undefined}>
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit phase' : 'Add a phase'}</DialogTitle>
         </DialogHeader>
@@ -257,7 +272,15 @@ export function AddEditPhaseDialog({
             </div>
             <div className="space-y-1.5">
               <Label>Phase target hours</Label>
-              <Input type="number" placeholder="0" value={phaseHours} onChange={(e) => setPhaseHours(e.target.value)} />
+              <Input
+                type="number"
+                placeholder="0"
+                value={phaseHours}
+                onChange={(e) => {
+                  setPhaseHours(e.target.value)
+                  setPhaseHoursTouched(true)
+                }}
+              />
             </div>
           </div>
           <p className="text-sm text-muted-foreground">
