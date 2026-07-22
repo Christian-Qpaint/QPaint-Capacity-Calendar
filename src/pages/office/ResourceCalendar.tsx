@@ -15,6 +15,7 @@ import { AddEditPhaseDialog, type PhaseDialogState } from '@/components/AddEditP
 import { ColorSwatchInput } from '@/components/ColorSwatchInput'
 import { TeamColorDot } from '@/components/TeamColorDot'
 import { getTeamColors, getTeamGradient } from '@/lib/teamColors'
+import { jobDisplayName } from '@/lib/jobDisplay'
 import { cn } from '@/lib/utils'
 import {
   addDays,
@@ -390,13 +391,21 @@ export function ResourceCalendar() {
             <div
               key={`label-${row.key}`}
               style={{ height: ROW_HEIGHT }}
-              className={`flex items-center gap-2 border-t border-border/60 pr-2 pl-4 text-sm ${
+              className={cn(
+                'flex items-center gap-2 border-t border-border/60 pr-2 pl-4 text-sm',
+                // Rows with no teamId (section dividers + multi-crew contractor company rows)
+                // can't be clicked to add a phase — a muted band across the whole row (label +
+                // grid, see the row-background block below) makes that obvious instead of looking
+                // just like any other crew row.
+                !row.teamId && 'bg-muted/40',
                 row.sectionHeader
                   ? 'border-t-2 border-t-foreground/20 text-xs font-semibold tracking-wide text-muted-foreground uppercase'
                   : row.indent
                     ? 'pl-8 text-muted-foreground'
-                    : 'font-medium'
-              }`}
+                    : row.teamId
+                      ? 'font-medium'
+                      : 'font-medium text-muted-foreground',
+              )}
             >
               {!row.sectionHeader && row.teamId && (
                 <ColorSwatchInput
@@ -435,6 +444,20 @@ export function ResourceCalendar() {
                   key={i}
                   style={{ gridColumn: i + 1, gridRow: `1 / ${rows.length + 1}` }}
                   className={`border-l border-border/60 ${isToday ? 'bg-info-bg/70' : isWeekend ? 'bg-muted/50' : ''}`}
+                />
+              )
+            })}
+
+            {/* row backgrounds for non-clickable rows (section dividers + multi-crew contractor
+                company rows) — nothing here has a teamId to add a phase against, so a muted band
+                across the full row signals that instead of looking identical to a real crew row. */}
+            {rows.map((row, rowIdx) => {
+              if (row.teamId) return null
+              return (
+                <div
+                  key={`rowbg-${row.key}`}
+                  style={{ gridColumn: `1 / ${days.length + 1}`, gridRow: rowIdx + 1 }}
+                  className="bg-muted/40"
                 />
               )
             })}
@@ -515,7 +538,7 @@ export function ResourceCalendar() {
                 const clippedStart = effStart < windowStart ? windowStart : effStart
                 const clippedEnd = effEnd > windowEnd ? windowEnd : effEnd
                 const warn = runsIntoWeekend(toIso(effEnd))
-                const label = `${block.workArea} · ${job?.address ?? ''}`
+                const label = `${block.workArea} · ${job ? jobDisplayName(job) : ''}`
                 return (
                   <button
                     key={block.id}
