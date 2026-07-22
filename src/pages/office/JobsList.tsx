@@ -106,7 +106,7 @@ function JobKanbanCard({
   const lockReason = `"${stageLabel(job.pipedriveStageId)}" isn't a schedulable stage — only Ready to Schedule, Booked, and In Progress jobs can be added to the Calendar.`
   return (
     <Card
-      className={cn('cursor-pointer gap-2 p-3 transition hover:shadow-md', !schedulable && 'opacity-70 grayscale-[35%]')}
+      className={cn('cursor-pointer gap-2 p-3 transition hover:shadow-md', !schedulable && 'opacity-40 grayscale-[90%] hover:opacity-60')}
       onClick={onNavigate}
       title={schedulable ? undefined : lockReason}
     >
@@ -370,7 +370,7 @@ export function JobsList() {
                   key={job.id}
                   className={cn(
                     'cursor-pointer',
-                    schedulable ? JOB_ROW_STATUS_STYLES[status] : 'opacity-60 grayscale-[35%] hover:opacity-80',
+                    schedulable ? JOB_ROW_STATUS_STYLES[status] : 'opacity-40 grayscale-[90%] hover:opacity-60',
                   )}
                   onClick={() => navigate(`/jobs/${job.id}`)}
                   title={schedulable ? undefined : lockReason}

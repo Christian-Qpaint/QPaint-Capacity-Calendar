@@ -43,11 +43,19 @@ function ok(body: Record<string, unknown>) {
 function isAuthorized(req: Request): boolean {
   const user = Deno.env.get('PIPEDRIVE_WEBHOOK_USER')
   const pass = Deno.env.get('PIPEDRIVE_WEBHOOK_PASS')
-  if (!user || !pass) return false
+  if (!user || !pass) {
+    console.error('pipedrive-webhook: PIPEDRIVE_WEBHOOK_USER/PIPEDRIVE_WEBHOOK_PASS secret is not set on this function')
+    return false
+  }
   const header = req.headers.get('Authorization') ?? ''
-  if (!header.startsWith('Basic ')) return false
+  if (!header.startsWith('Basic ')) {
+    console.error(`pipedrive-webhook: no Basic auth header on incoming request (got: ${header ? 'a different auth scheme' : 'no Authorization header at all'})`)
+    return false
+  }
   const decoded = atob(header.slice('Basic '.length))
-  return decoded === `${user}:${pass}`
+  const match = decoded === `${user}:${pass}`
+  if (!match) console.error('pipedrive-webhook: Basic auth credentials on the request do not match the configured secret')
+  return match
 }
 
 Deno.serve(async (req) => {
