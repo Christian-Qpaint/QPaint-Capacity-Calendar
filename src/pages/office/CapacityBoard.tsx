@@ -6,10 +6,12 @@ import { useCurrentUser } from '@/context/AuthContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
 import { canManageTargets, isOfficeRole } from '@/lib/permissions'
 import { jobDisplayName } from '@/lib/jobDisplay'
+import { cn } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
+import { Badge } from '@/components/ui/badge'
 import { CategoryPill } from '@/components/StatusBadges'
 import { ClientTypeIcon } from '@/components/ClientTypeIcon'
 import { TeamColorDot } from '@/components/TeamColorDot'
@@ -23,7 +25,19 @@ import {
   weekEnd,
   weekStart,
 } from '@/lib/schedule'
-import { History, MapPin, Pencil, Settings, TriangleAlert } from 'lucide-react'
+import {
+  CalendarCheck,
+  Clock,
+  History,
+  MapPin,
+  Pencil,
+  Percent,
+  Settings,
+  Target,
+  TrendingDown,
+  TrendingUp,
+  TriangleAlert,
+} from 'lucide-react'
 import type { JobProgress } from '@/lib/dataAccess'
 import type { Job, Team } from '@/types'
 
@@ -113,10 +127,15 @@ function JobProgressCard({
   }
 
   return (
-    <Card className="gap-3 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0 space-y-1">
-          <Link to={`/jobs/${job.id}`} className="flex items-center gap-1.5 text-sm font-medium hover:underline">
+    <Card
+      className={cn(
+        'gap-3 border-l-4 p-4 transition hover:shadow-md',
+        progress.isOverBudget ? 'border-l-danger' : 'border-l-transparent',
+      )}
+    >
+      <div className="space-y-2">
+        <div className="min-w-0 space-y-0.5">
+          <Link to={`/jobs/${job.id}`} className="flex items-center gap-1.5 text-sm font-semibold hover:underline">
             <MapPin className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
             <span className="truncate">{jobDisplayName(job)}</span>
           </Link>
@@ -125,7 +144,7 @@ function JobProgressCard({
             {client?.name ?? 'Unknown client'}
           </p>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <CategoryPill category={job.category} />
           {teams.map((t) => (
             <span key={t.id} className="flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
@@ -136,8 +155,28 @@ function JobProgressCard({
         </div>
       </div>
 
-      <div className="space-y-1.5">
-        <p className="text-xs font-medium text-muted-foreground">Production</p>
+      <div className="space-y-1.5 border-t border-border pt-3">
+        <div className="flex items-center justify-between">
+          <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <Percent className="size-3.5" /> Production
+          </p>
+          {!editingProduction && (
+            <div className="flex items-center gap-1.5">
+              <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">
+                {job.productionPercentSource === 'manual' ? 'Manual' : 'Computed'}
+              </Badge>
+              {canEditProgress && (
+                <button
+                  onClick={openEditProduction}
+                  aria-label="Edit production percent"
+                  className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
 
         {editingProduction ? (
           <div className="space-y-2">
@@ -163,38 +202,49 @@ function JobProgressCard({
         ) : (
           <>
             <div className="flex items-center gap-3">
-              <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                <div className="h-full bg-success-fill" style={{ width: `${Math.min(100, Math.max(0, progress.productionPercent))}%` }} />
+              <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-success-fill transition-[width]"
+                  style={{ width: `${Math.min(100, Math.max(0, progress.productionPercent))}%` }}
+                />
               </div>
-              <span className="w-12 shrink-0 text-right text-sm font-medium">{Math.round(progress.productionPercent)}%</span>
+              <span className="w-12 shrink-0 text-right text-sm font-semibold">{Math.round(progress.productionPercent)}%</span>
             </div>
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-muted-foreground">
-                {formatCurrency(progress.actualDollars)} / {formatCurrency(progress.dealValue)}
-              </p>
-              <div className="flex items-center gap-1.5">
-                <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                  {job.productionPercentSource === 'manual' ? 'Manual' : 'Computed'}
-                </span>
-                {canEditProgress && (
-                  <button onClick={openEditProduction} aria-label="Edit production percent">
-                    <Pencil className="size-3.5 text-muted-foreground hover:text-foreground" />
-                  </button>
-                )}
-              </div>
-            </div>
+            <p className="text-xs text-muted-foreground">
+              {formatCurrency(progress.actualDollars)} <span className="text-muted-foreground/60">of</span> {formatCurrency(progress.dealValue)}
+            </p>
           </>
         )}
       </div>
 
-      <div className="space-y-1.5">
+      <div className="space-y-1.5 border-t border-border pt-3">
         <div className="flex items-center justify-between">
-          <p className="text-xs font-medium text-muted-foreground">Hours</p>
-          {progress.isOverBudget && (
-            <span className="flex items-center gap-1 rounded-md bg-danger-bg px-1.5 py-0.5 text-xs font-medium text-danger animate-pulse">
-              <TriangleAlert className="size-3" /> Over budget
-            </span>
-          )}
+          <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <Clock className="size-3.5" /> Hours
+          </p>
+          <div className="flex items-center gap-1.5">
+            {progress.isOverBudget && (
+              <span className="flex items-center gap-1 rounded-md bg-danger-bg px-1.5 py-0.5 text-xs font-medium text-danger animate-pulse">
+                <TriangleAlert className="size-3" /> Over budget
+              </span>
+            )}
+            {!editing && (
+              <>
+                <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">
+                  {job.actualHoursSource === 'manual' ? 'Manual' : 'Logged'}
+                </Badge>
+                {canEditProgress && (
+                  <button
+                    onClick={openEdit}
+                    aria-label="Edit actual hours"
+                    className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <Pencil className="size-3.5" />
+                  </button>
+                )}
+              </>
+            )}
+          </div>
         </div>
 
         {editing ? (
@@ -216,31 +266,19 @@ function JobProgressCard({
         ) : (
           <>
             <div className="flex items-center gap-3">
-              <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+              <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
                 <div
-                  className={`h-full ${progress.isOverBudget ? 'bg-danger-fill' : 'bg-info-fill'}`}
+                  className={cn('h-full rounded-full transition-[width]', progress.isOverBudget ? 'bg-danger-fill' : 'bg-info-fill')}
                   style={{ width: `${Math.min(100, Math.max(0, hoursPercent))}%` }}
                 />
               </div>
-              <span className={`w-12 shrink-0 text-right text-sm font-medium ${progress.isOverBudget ? 'text-danger' : ''}`}>
+              <span className={cn('w-12 shrink-0 text-right text-sm font-semibold', progress.isOverBudget && 'text-danger')}>
                 {Math.round(hoursPercent)}%
               </span>
             </div>
-            <div className="flex items-center justify-between">
-              <span className={`text-sm font-medium ${progress.isOverBudget ? 'text-danger' : 'text-foreground'}`}>
-                {Math.round(progress.actualHours)} / {progress.targetHours} hrs
-              </span>
-              <div className="flex items-center gap-1.5">
-                <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                  {job.actualHoursSource === 'manual' ? 'Manual' : 'Logged'}
-                </span>
-                {canEditProgress && (
-                  <button onClick={openEdit} aria-label="Edit actual hours">
-                    <Pencil className="size-3.5 text-muted-foreground hover:text-foreground" />
-                  </button>
-                )}
-              </div>
-            </div>
+            <p className={cn('text-xs', progress.isOverBudget ? 'font-medium text-danger' : 'text-muted-foreground')}>
+              {Math.round(progress.actualHours)} <span className={progress.isOverBudget ? '' : 'text-muted-foreground/60'}>of</span> {progress.targetHours} hrs
+            </p>
           </>
         )}
       </div>
@@ -318,25 +356,50 @@ export function CapacityBoard() {
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="gap-1 p-4">
-          <p className="text-xs text-muted-foreground">{isMonthly ? 'Monthly target' : 'Weekly target'}</p>
-          <p className="text-2xl font-medium">{formatCurrency(targetTotal)}</p>
+        <Card className="gap-2 p-4 transition hover:shadow-md">
+          <div className="flex items-center gap-2">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+              <Target className="size-4" />
+            </span>
+            <p className="text-xs text-muted-foreground">{isMonthly ? 'Monthly target' : 'Weekly target'}</p>
+          </div>
+          <p className="text-2xl font-semibold tracking-tight">{formatCurrency(targetTotal)}</p>
           {!monthlyTargetRow && (
             <p className="text-xs text-muted-foreground">No target set for this month</p>
           )}
         </Card>
-        <Card className="gap-1 p-4">
-          <p className="text-xs text-muted-foreground">Scheduled this {isMonthly ? 'month' : 'week'}</p>
-          <p className="text-2xl font-medium">{formatCurrency(scheduledTotal)}</p>
+        <Card className="gap-2 p-4 transition hover:shadow-md">
+          <div className="flex items-center gap-2">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-info-bg text-info">
+              <CalendarCheck className="size-4" />
+            </span>
+            <p className="text-xs text-muted-foreground">Scheduled this {isMonthly ? 'month' : 'week'}</p>
+          </div>
+          <p className="text-2xl font-semibold tracking-tight">{formatCurrency(scheduledTotal)}</p>
         </Card>
-        <Card className="gap-1 p-4">
-          <p className="text-xs text-muted-foreground">Actual</p>
-          <p className="text-2xl font-medium">{formatCurrency(actualTotal)}</p>
+        <Card className="gap-2 p-4 transition hover:shadow-md">
+          <div className="flex items-center gap-2">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-success-bg text-success">
+              <TrendingUp className="size-4" />
+            </span>
+            <p className="text-xs text-muted-foreground">Actual</p>
+          </div>
+          <p className="text-2xl font-semibold tracking-tight">{formatCurrency(actualTotal)}</p>
           <p className="text-xs text-muted-foreground">Production % × deal value, across active jobs</p>
         </Card>
-        <Card className={`gap-1 p-4 ${gap < 0 ? 'bg-warning-bg' : 'bg-success-bg'}`}>
-          <p className={`text-xs ${gap < 0 ? 'text-warning' : 'text-success'}`}>Gap to target</p>
-          <p className={`text-2xl font-medium ${gap < 0 ? 'text-warning' : 'text-success'}`}>{formatCurrency(gap)}</p>
+        <Card className={cn('gap-2 p-4 transition hover:shadow-md', gap < 0 ? 'bg-warning-bg' : 'bg-success-bg')}>
+          <div className="flex items-center gap-2">
+            <span
+              className={cn(
+                'flex size-8 shrink-0 items-center justify-center rounded-full',
+                gap < 0 ? 'bg-warning/15 text-warning' : 'bg-success/15 text-success',
+              )}
+            >
+              {gap < 0 ? <TrendingDown className="size-4" /> : <TrendingUp className="size-4" />}
+            </span>
+            <p className={cn('text-xs', gap < 0 ? 'text-warning' : 'text-success')}>Gap to target</p>
+          </div>
+          <p className={cn('text-2xl font-semibold tracking-tight', gap < 0 ? 'text-warning' : 'text-success')}>{formatCurrency(gap)}</p>
         </Card>
       </div>
 
@@ -344,10 +407,13 @@ export function CapacityBoard() {
 
       <section className="space-y-3">
         <div>
-          <h2 className="text-base font-medium">Jobs</h2>
+          <h2 className="flex items-center gap-2 text-base font-medium">
+            Jobs
+            {jobRows.length > 0 && <Badge variant="secondary">{jobRows.length}</Badge>}
+          </h2>
           <p className="text-xs text-muted-foreground">Active jobs already on the Calendar — Production % and Hours tracked per job.</p>
         </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {jobRows.length === 0 && (
             <p className="col-span-full rounded-md border border-dashed border-border py-8 text-center text-sm text-muted-foreground">
               No active jobs scheduled yet — jobs appear here once they're on the Calendar.
