@@ -24,14 +24,20 @@ import {
   formatDateRange,
   formatFullDate,
   formatMonthLabel,
+  formatQuarterLabel,
+  formatYearLabel,
   monthEnd,
   monthStart,
+  quarterEnd,
+  quarterStart,
   runsIntoWeekend,
   toDate,
   weekEnd,
   weekStart,
+  yearEnd,
+  yearStart,
 } from '@/lib/schedule'
-import { ChevronLeft, ChevronRight, ListFilter, TriangleAlert } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ListFilter, TriangleAlert } from 'lucide-react'
 import type { ScheduleBlock } from '@/types'
 
 type DragKind = 'move' | 'resize-start' | 'resize-end'
@@ -54,12 +60,15 @@ interface DragMeta extends DragPreview {
   originClientY: number
 }
 
-type ViewMode = 'day' | 'week' | 'month'
+type ViewMode = 'day' | 'week' | 'month' | 'quarter' | 'year'
 
 const ROW_HEIGHT = 56
 const HEADER_HEIGHT = 56
 const LABEL_COL_WIDTH = 220
-const DAY_COL_WIDTH: Record<ViewMode, number> = { day: 480, week: 128, month: 60 }
+// Quarter/year are deliberately zoomed way out — a bird's-eye view of what's booked, not a
+// precise editing surface — so their columns are narrow and the grid just scrolls a long way
+// horizontally rather than trying to compress a whole quarter/year to a readable day width.
+const DAY_COL_WIDTH: Record<ViewMode, number> = { day: 480, week: 128, month: 60, quarter: 32, year: 12 }
 
 function toIso(d: Date): string {
   // Format local Y-M-D directly — toISOString() converts to UTC first, which shifts the date
@@ -103,6 +112,8 @@ export function ResourceCalendar() {
   const days = useMemo(() => {
     if (viewMode === 'day') return [anchor]
     if (viewMode === 'month') return eachDayInRange(monthStart(anchor), monthEnd(anchor))
+    if (viewMode === 'quarter') return eachDayInRange(quarterStart(anchor), quarterEnd(quarterStart(anchor)))
+    if (viewMode === 'year') return eachDayInRange(yearStart(anchor), yearEnd(anchor))
     return eachDayInRange(weekStart(anchor), weekEnd(weekStart(anchor)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, anchor.getTime()])
@@ -165,15 +176,25 @@ export function ResourceCalendar() {
   function goPrev() {
     if (viewMode === 'day') setAnchor((a) => addDays(a, -1))
     else if (viewMode === 'month') setAnchor((a) => addMonths(a, -1))
+    else if (viewMode === 'quarter') setAnchor((a) => addMonths(a, -3))
+    else if (viewMode === 'year') setAnchor((a) => addMonths(a, -12))
     else setAnchor((a) => addDays(a, -7))
   }
   function goNext() {
     if (viewMode === 'day') setAnchor((a) => addDays(a, 1))
     else if (viewMode === 'month') setAnchor((a) => addMonths(a, 1))
+    else if (viewMode === 'quarter') setAnchor((a) => addMonths(a, 3))
+    else if (viewMode === 'year') setAnchor((a) => addMonths(a, 12))
     else setAnchor((a) => addDays(a, 7))
   }
   function goToday() {
     setAnchor(new Date())
+  }
+  function jumpMonth(n: number) {
+    setAnchor((a) => addMonths(a, n))
+  }
+  function jumpQuarter(n: number) {
+    setAnchor((a) => addMonths(a, n * 3))
   }
 
   function openCreate(teamId: string, date: Date) {
@@ -268,7 +289,15 @@ export function ResourceCalendar() {
   }
 
   const periodLabel =
-    viewMode === 'day' ? formatFullDate(anchor) : viewMode === 'month' ? formatMonthLabel(anchor) : `Week of ${formatDateRange(windowStart, windowEnd)}`
+    viewMode === 'day'
+      ? formatFullDate(anchor)
+      : viewMode === 'month'
+        ? formatMonthLabel(anchor)
+        : viewMode === 'quarter'
+          ? formatQuarterLabel(windowStart)
+          : viewMode === 'year'
+            ? formatYearLabel(windowStart)
+            : `Week of ${formatDateRange(windowStart, windowEnd)}`
 
   const selectedCount = effectiveSelected.length
   const totalCount = teams.length
@@ -282,6 +311,8 @@ export function ResourceCalendar() {
           <Button size="sm" variant={viewMode === 'day' ? 'secondary' : 'ghost'} onClick={() => setViewMode('day')}>Day</Button>
           <Button size="sm" variant={viewMode === 'week' ? 'secondary' : 'ghost'} onClick={() => setViewMode('week')}>Week</Button>
           <Button size="sm" variant={viewMode === 'month' ? 'secondary' : 'ghost'} onClick={() => setViewMode('month')}>Month</Button>
+          <Button size="sm" variant={viewMode === 'quarter' ? 'secondary' : 'ghost'} onClick={() => setViewMode('quarter')}>Quarter</Button>
+          <Button size="sm" variant={viewMode === 'year' ? 'secondary' : 'ghost'} onClick={() => setViewMode('year')}>Year</Button>
         </div>
       </div>
 
@@ -291,6 +322,27 @@ export function ResourceCalendar() {
           <Button size="sm" variant="outline" onClick={goToday}>Today</Button>
           <Button size="icon-sm" variant="outline" onClick={goNext} aria-label="Next period"><ChevronRight /></Button>
           <span className="ml-1 text-base font-medium">{periodLabel}</span>
+
+          {/* Quick-jump controls, independent of the current view's own Prev/Next step — handy for
+              skipping around quickly while zoomed into Quarter/Year without spamming Prev/Next. */}
+          <div className="ml-2 flex items-center gap-1 rounded-md border border-border p-0.5">
+            <Button size="icon-sm" variant="ghost" onClick={() => jumpMonth(-1)} aria-label="Back a month" title="Back a month">
+              <ChevronsLeft className="size-3.5" />
+            </Button>
+            <span className="px-0.5 text-[11px] text-muted-foreground">Month</span>
+            <Button size="icon-sm" variant="ghost" onClick={() => jumpMonth(1)} aria-label="Forward a month" title="Forward a month">
+              <ChevronsRight className="size-3.5" />
+            </Button>
+          </div>
+          <div className="flex items-center gap-1 rounded-md border border-border p-0.5">
+            <Button size="icon-sm" variant="ghost" onClick={() => jumpQuarter(-1)} aria-label="Back a quarter" title="Back a quarter">
+              <ChevronsLeft className="size-3.5" />
+            </Button>
+            <span className="px-0.5 text-[11px] text-muted-foreground">Quarter</span>
+            <Button size="icon-sm" variant="ghost" onClick={() => jumpQuarter(1)} aria-label="Forward a quarter" title="Forward a quarter">
+              <ChevronsRight className="size-3.5" />
+            </Button>
+          </div>
         </div>
 
         <DropdownMenu>
@@ -363,14 +415,26 @@ export function ResourceCalendar() {
           <div className="flex" style={{ width: days.length * colWidth }}>
             {days.map((d, i) => {
               const isToday = toIso(d) === todayIsoStr
+              // Quarter/Year columns are too narrow for a weekday label — just the day number,
+              // plus a small month tag at each month boundary so it's still possible to tell where
+              // you are while scrolling through a long zoomed-out range.
+              const compact = colWidth < 24
+              const isMonthStart = d.getDate() === 1
               return (
-                <div key={i} style={{ width: colWidth }} className="flex flex-col items-center justify-end gap-0.5 pb-2">
-                  <span className="text-[11px] text-muted-foreground">{d.toLocaleDateString('en-AU', { weekday: 'short' })}</span>
+                <div key={i} style={{ width: colWidth }} className="relative flex flex-col items-center justify-end gap-0.5 pb-2">
+                  {compact && isMonthStart && (
+                    <span className="absolute top-1 left-0.5 text-[8px] font-semibold tracking-wide whitespace-nowrap text-muted-foreground uppercase">
+                      {d.toLocaleDateString('en-AU', { month: 'short' })}
+                    </span>
+                  )}
+                  {!compact && <span className="text-[11px] text-muted-foreground">{d.toLocaleDateString('en-AU', { weekday: 'short' })}</span>}
                   <span
                     className={
                       isToday
-                        ? 'flex size-6 items-center justify-center rounded-full bg-info text-xs font-semibold text-white'
-                        : 'text-sm font-medium'
+                        ? `flex items-center justify-center rounded-full bg-info font-semibold text-white ${compact ? 'size-4 text-[9px]' : 'size-6 text-xs'}`
+                        : compact
+                          ? 'text-[10px]'
+                          : 'text-sm font-medium'
                     }
                   >
                     {d.getDate()}
@@ -435,15 +499,21 @@ export function ResourceCalendar() {
               minHeight: rows.length * ROW_HEIGHT,
             }}
           >
-            {/* column backgrounds: weekend tint + today highlight, full height */}
+            {/* column backgrounds: weekend tint + today highlight, full height. A slightly bolder
+                left border on the 1st of each month gives Quarter/Year's long scroll a visual
+                anchor — otherwise hundreds of narrow same-width columns are hard to scan. */}
             {days.map((d, i) => {
               const isWeekend = d.getDay() === 0 || d.getDay() === 6
               const isToday = toIso(d) === todayIsoStr
+              const isMonthStart = d.getDate() === 1
               return (
                 <div
                   key={i}
                   style={{ gridColumn: i + 1, gridRow: `1 / ${rows.length + 1}` }}
-                  className={`border-l border-border/60 ${isToday ? 'bg-info-bg/70' : isWeekend ? 'bg-muted/50' : ''}`}
+                  className={cn(
+                    isMonthStart ? 'border-l-2 border-l-foreground/20' : 'border-l border-border/60',
+                    isToday ? 'bg-info-bg/70' : isWeekend ? 'bg-muted/50' : '',
+                  )}
                 />
               )
             })}

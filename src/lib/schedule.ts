@@ -89,6 +89,30 @@ export function monthEnd(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth() + 1, 0)
 }
 
+export function quarterStart(d: Date): Date {
+  return new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3, 1)
+}
+
+export function quarterEnd(start: Date): Date {
+  return new Date(start.getFullYear(), start.getMonth() + 3, 0)
+}
+
+export function yearStart(d: Date): Date {
+  return new Date(d.getFullYear(), 0, 1)
+}
+
+export function yearEnd(d: Date): Date {
+  return new Date(d.getFullYear(), 11, 31)
+}
+
+export function formatQuarterLabel(start: Date): string {
+  return `Q${Math.floor(start.getMonth() / 3) + 1} ${start.getFullYear()}`
+}
+
+export function formatYearLabel(start: Date): string {
+  return String(start.getFullYear())
+}
+
 export function formatDateRange(start: Date, end: Date): string {
   const sameMonth = start.getMonth() === end.getMonth()
   const dayFmt = (d: Date) => d.getDate()
