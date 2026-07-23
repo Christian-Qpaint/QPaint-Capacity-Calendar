@@ -3,10 +3,10 @@ import { cn } from '@/lib/utils'
 import { AccountMenu } from '@/components/AccountMenu'
 
 const NAV_ITEMS = [
-  { to: '/capacity', label: 'Capacity Board' },
-  { to: '/jobs', label: 'Jobs List' },
-  { to: '/calendar', label: 'Calendar' },
-  { to: '/setup', label: 'Setup' },
+  { to: '/jobs', label: 'Deals' },
+  { to: '/calendar', label: 'Scheduler' },
+  { to: '/capacity', label: 'Production' },
+  { to: '/setup', label: 'Settings' },
 ]
 
 export function OfficeLayout() {
