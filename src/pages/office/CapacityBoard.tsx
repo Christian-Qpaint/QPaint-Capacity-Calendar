@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { useData } from '@/context/DataContext'
 import { useCurrentUser } from '@/context/AuthContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
+import { usePersistedState } from '@/hooks/usePersistedState'
 import { canManageTargets, isOfficeRole } from '@/lib/permissions'
 import { jobDisplayName } from '@/lib/jobDisplay'
 import { cn } from '@/lib/utils'
@@ -483,13 +484,13 @@ export function CapacityBoard() {
   const { jobs, clients, teams, scheduleBlocks, monthlyTargets } = useData()
   const currentUser = useCurrentUser()
   const da = useDataAccess()
-  const [isMonthly, setIsMonthly] = useState(false)
+  const [isMonthly, setIsMonthly] = usePersistedState('qpaint:capacity:isMonthly', false)
   const [anchor] = useState(() => new Date())
   const [targetDialogOpen, setTargetDialogOpen] = useState(false)
-  const [jobSearch, setJobSearch] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState<'all' | JobCategory>('all')
-  const [overBudgetOnly, setOverBudgetOnly] = useState(false)
-  const [jobsView, setJobsView] = useState<'cards' | 'table'>('cards')
+  const [jobSearch, setJobSearch] = usePersistedState('qpaint:capacity:jobSearch', '')
+  const [categoryFilter, setCategoryFilter] = usePersistedState<'all' | JobCategory>('qpaint:capacity:categoryFilter', 'all')
+  const [overBudgetOnly, setOverBudgetOnly] = usePersistedState('qpaint:capacity:overBudgetOnly', false)
+  const [jobsView, setJobsView] = usePersistedState<'cards' | 'table'>('qpaint:capacity:jobsView', 'cards')
 
   const windowStart = isMonthly ? monthStart(anchor) : weekStart(anchor)
   const windowEnd = isMonthly ? monthEnd(anchor) : weekEnd(weekStart(anchor))

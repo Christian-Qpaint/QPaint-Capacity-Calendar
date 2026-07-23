@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useData } from '@/context/DataContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
+import { usePersistedState } from '@/hooks/usePersistedState'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import {
@@ -140,8 +141,11 @@ interface Row {
 export function ResourceCalendar() {
   const { teams, contractors, scheduleBlocks, jobs, monthlyTargets, updateTeam, updateScheduleBlock } = useData()
   const da = useDataAccess()
-  const [viewMode, setViewMode] = useState<ViewMode>('week')
-  const [anchor, setAnchor] = useState(() => new Date())
+  const [viewMode, setViewMode] = usePersistedState<ViewMode>('qpaint:calendar:viewMode', 'week')
+  const [anchor, setAnchor] = usePersistedState<Date>('qpaint:calendar:anchor', new Date(), {
+    serialize: (d) => d.toISOString(),
+    deserialize: (s) => new Date(s),
+  })
   // 'all' means every team; once the user touches a checkbox it becomes an explicit id list.
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[] | 'all'>('all')
   const [dialogState, setDialogState] = useState<PhaseDialogState>({ open: false, block: null })
@@ -217,16 +221,11 @@ export function ResourceCalendar() {
 
   const scheduledTotal = da.getScheduledDollarsInWindow(windowStart, windowEnd)
 
-  // Actual $ scoped to jobs actually scheduled somewhere in the current view — each job's own
-  // Production %/deal-value figure is still a whole-job cumulative number (that's how the data
-  // model works, see getJobProgress), but which jobs count toward the total does change per view.
-  const actualTotal = useMemo(() => {
-    const jobsInWindow = jobs.filter((j) =>
-      scheduleBlocks.some((b) => b.jobId === j.id && toDate(b.startDate) <= windowEndOfDay && toDate(b.endDate) >= windowStart),
-    )
-    return jobsInWindow.reduce((sum, j) => sum + da.getJobProgress(j).actualDollars, 0)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobs, scheduleBlocks, windowStart, windowEndOfDay])
+  // Actual $ prorated to this window — a job whose blocks span multiple months only contributes
+  // the portion of its production attributable to the days actually in view, instead of crediting
+  // the job's whole cumulative Actual $ to every month any of its blocks touch (see
+  // getActualDollarsInWindow for the previous bug this replaced).
+  const actualTotal = da.getActualDollarsInWindow(windowStart, windowEnd)
 
   const gap = scheduledTotal - targetInfo.total
 

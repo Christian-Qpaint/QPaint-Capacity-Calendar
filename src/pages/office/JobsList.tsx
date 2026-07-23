@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '@/context/DataContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
+import { usePersistedState } from '@/hooks/usePersistedState'
 import { allKnownStageIds, stageColor, stageLabel } from '@/lib/pipedriveStages'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Card } from '@/components/ui/card'
@@ -158,16 +159,16 @@ export function JobsList() {
   const da = useDataAccess()
   const navigate = useNavigate()
 
-  const [search, setSearch] = useState('')
-  const [sort, setSort] = useState<SortState>({ key: null, direction: 'asc' })
+  const [search, setSearch] = usePersistedState('qpaint:jobsList:search', '')
+  const [sort, setSort] = usePersistedState<SortState>('qpaint:jobsList:sort', { key: null, direction: 'asc' })
   const [filterOpen, setFilterOpen] = useState(false)
-  const [conditions, setConditions] = useState<FilterCondition[]>([])
-  const [matchMode, setMatchMode] = useState<MatchMode>('AND')
+  const [conditions, setConditions] = usePersistedState<FilterCondition[]>('qpaint:jobsList:conditions', [])
+  const [matchMode, setMatchMode] = usePersistedState<MatchMode>('qpaint:jobsList:matchMode', 'AND')
   const [phaseDialogState, setPhaseDialogState] = useState<PhaseDialogState>({ open: false, block: null })
   const [phaseDialogJobId, setPhaseDialogJobId] = useState<string | null>(null)
-  const [pageSize, setPageSize] = useState<PageSize>(10)
-  const [page, setPage] = useState(1)
-  const [viewMode, setViewMode] = useState<ViewMode>('table')
+  const [pageSize, setPageSize] = usePersistedState<PageSize>('qpaint:jobsList:pageSize', 10)
+  const [page, setPage] = usePersistedState('qpaint:jobsList:page', 1)
+  const [viewMode, setViewMode] = usePersistedState<ViewMode>('qpaint:jobsList:viewMode', 'table')
   const [jobFormState, setJobFormState] = useState<JobFormState>({ open: false, job: null })
 
   // Every synced job shows up here, and can be scheduled onto the Calendar, regardless of its

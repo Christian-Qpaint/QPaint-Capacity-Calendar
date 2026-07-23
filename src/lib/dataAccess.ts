@@ -57,6 +57,42 @@ export function getScheduledDollarsInWindow(db: DB, windowStart: Date, windowEnd
   return db.teams.reduce((sum, team) => sum + teamScheduledInWindow(db, team.id, windowStart, windowEnd).dollars, 0)
 }
 
+/** Actual $ attributable to a window, e.g. "how much production actually happened in August" —
+ * mirrors getScheduledDollarsInWindow's block-hour clipping (a block spanning a month boundary
+ * only contributes its in-window share) but weighted by production instead of full scheduled
+ * value. Fixes a bug where a job with blocks touching multiple months had its WHOLE cumulative
+ * Actual $ counted toward every one of those months (so a long job that's 100% done could show
+ * its full deal value in June, July, *and* August).
+ *
+ * Computed-percent jobs use each block's own percentComplete, matching getJobProgress's per-phase
+ * math exactly. Manually-overridden jobs only have a single whole-job %, so their total Actual $
+ * is prorated across windows by each block's share of the job's total scheduled hours. */
+export function getActualDollarsInWindow(db: DB, windowStart: Date, windowEnd: Date): number {
+  let total = 0
+
+  for (const job of db.jobs) {
+    const blocks = db.scheduleBlocks.filter((b) => b.jobId === job.id)
+    if (blocks.length === 0) continue
+
+    const useOverride = job.productionPercentSource === 'manual' && job.productionPercentOverride != null
+    if (useOverride) {
+      const jobTotalHours = blocks.reduce((sum, b) => sum + b.phaseHours, 0)
+      if (jobTotalHours <= 0) continue
+      const hoursInWin = blocks.reduce((sum, b) => sum + hoursInWindow(b, windowStart, windowEnd), 0)
+      total += getJobProgress(db, job).actualDollars * (hoursInWin / jobTotalHours)
+    } else {
+      for (const block of blocks) {
+        if (block.phaseHours <= 0) continue
+        const h = hoursInWindow(block, windowStart, windowEnd)
+        if (h <= 0) continue
+        total += blockValue(block, job) * (block.percentComplete / 100) * (h / block.phaseHours)
+      }
+    }
+  }
+
+  return total
+}
+
 /** Additive weekly capacity a Team gains from active Floating memberships in a window. */
 function floatingCapacityBonus(db: DB, team: Team, windowStart: Date, windowEnd: Date): number {
   if (team.type !== 'QPaint' || !team.standardHoursPerWeek) return 0

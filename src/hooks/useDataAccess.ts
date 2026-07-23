@@ -24,6 +24,7 @@ export function useDataAccess() {
     db,
     teamScheduledInWindow: (teamId: string, start: Date, end: Date) => da.teamScheduledInWindow(db, teamId, start, end),
     getScheduledDollarsInWindow: (start: Date, end: Date) => da.getScheduledDollarsInWindow(db, start, end),
+    getActualDollarsInWindow: (start: Date, end: Date) => da.getActualDollarsInWindow(db, start, end),
     getQPaintTeamRow: (team: (typeof data.teams)[number], start: Date, end: Date, isMonthly: boolean) =>
       da.getQPaintTeamRow(db, team, start, end, isMonthly),
     getContractorRow: (contractor: (typeof data.contractors)[number], start: Date, end: Date, isMonthly: boolean) =>
