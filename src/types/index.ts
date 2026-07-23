@@ -7,6 +7,8 @@ export type Role =
   | 'scheduler_pm'
   | 'team_leader_foreperson'
   | 'painter_crew_member'
+  /** Marketing dashboard only — no access to Deals/Scheduler/Production/Settings by default. */
+  | 'marketing'
 
 export const ROLE_LABELS: Record<Role, string> = {
   owner: 'Owner / Management',
@@ -14,6 +16,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   scheduler_pm: 'Scheduler / PM',
   team_leader_foreperson: 'Team Leader / Foreperson',
   painter_crew_member: 'Painter / Crew Member',
+  marketing: 'Marketing',
 }
 
 export const OFFICE_ROLES: Role[] = ['owner', 'ops_manager', 'scheduler_pm']
@@ -228,4 +231,32 @@ export interface MonthlySnapshot {
   targetDollars: number
   actualDollars: number
   capturedAt: string // ISO timestamp
+}
+
+/** Manually-entered monthly ad spend by channel — v1 input for the Marketing module, until
+ * Google Ads/Meta Ads APIs can feed this directly (same shape either way). */
+export interface AdSpendEntry {
+  id: string
+  month: string // ISO date, always the 1st of the month, e.g. "2026-07-01"
+  referralSource: string
+  amount: number
+}
+
+/** One CRM deal (Lead/Quote/Won), populated via CSV/Excel import from Pipedrive exports.
+ * isQuoted/isWon are explicit flags set during import's stage-classification step, not inferred
+ * from rawStage, so the KPI math never has to assume a particular pipeline's stage names/order. */
+export interface MarketingDeal {
+  id: string
+  externalId: string | null
+  title: string | null
+  referralSource: string
+  salesperson: string | null
+  rawStage: string | null
+  isQuoted: boolean
+  isWon: boolean
+  value: number
+  createdDate: string // ISO date
+  eventDate: string | null // ISO date — won date if won, else usually same as createdDate
+  importBatchId: string
+  importedAt: string // ISO timestamp
 }

@@ -51,3 +51,10 @@ export function canEditRanking(role: Role): boolean {
 export function canManageTargets(role: Role): boolean {
   return role === 'owner' || role === 'ops_manager'
 }
+
+/** Marketing dashboard — a business-owner-facing analysis screen, not an operational one, so
+ * it's its own gate rather than folded into isOfficeRole(). Owner already is this app's top/admin
+ * tier, so "Owner or Marketing" covers both without a redundant separate Admin role. */
+export function canAccessMarketing(role: Role): boolean {
+  return role === 'owner' || role === 'marketing'
+}
