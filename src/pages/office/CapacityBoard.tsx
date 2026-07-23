@@ -12,11 +12,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { CategoryPill } from '@/components/StatusBadges'
 import { ClientTypeIcon } from '@/components/ClientTypeIcon'
 import { TeamColorDot } from '@/components/TeamColorDot'
 import { TargetConfigDialog } from '@/components/TargetConfigDialog'
 import { formatCurrency, weeklyFromMonthly } from '@/lib/formulas'
+import { JOB_CATEGORIES } from '@/lib/jobFilters'
 import {
   formatDateRange,
   formatMonthLabel,
@@ -29,40 +32,32 @@ import {
   CalendarCheck,
   Clock,
   History,
+  LayoutGrid,
   MapPin,
   Pencil,
   Percent,
+  Rows3,
+  Search,
   Settings,
   Target,
   TrendingDown,
   TrendingUp,
   TriangleAlert,
+  X,
 } from 'lucide-react'
 import type { JobProgress } from '@/lib/dataAccess'
-import type { Job, Team } from '@/types'
+import type { Job, JobCategory, Team } from '@/types'
 
-function JobProgressCard({
-  job,
-  progress,
-  teams,
-  canEditProgress,
-}: {
-  job: Job
-  progress: JobProgress
-  teams: Team[]
-  /** Any office/admin role can log what's actually done — this isn't gated to Owner/Ops Manager
-   * like Configure Targets, since it's someone checking the job and typing what they found. */
-  canEditProgress: boolean
-}) {
-  const { clients, updateJobActualHours, updateJobProduction } = useData()
-  const client = clients.find((c) => c.id === job.clientId)
+/** Shared Production %/Actual Hours inline-edit behavior — used by both the card and table row
+ * views so they stay in perfect sync rather than duplicating the save/resync logic twice. */
+function useJobProgressEditing(job: Job, progress: JobProgress) {
+  const { updateJobActualHours, updateJobProduction } = useData()
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState('')
   const [saving, setSaving] = useState(false)
   const [editingProduction, setEditingProduction] = useState(false)
   const [productionValue, setProductionValue] = useState(0)
   const [savingProduction, setSavingProduction] = useState(false)
-  const hoursPercent = progress.targetHours > 0 ? (progress.actualHours / progress.targetHours) * 100 : progress.actualHours > 0 ? 100 : 0
 
   function openEdit() {
     setValue(String(Math.round(progress.actualHours)))
@@ -125,6 +120,61 @@ function JobProgressCard({
       setSavingProduction(false)
     }
   }
+
+  return {
+    editing,
+    value,
+    setValue,
+    saving,
+    openEdit,
+    handleSave,
+    handleResync,
+    cancelEdit: () => setEditing(false),
+    editingProduction,
+    productionValue,
+    setProductionValue,
+    savingProduction,
+    openEditProduction,
+    handleSaveProduction,
+    handleResyncProduction,
+    cancelEditProduction: () => setEditingProduction(false),
+  }
+}
+
+function JobProgressCard({
+  job,
+  progress,
+  teams,
+  canEditProgress,
+}: {
+  job: Job
+  progress: JobProgress
+  teams: Team[]
+  /** Any office/admin role can log what's actually done — this isn't gated to Owner/Ops Manager
+   * like Configure Targets, since it's someone checking the job and typing what they found. */
+  canEditProgress: boolean
+}) {
+  const { clients } = useData()
+  const client = clients.find((c) => c.id === job.clientId)
+  const {
+    editing,
+    value,
+    setValue,
+    saving,
+    openEdit,
+    handleSave,
+    handleResync,
+    cancelEdit,
+    editingProduction,
+    productionValue,
+    setProductionValue,
+    savingProduction,
+    openEditProduction,
+    handleSaveProduction,
+    handleResyncProduction,
+    cancelEditProduction,
+  } = useJobProgressEditing(job, progress)
+  const hoursPercent = progress.targetHours > 0 ? (progress.actualHours / progress.targetHours) * 100 : progress.actualHours > 0 ? 100 : 0
 
   return (
     <Card
@@ -193,7 +243,7 @@ function JobProgressCard({
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
               <Button size="sm" className="h-7" onClick={handleSaveProduction} disabled={savingProduction}>Save</Button>
-              <Button size="sm" variant="ghost" className="h-7" onClick={() => setEditingProduction(false)} disabled={savingProduction}>Cancel</Button>
+              <Button size="sm" variant="ghost" className="h-7" onClick={cancelEditProduction} disabled={savingProduction}>Cancel</Button>
               {job.productionPercentSource === 'manual' && (
                 <Button size="sm" variant="outline" className="h-7" onClick={handleResyncProduction} disabled={savingProduction}>Resync</Button>
               )}
@@ -258,7 +308,7 @@ function JobProgressCard({
             />
             <span className="text-xs text-muted-foreground">/ {progress.targetHours} hrs</span>
             <Button size="sm" className="h-7" onClick={handleSave} disabled={saving}>Save</Button>
-            <Button size="sm" variant="ghost" className="h-7" onClick={() => setEditing(false)} disabled={saving}>Cancel</Button>
+            <Button size="sm" variant="ghost" className="h-7" onClick={cancelEdit} disabled={saving}>Cancel</Button>
             {job.actualHoursSource === 'manual' && (
               <Button size="sm" variant="outline" className="h-7" onClick={handleResync} disabled={saving}>Resync</Button>
             )}
@@ -286,13 +336,160 @@ function JobProgressCard({
   )
 }
 
+/** Same data + editing behavior as JobProgressCard, laid out as a table row for the dense Table
+ * view — shares useJobProgressEditing so both views always agree and stay perfectly in sync. */
+function JobProgressTableRow({
+  job,
+  progress,
+  teams,
+  canEditProgress,
+}: {
+  job: Job
+  progress: JobProgress
+  teams: Team[]
+  canEditProgress: boolean
+}) {
+  const { clients } = useData()
+  const client = clients.find((c) => c.id === job.clientId)
+  const {
+    editing,
+    value,
+    setValue,
+    saving,
+    openEdit,
+    handleSave,
+    handleResync,
+    cancelEdit,
+    editingProduction,
+    productionValue,
+    setProductionValue,
+    savingProduction,
+    openEditProduction,
+    handleSaveProduction,
+    handleResyncProduction,
+    cancelEditProduction,
+  } = useJobProgressEditing(job, progress)
+  const hoursPercent = progress.targetHours > 0 ? (progress.actualHours / progress.targetHours) * 100 : progress.actualHours > 0 ? 100 : 0
+
+  return (
+    <TableRow className={cn(progress.isOverBudget && 'bg-danger-bg/30 hover:bg-danger-bg/40')}>
+      <TableCell className="max-w-56">
+        <Link to={`/jobs/${job.id}`} className="flex items-center gap-1.5 text-sm font-medium hover:underline">
+          <MapPin className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="truncate">{jobDisplayName(job)}</span>
+        </Link>
+      </TableCell>
+      <TableCell className="text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          {client && <ClientTypeIcon type={client.type} />}
+          <span className="truncate">{client?.name ?? 'Unknown client'}</span>
+        </span>
+      </TableCell>
+      <TableCell>
+        <CategoryPill category={job.category} />
+      </TableCell>
+      <TableCell>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {teams.length === 0 && <span className="text-xs text-muted-foreground">—</span>}
+          {teams.map((t) => (
+            <span key={t.id} className="flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+              <TeamColorDot team={t} />
+              {t.name}
+            </span>
+          ))}
+        </div>
+      </TableCell>
+      <TableCell>
+        {editingProduction ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              value={productionValue}
+              onChange={(e) => setProductionValue(Number(e.target.value))}
+              className="h-7 w-16"
+              autoFocus
+            />
+            <Button size="sm" className="h-7" onClick={handleSaveProduction} disabled={savingProduction}>Save</Button>
+            <Button size="sm" variant="ghost" className="h-7" onClick={cancelEditProduction} disabled={savingProduction}>Cancel</Button>
+            {job.productionPercentSource === 'manual' && (
+              <Button size="sm" variant="outline" className="h-7" onClick={handleResyncProduction} disabled={savingProduction}>Resync</Button>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <div className="h-2 w-16 shrink-0 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-success-fill"
+                style={{ width: `${Math.min(100, Math.max(0, progress.productionPercent))}%` }}
+              />
+            </div>
+            <span className="text-sm font-medium">{Math.round(progress.productionPercent)}%</span>
+            {canEditProgress && (
+              <button
+                onClick={openEditProduction}
+                aria-label="Edit production percent"
+                className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <Pencil className="size-3.5" />
+              </button>
+            )}
+          </div>
+        )}
+      </TableCell>
+      <TableCell>
+        {editing ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Input type="number" value={value} onChange={(e) => setValue(e.target.value)} className="h-7 w-20" autoFocus />
+            <Button size="sm" className="h-7" onClick={handleSave} disabled={saving}>Save</Button>
+            <Button size="sm" variant="ghost" className="h-7" onClick={cancelEdit} disabled={saving}>Cancel</Button>
+            {job.actualHoursSource === 'manual' && (
+              <Button size="sm" variant="outline" className="h-7" onClick={handleResync} disabled={saving}>Resync</Button>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span className={cn('text-sm font-medium', progress.isOverBudget && 'text-danger')}>
+              {Math.round(progress.actualHours)} / {progress.targetHours}
+            </span>
+            <span className="text-xs text-muted-foreground">({Math.round(hoursPercent)}%)</span>
+            {canEditProgress && (
+              <button
+                onClick={openEdit}
+                aria-label="Edit actual hours"
+                className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <Pencil className="size-3.5" />
+              </button>
+            )}
+          </div>
+        )}
+      </TableCell>
+      <TableCell>
+        {progress.isOverBudget ? (
+          <span className="flex items-center gap-1 rounded-md bg-danger-bg px-1.5 py-0.5 text-xs font-medium text-danger">
+            <TriangleAlert className="size-3" /> Over budget
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">On track</span>
+        )}
+      </TableCell>
+    </TableRow>
+  )
+}
+
 export function CapacityBoard() {
-  const { jobs, teams, scheduleBlocks, monthlyTargets } = useData()
+  const { jobs, clients, teams, scheduleBlocks, monthlyTargets } = useData()
   const currentUser = useCurrentUser()
   const da = useDataAccess()
   const [isMonthly, setIsMonthly] = useState(false)
   const [anchor] = useState(() => new Date())
   const [targetDialogOpen, setTargetDialogOpen] = useState(false)
+  const [jobSearch, setJobSearch] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState<'all' | JobCategory>('all')
+  const [overBudgetOnly, setOverBudgetOnly] = useState(false)
+  const [jobsView, setJobsView] = useState<'cards' | 'table'>('cards')
 
   const windowStart = isMonthly ? monthStart(anchor) : weekStart(anchor)
   const windowEnd = isMonthly ? monthEnd(anchor) : weekEnd(weekStart(anchor))
@@ -315,6 +512,19 @@ export function CapacityBoard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeJobs, scheduleBlocks, teams],
   )
+
+  const filteredJobRows = useMemo(() => {
+    const q = jobSearch.trim().toLowerCase()
+    return jobRows.filter(({ job, progress }) => {
+      if (categoryFilter !== 'all' && job.category !== categoryFilter) return false
+      if (overBudgetOnly && !progress.isOverBudget) return false
+      if (!q) return true
+      const client = clients.find((c) => c.id === job.clientId)
+      return jobDisplayName(job).toLowerCase().includes(q) || (client?.name ?? '').toLowerCase().includes(q)
+    })
+  }, [jobRows, jobSearch, categoryFilter, overBudgetOnly, clients])
+
+  const jobsFiltered = jobSearch.trim() !== '' || categoryFilter !== 'all' || overBudgetOnly
 
   const monthlyTargetRow = monthlyTargets.find((t) => t.year === anchor.getFullYear() && t.month === anchor.getMonth() + 1)
   const monthlyTargetDollars = monthlyTargetRow?.targetDollars ?? 0
@@ -406,23 +616,116 @@ export function CapacityBoard() {
       <TargetConfigDialog open={targetDialogOpen} onOpenChange={setTargetDialogOpen} />
 
       <section className="space-y-3">
-        <div>
-          <h2 className="flex items-center gap-2 text-base font-medium">
-            Jobs
-            {jobRows.length > 0 && <Badge variant="secondary">{jobRows.length}</Badge>}
-          </h2>
-          <p className="text-xs text-muted-foreground">Active jobs already on the Calendar — Production % and Hours tracked per job.</p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-base font-medium">
+              Jobs
+              {jobRows.length > 0 && (
+                <Badge variant="secondary">
+                  {jobsFiltered ? `${filteredJobRows.length} / ${jobRows.length}` : jobRows.length}
+                </Badge>
+              )}
+            </h2>
+            <p className="text-xs text-muted-foreground">Active jobs already on the Calendar — Production % and Hours tracked per job.</p>
+          </div>
+          <div className="flex gap-1.5 rounded-md border border-border bg-card p-1">
+            <Button size="sm" variant={jobsView === 'cards' ? 'secondary' : 'ghost'} onClick={() => setJobsView('cards')}>
+              <LayoutGrid /> Cards
+            </Button>
+            <Button size="sm" variant={jobsView === 'table' ? 'secondary' : 'ghost'} onClick={() => setJobsView('table')}>
+              <Rows3 /> Table
+            </Button>
+          </div>
         </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {jobRows.length === 0 && (
-            <p className="col-span-full rounded-md border border-dashed border-border py-8 text-center text-sm text-muted-foreground">
-              No active jobs scheduled yet — jobs appear here once they're on the Calendar.
-            </p>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full max-w-xs">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={jobSearch}
+              onChange={(e) => setJobSearch(e.target.value)}
+              placeholder="Search job, address, client…"
+              className="pl-8"
+            />
+          </div>
+          <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter((v as 'all' | JobCategory) ?? 'all')}>
+            <SelectTrigger size="sm" className="w-40"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All categories</SelectItem>
+              {JOB_CATEGORIES.map((c) => (
+                <SelectItem key={c} value={c}>{c}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <button
+            type="button"
+            onClick={() => setOverBudgetOnly((v) => !v)}
+            className={cn(
+              'flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition',
+              overBudgetOnly ? 'border-danger/40 bg-danger-bg text-danger' : 'border-border text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <TriangleAlert className="size-3.5" /> Over budget only
+          </button>
+          {jobsFiltered && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setJobSearch('')
+                setCategoryFilter('all')
+                setOverBudgetOnly(false)
+              }}
+            >
+              <X /> Clear
+            </Button>
           )}
-          {jobRows.map(({ job, progress, teams: jobTeams }) => (
-            <JobProgressCard key={job.id} job={job} progress={progress} teams={jobTeams} canEditProgress={canEditProgress} />
-          ))}
         </div>
+
+        {jobsView === 'cards' ? (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {filteredJobRows.length === 0 && (
+              <p className="col-span-full rounded-md border border-dashed border-border py-8 text-center text-sm text-muted-foreground">
+                {jobRows.length === 0
+                  ? "No active jobs scheduled yet — jobs appear here once they're on the Calendar."
+                  : 'No jobs match your search / filter.'}
+              </p>
+            )}
+            {filteredJobRows.map(({ job, progress, teams: jobTeams }) => (
+              <JobProgressCard key={job.id} job={job} progress={progress} teams={jobTeams} canEditProgress={canEditProgress} />
+            ))}
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-lg border border-border bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Job</TableHead>
+                  <TableHead>Client</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Crews</TableHead>
+                  <TableHead>Production</TableHead>
+                  <TableHead>Hours</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredJobRows.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                      {jobRows.length === 0
+                        ? "No active jobs scheduled yet — jobs appear here once they're on the Calendar."
+                        : 'No jobs match your search / filter.'}
+                    </TableCell>
+                  </TableRow>
+                )}
+                {filteredJobRows.map(({ job, progress, teams: jobTeams }) => (
+                  <JobProgressTableRow key={job.id} job={job} progress={progress} teams={jobTeams} canEditProgress={canEditProgress} />
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
       </section>
     </div>
   )
