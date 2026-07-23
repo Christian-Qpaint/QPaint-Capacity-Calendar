@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useData } from '@/context/DataContext'
+import { useDataAccess } from '@/hooks/useDataAccess'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -16,6 +18,7 @@ import { ColorSwatchInput } from '@/components/ColorSwatchInput'
 import { TeamColorDot } from '@/components/TeamColorDot'
 import { getTeamColors, getTeamGradient } from '@/lib/teamColors'
 import { jobDisplayName } from '@/lib/jobDisplay'
+import { formatCurrency, dailyFromMonthly, weeklyFromMonthly } from '@/lib/formulas'
 import { cn } from '@/lib/utils'
 import {
   addDays,
@@ -38,7 +41,18 @@ import {
   yearEnd,
   yearStart,
 } from '@/lib/schedule'
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ListFilter, TriangleAlert } from 'lucide-react'
+import {
+  CalendarCheck,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  ListFilter,
+  Target,
+  TrendingDown,
+  TrendingUp,
+  TriangleAlert,
+} from 'lucide-react'
 import type { ScheduleBlock } from '@/types'
 
 type DragKind = 'move' | 'resize-start' | 'resize-end'
@@ -73,6 +87,39 @@ const LABEL_COL_WIDTH = 220
 // horizontally rather than trying to compress a whole quarter/year to a readable day width.
 const DAY_COL_WIDTH: Record<ViewMode, number> = { day: 480, week: 128, month: 60, rolling3: 40, quarter: 32, year: 22 }
 
+// Labels for the capacity summary cards, one per view mode — so "Weekly target" becomes "Yearly
+// target" etc. without the numbers ever needing to guess which period they belong to.
+const PERIOD_ADJECTIVE: Record<ViewMode, string> = {
+  day: 'Daily',
+  week: 'Weekly',
+  month: 'Monthly',
+  rolling3: '3-Month',
+  quarter: 'Quarterly',
+  year: 'Yearly',
+}
+const PERIOD_PHRASE: Record<ViewMode, string> = {
+  day: 'today',
+  week: 'this week',
+  month: 'this month',
+  rolling3: 'these 3 months',
+  quarter: 'this quarter',
+  year: 'this year',
+}
+
+/** Every calendar month (as {year, month}) that overlaps [start, end] — Month/3 Months/Quarter/Year
+ * windows are always whole-month-aligned, so this gives an exact set of monthly targets to sum
+ * rather than needing to prorate by day count. */
+function monthsOverlapping(start: Date, end: Date): { year: number; month: number }[] {
+  const months: { year: number; month: number }[] = []
+  const cur = new Date(start.getFullYear(), start.getMonth(), 1)
+  const last = new Date(end.getFullYear(), end.getMonth(), 1)
+  while (cur <= last) {
+    months.push({ year: cur.getFullYear(), month: cur.getMonth() + 1 })
+    cur.setMonth(cur.getMonth() + 1)
+  }
+  return months
+}
+
 function toIso(d: Date): string {
   // Format local Y-M-D directly — toISOString() converts to UTC first, which shifts the date
   // by a day in any timezone ahead of UTC.
@@ -91,7 +138,8 @@ interface Row {
 }
 
 export function ResourceCalendar() {
-  const { teams, contractors, scheduleBlocks, jobs, updateTeam, updateScheduleBlock } = useData()
+  const { teams, contractors, scheduleBlocks, jobs, monthlyTargets, updateTeam, updateScheduleBlock } = useData()
+  const da = useDataAccess()
   const [viewMode, setViewMode] = useState<ViewMode>('week')
   const [anchor, setAnchor] = useState(() => new Date())
   // 'all' means every team; once the user touches a checkbox it becomes an explicit id list.
@@ -144,6 +192,43 @@ export function ResourceCalendar() {
   // which would wrongly exclude blocks starting/ending later that same day (most visible in Day view,
   // where windowStart === windowEnd exactly).
   const windowEndOfDay = new Date(windowEnd.getFullYear(), windowEnd.getMonth(), windowEnd.getDate(), 23, 59, 59, 999)
+
+  // Capacity summary for whatever's currently in view — Day/Week prorate the anchor month's target
+  // (same 4.33-weeks-per-month basis as Capacity Board); Month/3 Months/Quarter/Year windows are
+  // always whole-month-aligned, so those sum the exact configured target for every month covered.
+  const targetInfo = useMemo(() => {
+    const monthlyDollars = (year: number, month: number) => monthlyTargets.find((t) => t.year === year && t.month === month)?.targetDollars
+    if (viewMode === 'day' || viewMode === 'week') {
+      const monthly = monthlyDollars(anchor.getFullYear(), anchor.getMonth() + 1)
+      const total = viewMode === 'day' ? dailyFromMonthly(monthly ?? 0) : weeklyFromMonthly(monthly ?? 0)
+      return { total, missingMonths: monthly == null ? 1 : 0, totalMonths: 1 }
+    }
+    const months = monthsOverlapping(windowStart, windowEnd)
+    let total = 0
+    let missingMonths = 0
+    for (const { year, month } of months) {
+      const val = monthlyDollars(year, month)
+      if (val == null) missingMonths += 1
+      else total += val
+    }
+    return { total, missingMonths, totalMonths: months.length }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, anchor.getTime(), windowStart, windowEnd, monthlyTargets])
+
+  const scheduledTotal = da.getScheduledDollarsInWindow(windowStart, windowEnd)
+
+  // Actual $ scoped to jobs actually scheduled somewhere in the current view — each job's own
+  // Production %/deal-value figure is still a whole-job cumulative number (that's how the data
+  // model works, see getJobProgress), but which jobs count toward the total does change per view.
+  const actualTotal = useMemo(() => {
+    const jobsInWindow = jobs.filter((j) =>
+      scheduleBlocks.some((b) => b.jobId === j.id && toDate(b.startDate) <= windowEndOfDay && toDate(b.endDate) >= windowStart),
+    )
+    return jobsInWindow.reduce((sum, j) => sum + da.getJobProgress(j).actualDollars, 0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobs, scheduleBlocks, windowStart, windowEndOfDay])
+
+  const gap = scheduledTotal - targetInfo.total
 
   const rows = useMemo<Row[]>(() => {
     const result: Row[] = []
@@ -438,6 +523,61 @@ export function ResourceCalendar() {
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
+      </div>
+
+      {/* Same 4 numbers as the Capacity Board dashboard, so switching tabs to check them isn't
+          necessary — but scoped to whatever's currently in view here (Day/Week/Month/3 Months/
+          Quarter/Year) rather than Capacity Board's own separate Weekly/Monthly toggle. */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="gap-2 p-4 transition hover:shadow-md">
+          <div className="flex items-center gap-2">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+              <Target className="size-4" />
+            </span>
+            <p className="text-xs text-muted-foreground">{PERIOD_ADJECTIVE[viewMode]} target</p>
+          </div>
+          <p className="text-2xl font-semibold tracking-tight">{formatCurrency(targetInfo.total)}</p>
+          {targetInfo.missingMonths > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {targetInfo.totalMonths === 1
+                ? 'No target set for this month'
+                : `No target set for ${targetInfo.missingMonths} of ${targetInfo.totalMonths} months`}
+            </p>
+          )}
+        </Card>
+        <Card className="gap-2 p-4 transition hover:shadow-md">
+          <div className="flex items-center gap-2">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-info-bg text-info">
+              <CalendarCheck className="size-4" />
+            </span>
+            <p className="text-xs text-muted-foreground">Scheduled {PERIOD_PHRASE[viewMode]}</p>
+          </div>
+          <p className="text-2xl font-semibold tracking-tight">{formatCurrency(scheduledTotal)}</p>
+        </Card>
+        <Card className="gap-2 p-4 transition hover:shadow-md">
+          <div className="flex items-center gap-2">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-success-bg text-success">
+              <TrendingUp className="size-4" />
+            </span>
+            <p className="text-xs text-muted-foreground">Actual</p>
+          </div>
+          <p className="text-2xl font-semibold tracking-tight">{formatCurrency(actualTotal)}</p>
+          <p className="text-xs text-muted-foreground">Production % × deal value, jobs scheduled {PERIOD_PHRASE[viewMode]}</p>
+        </Card>
+        <Card className={cn('gap-2 p-4 transition hover:shadow-md', gap < 0 ? 'bg-warning-bg' : 'bg-success-bg')}>
+          <div className="flex items-center gap-2">
+            <span
+              className={cn(
+                'flex size-8 shrink-0 items-center justify-center rounded-full',
+                gap < 0 ? 'bg-warning/15 text-warning' : 'bg-success/15 text-success',
+              )}
+            >
+              {gap < 0 ? <TrendingDown className="size-4" /> : <TrendingUp className="size-4" />}
+            </span>
+            <p className={cn('text-xs', gap < 0 ? 'text-warning' : 'text-success')}>Gap to target</p>
+          </div>
+          <p className={cn('text-2xl font-semibold tracking-tight', gap < 0 ? 'text-warning' : 'text-success')}>{formatCurrency(gap)}</p>
+        </Card>
       </div>
 
       <div className="relative overflow-hidden rounded-xl border border-border bg-card shadow-sm" style={{ height: '70vh' }}>

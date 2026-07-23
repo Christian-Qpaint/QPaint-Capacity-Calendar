@@ -41,6 +41,9 @@ export function monthlyFromWeekly(weekly: number): number {
 export function weeklyFromMonthly(monthly: number): number {
   return monthly / WEEKS_PER_MONTH
 }
+export function dailyFromMonthly(monthly: number): number {
+  return monthly / (WEEKS_PER_MONTH * 7)
+}
 
 /** Formula 7 — Production Rate ($/hr), internal calculation only, never shown raw to field roles */
 export function productionRate(
