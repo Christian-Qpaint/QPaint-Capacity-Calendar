@@ -26,6 +26,10 @@ export function mapMarketingDeal(r: any): MarketingDeal {
     eventDate: r.event_date,
     importBatchId: r.import_batch_id,
     importedAt: r.imported_at,
+    importSource: r.import_source,
+    pipeline: r.pipeline,
+    lostReason: r.lost_reason,
+    expectedCloseDate: r.expected_close_date,
   }
 }
 export function marketingDealToRow(d: Omit<MarketingDeal, 'id' | 'importedAt'>) {
@@ -41,5 +45,9 @@ export function marketingDealToRow(d: Omit<MarketingDeal, 'id' | 'importedAt'>) 
     created_date: d.createdDate,
     event_date: d.eventDate,
     import_batch_id: d.importBatchId,
+    import_source: d.importSource,
+    pipeline: d.pipeline,
+    lost_reason: d.lostReason,
+    expected_close_date: d.expectedCloseDate,
   }
 }

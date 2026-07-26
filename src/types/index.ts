@@ -259,4 +259,34 @@ export interface MarketingDeal {
   eventDate: string | null // ISO date — won date if won, else usually same as createdDate
   importBatchId: string
   importedAt: string // ISO timestamp
+  importSource: string | null // e.g. "CSV: filename.csv" or "Pipedrive" — for the import history list
+  // Carried verbatim from the standard Pipedrive export but not used in any KPI formula yet.
+  pipeline: string | null
+  lostReason: string | null
+  expectedCloseDate: string | null // ISO date
+}
+
+/** A single user's explicit grant/revoke for one PERMISSION_CATALOG key — absence of a row for a
+ * given (userId, permissionKey) means "inherit that permission's role default" instead. */
+export interface UserPermissionOverride {
+  id: string
+  userId: string
+  permissionKey: string
+  granted: boolean
+  updatedAt: string
+  updatedBy: string | null
+}
+
+/** A persistent, per-recipient notification (distinct from sonner's transient action-result
+ * toasts) — first use case is "request access", but type/link are generic for future kinds. */
+export interface AppNotification {
+  id: string
+  recipientId: string
+  type: string
+  title: string
+  body: string | null
+  link: string | null
+  read: boolean
+  createdAt: string
+  createdBy: string | null
 }

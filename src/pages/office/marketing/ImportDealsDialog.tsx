@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Upload } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -30,7 +31,8 @@ import {
   type StageClassification,
 } from '@/lib/marketingImport'
 import { formatCurrency } from '@/lib/formulas'
-import type { MarketingDeal } from '@/types'
+import { chunkedImportDeals } from '@/lib/marketingImportRunner'
+import { useImportProgress } from '@/context/ImportProgressContext'
 
 type Step = 'upload' | 'map' | 'classify' | 'preview'
 
@@ -44,13 +46,13 @@ const MAPPING_FIELDS: { key: keyof ColumnMapping; label: string; required?: bool
   { key: 'quotedDate', label: 'Quote Sent Date (marks a deal as Quoted)' },
   { key: 'wonDate', label: 'Won Date (marks a deal as Won)' },
   { key: 'externalId', label: 'Deal ID' },
+  { key: 'pipeline', label: 'Pipeline' },
+  { key: 'expectedCloseDate', label: 'Expected Close Date' },
+  { key: 'lostReason', label: 'Lost Reason' },
 ]
 
-export function ImportDealsDialog({
-  onImport,
-}: {
-  onImport: (deals: Omit<MarketingDeal, 'id' | 'importedAt'>[]) => Promise<{ imported: number }>
-}) {
+export function ImportDealsDialog() {
+  const { runImport } = useImportProgress()
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<Step>('upload')
   const [fileName, setFileName] = useState('')
@@ -59,7 +61,6 @@ export function ImportDealsDialog({
   const [parsed, setParsed] = useState<ParsedImportFile | null>(null)
   const [mapping, setMapping] = useState<ColumnMapping>(EMPTY_COLUMN_MAPPING)
   const [classification, setClassification] = useState<StageClassification>({})
-  const [importing, setImporting] = useState(false)
 
   const stages = useMemo(() => uniqueColumnValues(parsed?.rows ?? [], mapping.rawStage), [parsed, mapping.rawStage])
   const dateMode = isDateDetectionMode(mapping)
@@ -67,8 +68,8 @@ export function ImportDealsDialog({
 
   const built = useMemo(() => {
     if (!parsed) return null
-    return buildDealsFromImport(parsed.rows, mapping, classification, 'preview')
-  }, [parsed, mapping, classification])
+    return buildDealsFromImport(parsed.rows, mapping, classification, 'preview', fileName ? `CSV: ${fileName}` : null)
+  }, [parsed, mapping, classification, fileName])
 
   function reset() {
     setStep('upload')
@@ -78,7 +79,6 @@ export function ImportDealsDialog({
     setParsed(null)
     setMapping(EMPTY_COLUMN_MAPPING)
     setClassification({})
-    setImporting(false)
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -115,20 +115,20 @@ export function ImportDealsDialog({
     }
   }
 
-  async function handleImport() {
+  function handleImport() {
     if (!built || built.deals.length === 0) return
-    setImporting(true)
-    try {
-      const batchId = crypto.randomUUID()
-      const dealsWithBatch = built.deals.map((d) => ({ ...d, importBatchId: batchId }))
-      const { imported } = await onImport(dealsWithBatch)
-      setOpen(false)
-      reset()
-      // eslint-disable-next-line no-console
-      console.info(`Imported ${imported} deals`)
-    } finally {
-      setImporting(false)
+    const batchId = crypto.randomUUID()
+    const dealsWithBatch = built.deals.map((d) => ({ ...d, importBatchId: batchId }))
+    const started = runImport(`Importing ${fileName || 'deals'}`, dealsWithBatch.length, (onProgress) =>
+      chunkedImportDeals(dealsWithBatch, onProgress),
+    )
+    if (!started) {
+      toast.error('An import is already running — wait for it to finish first.')
+      return
     }
+    toast.success(`Import started — ${dealsWithBatch.length.toLocaleString()} deals importing in the background.`)
+    setOpen(false)
+    reset()
   }
 
   return (
@@ -310,8 +310,8 @@ export function ImportDealsDialog({
             )}
             {step === 'classify' && <Button onClick={() => setStep('preview')}>Next</Button>}
             {step === 'preview' && (
-              <Button onClick={handleImport} disabled={importing || !built || built.deals.length === 0}>
-                {importing ? 'Importing…' : `Import ${built?.deals.length ?? 0} deals`}
+              <Button onClick={handleImport} disabled={!built || built.deals.length === 0}>
+                {`Import ${built?.deals.length ?? 0} deals`}
               </Button>
             )}
           </div>

@@ -1,9 +1,8 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { OfficeLayout } from '@/components/layout/OfficeLayout'
 import { FieldLayout } from '@/components/layout/FieldLayout'
-import { RequireAuth, RequireMarketingAccess, RequireOfficeRole, RequireUpdateProgressAccess } from '@/components/RouteGuards'
-import { useCurrentUser } from '@/context/AuthContext'
-import { canAccessMarketing, isOfficeRole } from '@/lib/permissions'
+import { RequireAuth, RequirePermission } from '@/components/RouteGuards'
+import { usePermissions } from '@/context/PermissionsContext'
 import { Login } from '@/pages/Login'
 import { CapacityBoard } from '@/pages/office/CapacityBoard'
 import { TargetHistory } from '@/pages/office/TargetHistory'
@@ -16,9 +15,11 @@ import { LogHours } from '@/pages/field/LogHours'
 import { UpdateProgress } from '@/pages/field/UpdateProgress'
 
 function RoleHome() {
-  const currentUser = useCurrentUser()
-  if (isOfficeRole(currentUser.role)) return <Navigate to="/capacity" replace />
-  if (canAccessMarketing(currentUser.role)) return <Navigate to="/marketing" replace />
+  const { hasPermission } = usePermissions()
+  if (hasPermission('production.view')) return <Navigate to="/capacity" replace />
+  if (hasPermission('deals.view')) return <Navigate to="/jobs" replace />
+  if (hasPermission('scheduler.view')) return <Navigate to="/calendar" replace />
+  if (hasPermission('marketing.view')) return <Navigate to="/marketing" replace />
   return <Navigate to="/log-hours" replace />
 }
 
@@ -31,23 +32,32 @@ function App() {
         <Route path="/" element={<RoleHome />} />
 
         <Route element={<OfficeLayout />}>
-          <Route element={<RequireOfficeRole />}>
+          <Route element={<RequirePermission permissionKey="production.view" />}>
             <Route path="/capacity" element={<CapacityBoard />} />
             <Route path="/capacity/history" element={<TargetHistory />} />
+          </Route>
+
+          <Route element={<RequirePermission permissionKey="deals.view" />}>
             <Route path="/jobs" element={<JobsList />} />
             <Route path="/jobs/:jobId" element={<JobPhaseScheduling />} />
+          </Route>
+
+          <Route element={<RequirePermission permissionKey="scheduler.view" />}>
             <Route path="/calendar" element={<ResourceCalendar />} />
+          </Route>
+
+          <Route element={<RequirePermission permissionKey="settings.view" />}>
             <Route path="/setup" element={<TeamsContractorsSetup />} />
           </Route>
 
-          <Route element={<RequireMarketingAccess />}>
+          <Route element={<RequirePermission permissionKey="marketing.view" />}>
             <Route path="/marketing" element={<MarketingDashboard />} />
           </Route>
         </Route>
 
         <Route element={<FieldLayout />}>
           <Route path="/log-hours" element={<LogHours />} />
-          <Route element={<RequireUpdateProgressAccess />}>
+          <Route element={<RequirePermission permissionKey="field.update_progress" />}>
             <Route path="/update-progress" element={<UpdateProgress />} />
           </Route>
         </Route>

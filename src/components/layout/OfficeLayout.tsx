@@ -1,25 +1,25 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { AccountMenu } from '@/components/AccountMenu'
-import { useCurrentUser } from '@/context/AuthContext'
-import { canAccessMarketing, isOfficeRole } from '@/lib/permissions'
-import type { Role } from '@/types'
+import { NotificationBell } from '@/components/NotificationBell'
+import { ImportProgressIndicator } from '@/components/ImportProgressIndicator'
+import { usePermissions } from '@/context/PermissionsContext'
 
-const NAV_ITEMS: { to: string; label: string; visible: (role: Role) => boolean }[] = [
-  { to: '/jobs', label: 'Deals', visible: isOfficeRole },
-  { to: '/calendar', label: 'Scheduler', visible: isOfficeRole },
-  { to: '/capacity', label: 'Production', visible: isOfficeRole },
-  { to: '/marketing', label: 'Marketing', visible: canAccessMarketing },
-  { to: '/setup', label: 'Settings', visible: isOfficeRole },
+const NAV_ITEMS: { to: string; label: string; permissionKey: string }[] = [
+  { to: '/jobs', label: 'Deals', permissionKey: 'deals.view' },
+  { to: '/calendar', label: 'Scheduler', permissionKey: 'scheduler.view' },
+  { to: '/capacity', label: 'Production', permissionKey: 'production.view' },
+  { to: '/marketing', label: 'Marketing', permissionKey: 'marketing.view' },
+  { to: '/setup', label: 'Settings', permissionKey: 'settings.view' },
 ]
 
 export function OfficeLayout() {
-  const currentUser = useCurrentUser()
-  const visibleItems = NAV_ITEMS.filter((item) => item.visible(currentUser.role))
+  const { hasPermission } = usePermissions()
+  const visibleItems = NAV_ITEMS.filter((item) => hasPermission(item.permissionKey))
 
   return (
     <div className="min-h-svh bg-background">
-      <header className="border-b border-border bg-card">
+      <header className="border-b border-border bg-card print:hidden">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-6 py-3">
           <div className="flex items-center gap-6">
             <span className="text-sm font-semibold tracking-tight">QPaint OS</span>
@@ -40,7 +40,11 @@ export function OfficeLayout() {
               ))}
             </nav>
           </div>
-          <AccountMenu />
+          <div className="flex items-center gap-3">
+            <ImportProgressIndicator />
+            <NotificationBell />
+            <AccountMenu />
+          </div>
         </div>
       </header>
       <main className="mx-auto max-w-[1600px] px-6 py-8">

@@ -1,7 +1,35 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
-import { adSpendEntryToRow, mapAdSpendEntry, mapMarketingDeal, marketingDealToRow } from '@/lib/marketingMappers'
+import { adSpendEntryToRow, mapAdSpendEntry, mapMarketingDeal } from '@/lib/marketingMappers'
+import { useImportProgress } from '@/context/ImportProgressContext'
 import type { AdSpendEntry, MarketingDeal } from '@/types'
+
+// PostgREST caps any single request at this project's `db.max_rows` setting (1000, the default) —
+// a `.range()` beyond that still comes back truncated to 1000 rather than erroring, so a table
+// past that size silently loses its most-recent rows (marketing_deals sorts ascending) unless we
+// page through it ourselves.
+const PAGE_SIZE = 1000
+
+async function fetchAllRows<T>(table: string, orderColumn: string) {
+  const rows: T[] = []
+  let offset = 0
+  for (;;) {
+    // `id` is a tiebreaker, not the primary sort — without it, rows sharing the same
+    // orderColumn value (e.g. many deals with the same created_date) can be ordered differently
+    // between each paginated request, causing rows to be skipped or double-counted across pages.
+    const { data, error } = await supabase
+      .from(table)
+      .select('*')
+      .order(orderColumn, { ascending: true })
+      .order('id', { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1)
+    if (error) return { data: null, error }
+    rows.push(...((data ?? []) as T[]))
+    if (!data || data.length < PAGE_SIZE) break
+    offset += PAGE_SIZE
+  }
+  return { data: rows, error: null }
+}
 
 /** Own fetch/CRUD hook rather than folding into the app-wide DataContext — marketing_deals grows
  * with every CSV import (potentially thousands of rows over time) and is only ever read by the
@@ -16,8 +44,8 @@ export function useMarketingData() {
     setLoading(true)
     setError(null)
     const [adSpendRes, dealsRes] = await Promise.all([
-      supabase.from('ad_spend').select('*').order('month', { ascending: true }),
-      supabase.from('marketing_deals').select('*').order('created_date', { ascending: true }),
+      fetchAllRows<Parameters<typeof mapAdSpendEntry>[0]>('ad_spend', 'month'),
+      fetchAllRows<Parameters<typeof mapMarketingDeal>[0]>('marketing_deals', 'created_date'),
     ])
     const firstError = [adSpendRes, dealsRes].find((r) => r.error)?.error
     if (firstError) {
@@ -33,6 +61,18 @@ export function useMarketingData() {
   useEffect(() => {
     refetch()
   }, [refetch])
+
+  // A background import (started here or from a previous mount of this page) writes straight to
+  // Supabase without touching this hook's local `deals` state — pick up the fresh rows as soon as
+  // it finishes, whether that's while the user is still on this page or after they've come back to it.
+  const { job } = useImportProgress()
+  const handledJobId = useRef<string | null>(null)
+  useEffect(() => {
+    if (job?.status === 'done' && job.id !== handledJobId.current) {
+      handledJobId.current = job.id
+      refetch()
+    }
+  }, [job, refetch])
 
   async function addAdSpend(entry: Omit<AdSpendEntry, 'id'>) {
     const { data, error: err } = await supabase
@@ -58,32 +98,24 @@ export function useMarketingData() {
     setAdSpend((prev) => prev.filter((a) => a.id !== id))
   }
 
-  /** Bulk insert from a CSV/Excel import. Rows sharing an externalId with an existing deal are
-   * upserted (updated in place) rather than duplicated — lets the same export be re-imported
-   * safely as a pipeline progresses (e.g. a lead that's since been quoted or won). */
-  async function importDeals(rows: Omit<MarketingDeal, 'id' | 'importedAt'>[]) {
-    if (rows.length === 0) return { imported: 0 }
-    const { data, error: err } = await supabase
-      .from('marketing_deals')
-      .upsert(
-        rows.map((r) => marketingDealToRow(r)),
-        { onConflict: 'external_id', ignoreDuplicates: false },
-      )
-      .select()
+  /** Bulk-remove one or more import batches at once — the Data Management view's "delete
+   * selected" action, so cleaning up a handful of bad imports doesn't mean deleting them one by
+   * one. */
+  async function deleteImportBatches(importBatchIds: string[]) {
+    if (importBatchIds.length === 0) return
+    const { error: err } = await supabase.from('marketing_deals').delete().in('import_batch_id', importBatchIds)
     if (err) throw new Error(err.message)
-    const saved = (data ?? []).map(mapMarketingDeal)
-    setDeals((prev) => {
-      const savedIds = new Set(saved.map((s) => s.id))
-      return [...prev.filter((d) => !savedIds.has(d.id)), ...saved]
-    })
-    return { imported: saved.length }
+    const idSet = new Set(importBatchIds)
+    setDeals((prev) => prev.filter((d) => !idSet.has(d.importBatchId)))
   }
 
-  async function deleteImportBatch(importBatchId: string) {
-    const { error: err } = await supabase.from('marketing_deals').delete().eq('import_batch_id', importBatchId)
+  /** Wipes every deal so the user can re-sync from Pipedrive with a clean slate — deliberately
+   * does not touch ad_spend (that's manually entered, unrelated to any import). */
+  async function clearAllDeals() {
+    const { error: err } = await supabase.from('marketing_deals').delete().neq('id', '00000000-0000-0000-0000-000000000000')
     if (err) throw new Error(err.message)
-    setDeals((prev) => prev.filter((d) => d.importBatchId !== importBatchId))
+    setDeals([])
   }
 
-  return { adSpend, deals, loading, error, refetch, addAdSpend, updateAdSpend, deleteAdSpend, importDeals, deleteImportBatch }
+  return { adSpend, deals, loading, error, refetch, addAdSpend, updateAdSpend, deleteAdSpend, deleteImportBatches, clearAllDeals }
 }

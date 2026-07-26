@@ -7,9 +7,9 @@ import type { AdSpendEntry, MarketingDeal } from '@/types'
 export interface MarketingFilters {
   dateFrom?: string // ISO date, inclusive, compared against deal.createdDate
   dateTo?: string // ISO date, inclusive
-  referralSource?: string // omit or 'all' for every source
-  salesperson?: string // omit or 'all' for every salesperson
-  stage?: string // omit or 'all' for every raw stage
+  referralSources?: string[] // empty/omitted = every source
+  salespeople?: string[] // empty/omitted = every salesperson
+  stages?: string[] // empty/omitted = every raw stage
 }
 
 export interface MarketingSummary {
@@ -56,9 +56,9 @@ export function filterDeals(deals: MarketingDeal[], filters: MarketingFilters): 
   return deals.filter((d) => {
     if (filters.dateFrom && d.createdDate < filters.dateFrom) return false
     if (filters.dateTo && d.createdDate > filters.dateTo) return false
-    if (filters.referralSource && filters.referralSource !== 'all' && d.referralSource !== filters.referralSource) return false
-    if (filters.salesperson && filters.salesperson !== 'all' && d.salesperson !== filters.salesperson) return false
-    if (filters.stage && filters.stage !== 'all' && d.rawStage !== filters.stage) return false
+    if (filters.referralSources?.length && !filters.referralSources.includes(d.referralSource)) return false
+    if (filters.salespeople?.length && !(d.salesperson && filters.salespeople.includes(d.salesperson))) return false
+    if (filters.stages?.length && !(d.rawStage && filters.stages.includes(d.rawStage))) return false
     return true
   })
 }
@@ -67,7 +67,7 @@ export function filterAdSpend(adSpend: AdSpendEntry[], filters: MarketingFilters
   return adSpend.filter((a) => {
     if (filters.dateFrom && a.month < filters.dateFrom) return false
     if (filters.dateTo && a.month > filters.dateTo) return false
-    if (filters.referralSource && filters.referralSource !== 'all' && a.referralSource !== filters.referralSource) return false
+    if (filters.referralSources?.length && !filters.referralSources.includes(a.referralSource)) return false
     return true
   })
 }
@@ -143,10 +143,137 @@ export function uniqueReferralSources(deals: MarketingDeal[], adSpend: AdSpendEn
   return Array.from(new Set([...deals.map((d) => d.referralSource), ...adSpend.map((a) => a.referralSource)])).sort()
 }
 
+/** Which referral sources bring in the most leads — used to pick a sane default selection for the
+ * trends comparison chart (rather than showing nothing, or every source at once, on first load). */
+export function topReferralSourcesByLeads(deals: MarketingDeal[], limit: number): string[] {
+  const counts = new Map<string, number>()
+  for (const d of deals) counts.set(d.referralSource, (counts.get(d.referralSource) ?? 0) + 1)
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([source]) => source)
+}
+
+export type ComparisonMetric = 'leads' | 'quotes' | 'jobsWon' | 'quoteValue' | 'jobsWonValue'
+
+export const COMPARISON_METRIC_LABELS: Record<ComparisonMetric, string> = {
+  leads: 'Leads',
+  quotes: 'Quotes',
+  jobsWon: 'Jobs Won',
+  quoteValue: 'Quote Value',
+  jobsWonValue: 'Jobs Won Value',
+}
+
+function computeMetric(deals: MarketingDeal[], metric: ComparisonMetric): number {
+  switch (metric) {
+    case 'leads':
+      return deals.length
+    case 'quotes':
+      return deals.filter((d) => d.isQuoted).length
+    case 'jobsWon':
+      return deals.filter((d) => d.isWon).length
+    case 'quoteValue':
+      return deals.filter((d) => d.isQuoted).reduce((sum, d) => sum + d.value, 0)
+    case 'jobsWonValue':
+      return deals.filter((d) => d.isWon).reduce((sum, d) => sum + d.value, 0)
+  }
+}
+
+/** One row per month, one column per referral source — shaped for a multi-line "trends" chart
+ * (recharts wants a flat object per point, not nested series). Months are derived from the
+ * filtered deals themselves so the chart's x-axis always matches whatever date range is active,
+ * rather than a hardcoded lookback window. */
+export function buildReferralSourceTimeSeries(
+  deals: MarketingDeal[],
+  sources: string[],
+  metric: ComparisonMetric,
+): Record<string, string | number>[] {
+  if (deals.length === 0 || sources.length === 0) return []
+  const months = Array.from(new Set(deals.map((d) => d.createdDate.slice(0, 7)))).sort()
+
+  return months.map((month) => {
+    const row: Record<string, string | number> = { month }
+    for (const source of sources) {
+      const monthSourceDeals = deals.filter((d) => d.createdDate.slice(0, 7) === month && d.referralSource === source)
+      row[source] = computeMetric(monthSourceDeals, metric)
+    }
+    return row
+  })
+}
+
 export function uniqueSalespeople(deals: MarketingDeal[]): string[] {
   return Array.from(new Set(deals.map((d) => d.salesperson).filter((s): s is string => !!s))).sort()
 }
 
 export function uniqueStages(deals: MarketingDeal[]): string[] {
   return Array.from(new Set(deals.map((d) => d.rawStage).filter((s): s is string => !!s))).sort()
+}
+
+/** Month-key ("YYYY-MM") helpers shared by the Period Comparison navigator and the Ad Spend
+ * month-range entry — kept string-based (rather than Date) since that's how months are already
+ * represented everywhere else in the marketing module (createdDate.slice(0, 7), ad_spend.month). */
+export function monthKeyNow(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+}
+
+export function shiftMonthKey(key: string, delta: number): string {
+  const [y, m] = key.split('-').map(Number)
+  const d = new Date(y, m - 1 + delta, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+/** Returns `count` consecutive month keys ending at (and including) `endKey`, oldest first. */
+export function monthKeyRange(endKey: string, count: number): string[] {
+  const keys: string[] = []
+  for (let i = count - 1; i >= 0; i--) keys.push(shiftMonthKey(endKey, -i))
+  return keys
+}
+
+/** All month keys from `fromKey` to `toKey` inclusive, ascending. Empty if `toKey` precedes `fromKey`. */
+export function monthsBetweenKeys(fromKey: string, toKey: string): string[] {
+  const [fy, fm] = fromKey.split('-').map(Number)
+  const [ty, tm] = toKey.split('-').map(Number)
+  const totalMonths = (ty - fy) * 12 + (tm - fm)
+  if (totalMonths < 0) return []
+  const keys: string[] = []
+  for (let i = 0; i <= totalMonths; i++) keys.push(shiftMonthKey(fromKey, i))
+  return keys
+}
+
+export function monthKeyToDateRange(key: string): { from: string; to: string } {
+  const [y, m] = key.split('-').map(Number)
+  const lastDay = new Date(y, m, 0).getDate()
+  return { from: `${key}-01`, to: `${key}-${String(lastDay).padStart(2, '0')}` }
+}
+
+export interface ImportBatch {
+  importBatchId: string
+  importedAt: string
+  source: string | null
+  count: number
+  leads: number
+  quotes: number
+  won: number
+}
+
+/** Groups deals by their import batch for the Data Management history view — newest first. */
+export function groupIntoImportBatches(deals: MarketingDeal[]): ImportBatch[] {
+  const byBatch = new Map<string, MarketingDeal[]>()
+  for (const d of deals) {
+    const list = byBatch.get(d.importBatchId) ?? []
+    list.push(d)
+    byBatch.set(d.importBatchId, list)
+  }
+  return Array.from(byBatch.entries())
+    .map(([importBatchId, list]) => ({
+      importBatchId,
+      importedAt: list[0].importedAt,
+      source: list[0].importSource,
+      count: list.length,
+      leads: list.length,
+      quotes: list.filter((d) => d.isQuoted).length,
+      won: list.filter((d) => d.isWon).length,
+    }))
+    .sort((a, b) => b.importedAt.localeCompare(a.importedAt))
 }

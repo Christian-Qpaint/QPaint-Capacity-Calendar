@@ -15,12 +15,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatCurrency } from '@/lib/formulas'
+import { monthKeyNow, monthsBetweenKeys } from '@/lib/marketingDataAccess'
 import type { AdSpendEntry } from '@/types'
-
-function currentMonthValue(): string {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-}
 
 export function AdSpendDialog({
   adSpend,
@@ -34,7 +30,8 @@ export function AdSpendDialog({
   onDelete: (id: string) => Promise<unknown>
 }) {
   const [open, setOpen] = useState(false)
-  const [month, setMonth] = useState(currentMonthValue())
+  const [fromMonth, setFromMonth] = useState(monthKeyNow())
+  const [toMonth, setToMonth] = useState(monthKeyNow())
   const [referralSource, setReferralSource] = useState('')
   const [amount, setAmount] = useState('')
   const [saving, setSaving] = useState(false)
@@ -42,13 +39,19 @@ export function AdSpendDialog({
 
   const sorted = useMemo(() => [...adSpend].sort((a, b) => b.month.localeCompare(a.month) || a.referralSource.localeCompare(b.referralSource)), [adSpend])
 
-  const canSave = month.length === 7 && referralSource.trim().length > 0 && Number(amount) >= 0 && amount !== ''
+  const monthsInRange = useMemo(() => monthsBetweenKeys(fromMonth, toMonth), [fromMonth, toMonth])
+
+  const canSave = monthsInRange.length > 0 && referralSource.trim().length > 0 && amount !== '' && Number(amount) >= 0
 
   async function handleSave() {
     if (!canSave) return
     setSaving(true)
     try {
-      await onSave({ month: `${month}-01`, referralSource: referralSource.trim(), amount: Number(amount) })
+      const trimmedSource = referralSource.trim()
+      const amountValue = Number(amount)
+      for (const key of monthsInRange) {
+        await onSave({ month: `${key}-01`, referralSource: trimmedSource, amount: amountValue })
+      }
       setReferralSource('')
       setAmount('')
     } finally {
@@ -75,46 +78,58 @@ export function AdSpendDialog({
         <DialogHeader>
           <DialogTitle>Monthly Ad Spend</DialogTitle>
           <DialogDescription>
-            Enter spend by month and referral source — used to calculate CPL, CPQ, CPJ, and ROAS. One entry per
-            month/source; saving again for the same pair updates it.
+            Enter spend for one month or a range of months and a referral source — used to calculate CPL, CPQ, CPJ,
+            and ROAS. Saving a range applies the same amount to every month in it. One entry per month/source;
+            saving again for the same pair updates it.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-[1fr_1fr_1fr_auto] items-end gap-2">
-          <div className="space-y-1">
-            <Label htmlFor="ad-spend-month">Month</Label>
-            <Input id="ad-spend-month" type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label htmlFor="ad-spend-from">From</Label>
+              <Input id="ad-spend-from" type="month" value={fromMonth} onChange={(e) => setFromMonth(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="ad-spend-to">To</Label>
+              <Input id="ad-spend-to" type="month" value={toMonth} onChange={(e) => setToMonth(e.target.value)} />
+            </div>
           </div>
-          <div className="space-y-1">
-            <Label htmlFor="ad-spend-source">Referral Source</Label>
-            <Input
-              id="ad-spend-source"
-              list="ad-spend-known-sources"
-              value={referralSource}
-              onChange={(e) => setReferralSource(e.target.value)}
-              placeholder="e.g. Google Ads"
-            />
-            <datalist id="ad-spend-known-sources">
-              {knownReferralSources.map((s) => (
-                <option key={s} value={s} />
-              ))}
-            </datalist>
+          {fromMonth && toMonth && monthsInRange.length === 0 && (
+            <p className="text-xs text-danger">"To" must be the same month as or later than "From".</p>
+          )}
+          <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
+            <div className="space-y-1">
+              <Label htmlFor="ad-spend-source">Referral Source</Label>
+              <Input
+                id="ad-spend-source"
+                list="ad-spend-known-sources"
+                value={referralSource}
+                onChange={(e) => setReferralSource(e.target.value)}
+                placeholder="e.g. Google Ads"
+              />
+              <datalist id="ad-spend-known-sources">
+                {knownReferralSources.map((s) => (
+                  <option key={s} value={s} />
+                ))}
+              </datalist>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="ad-spend-amount">Amount ($ per month)</Label>
+              <Input
+                id="ad-spend-amount"
+                type="number"
+                min="0"
+                step="0.01"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+              />
+            </div>
+            <Button onClick={handleSave} disabled={!canSave || saving}>
+              {saving ? 'Saving…' : monthsInRange.length > 1 ? `Save × ${monthsInRange.length}` : 'Save'}
+            </Button>
           </div>
-          <div className="space-y-1">
-            <Label htmlFor="ad-spend-amount">Amount ($)</Label>
-            <Input
-              id="ad-spend-amount"
-              type="number"
-              min="0"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.00"
-            />
-          </div>
-          <Button onClick={handleSave} disabled={!canSave || saving}>
-            {saving ? 'Saving…' : 'Save'}
-          </Button>
         </div>
 
         <div className="max-h-72 overflow-y-auto rounded-lg border border-border">

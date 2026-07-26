@@ -60,6 +60,10 @@ export interface ColumnMapping {
   quotedDate: string | null
   wonDate: string | null
   externalId: string | null
+  // Carried verbatim, not used by any calculation — see MarketingDeal.
+  pipeline: string | null
+  lostReason: string | null
+  expectedCloseDate: string | null
 }
 
 export const EMPTY_COLUMN_MAPPING: ColumnMapping = {
@@ -72,6 +76,9 @@ export const EMPTY_COLUMN_MAPPING: ColumnMapping = {
   quotedDate: null,
   wonDate: null,
   externalId: null,
+  pipeline: null,
+  lostReason: null,
+  expectedCloseDate: null,
 }
 
 export const REQUIRED_MAPPING_FIELDS: (keyof ColumnMapping)[] = ['referralSource', 'value', 'createdDate']
@@ -99,8 +106,11 @@ export function guessColumnMapping(headers: string[]): ColumnMapping {
     value: find('deal value', 'value', 'amount'),
     createdDate: find('created'),
     quotedDate: find('quote sent', 'quoted date', 'date sent'),
-    wonDate: find('won time', 'won date', 'date won', 'close date'),
+    wonDate: find('won time', 'won date', 'date won'),
     externalId: find('deal id', 'deal - id'),
+    pipeline: find('pipeline'),
+    lostReason: find('lost reason'),
+    expectedCloseDate: find('expected close'),
   }
 }
 
@@ -152,6 +162,7 @@ export function buildDealsFromImport(
   mapping: ColumnMapping,
   classification: StageClassification,
   importBatchId: string,
+  importSource: string | null = null,
 ): BuildDealsResult {
   const deals: Omit<MarketingDeal, 'id' | 'importedAt'>[] = []
   let skipped = 0
@@ -194,6 +205,10 @@ export function buildDealsFromImport(
       createdDate,
       eventDate,
       importBatchId,
+      importSource,
+      pipeline: mapping.pipeline ? row[mapping.pipeline] || null : null,
+      lostReason: mapping.lostReason ? row[mapping.lostReason] || null : null,
+      expectedCloseDate: mapping.expectedCloseDate ? parseDate(row[mapping.expectedCloseDate]) : null,
     })
   }
 
