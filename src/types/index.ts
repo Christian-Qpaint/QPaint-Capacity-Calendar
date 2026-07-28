@@ -266,6 +266,66 @@ export interface MarketingDeal {
   expectedCloseDate: string | null // ISO date
 }
 
+/** A local mirror of one Pipedrive pipeline (Sales/Jobs/Business Development, or a pipeline
+ * created locally that never existed in Pipedrive) — configurable after seeding, diverges from
+ * Pipedrive going forward. */
+export interface CrmPipeline {
+  id: string
+  pipedrivePipelineId: number | null
+  name: string
+  order: number
+}
+
+/** One column within a CrmPipeline. isWonStage marks the stage(s) that, once a deal is dropped
+ * into them (or the deal is explicitly marked Won), promote the deal into a real Job. */
+export interface CrmStage {
+  id: string
+  pipelineId: string
+  pipedriveStageId: number | null
+  name: string
+  order: number
+  isWonStage: boolean
+  color: string | null
+}
+
+/** Configurable custom-field definition — seeded 1:1 from Pipedrive's own deal fields (same
+ * opaque `key`), with more addable/editable locally afterward (key then prefixed `local_`). */
+export interface CrmFieldDefinition {
+  id: string
+  key: string
+  label: string
+  fieldType: 'text' | 'number' | 'date' | 'boolean' | 'select' | 'multiselect' | 'address' | 'monetary'
+  options: { id: string; label: string }[] | null
+  order: number
+}
+
+/** A deal in the local CRM — either copied in automatically the moment it's created in
+ * Pipedrive's Sales Pipeline, backfilled from Pipedrive's other pipelines at seed time, or added
+ * here manually (pipedriveDealId null). Once it exists here it's managed locally; Pipedrive's own
+ * later stage/field changes are never synced back in. */
+export interface CrmDeal {
+  id: string
+  pipelineId: string
+  stageId: string
+  title: string
+  value: number | null // null = masked for roles without crm.view_financials
+  currency: string
+  status: 'open' | 'won' | 'lost'
+  pipedriveDealId: string | null
+  orgName: string | null
+  personName: string | null
+  lostReason: string | null
+  wonAt: string | null // ISO timestamp
+  lostAt: string | null // ISO timestamp
+  jobId: string | null // set once promoted to a real Job
+  // Omitted (not just empty) on list/board rows from GET /api/crm-data — the ~65 possible custom
+  // field keys made that payload the actual perf cost at scale, and board/table cards never
+  // render them anyway. Only present once fetched individually via GET /api/crm-deals?id=.
+  fields?: Record<string, unknown> // keyed by CrmFieldDefinition.key
+  createdAt: string // ISO timestamp
+  updatedAt: string // ISO timestamp
+}
+
 /** A single user's explicit grant/revoke for one PERMISSION_CATALOG key — absence of a row for a
  * given (userId, permissionKey) means "inherit that permission's role default" instead. */
 export interface UserPermissionOverride {

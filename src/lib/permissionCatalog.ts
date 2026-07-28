@@ -23,15 +23,16 @@ export interface PermissionDef {
   defaultForRole: (role: Role) => boolean
 }
 
-export const PERMISSION_PAGES = ['Deals', 'Scheduler', 'Production', 'Marketing', 'Settings', 'Field'] as const
+export const PERMISSION_PAGES = ['Deals', 'Jobs', 'Scheduler', 'Production', 'Marketing', 'Settings', 'Field'] as const
 
 export const PERMISSION_CATALOG: PermissionDef[] = [
-  // Deals (the Jobs page, at /jobs — will be renamed jobs.* in the CRM cutover phase)
-  { key: 'deals.view', page: 'Deals', label: 'View Deals page', description: 'Open the Deals list at all.', defaultForRole: isOfficeRole },
-  { key: 'deals.manage', page: 'Deals', label: 'Add / edit deals & phases', description: 'Create or edit jobs and schedule phases from the Deals page.', defaultForRole: isOfficeRole },
-  { key: 'deals.view_financials', page: 'Deals', label: 'View deal values ($)', description: 'See deal dollar values rather than a masked/blank figure.', defaultForRole: hasFinancialAccess },
+  // Jobs (view-only production tracking, at /jobs — job records themselves are now managed from
+  // the Deals CRM; this page still owns schedule-block/phase CRUD, which is unrelated)
+  { key: 'jobs.view', page: 'Jobs', label: 'View Jobs page', description: 'Open the Jobs list at all.', defaultForRole: isOfficeRole },
+  { key: 'jobs.manage', page: 'Jobs', label: 'Schedule phases', description: 'Add, edit, or delete schedule phases from the Jobs page.', defaultForRole: isOfficeRole },
+  { key: 'jobs.view_financials', page: 'Jobs', label: 'View job values ($)', description: 'See job dollar values rather than a masked/blank figure.', defaultForRole: hasFinancialAccess },
 
-  // CRM (the new Deals pipeline board, at /deals)
+  // Deals (the CRM pipeline board, at /deals)
   { key: 'crm.view', page: 'Deals', label: 'View CRM pipeline board', description: 'Open the CRM Deals board (Sales/Jobs/Business Development pipelines) at all.', defaultForRole: isOfficeRole },
   { key: 'crm.manage', page: 'Deals', label: 'Add / edit / move CRM deals', description: 'Create deals, edit fields, drag between stages, mark Won/Lost, delete.', defaultForRole: isOfficeRole },
   { key: 'crm.view_financials', page: 'Deals', label: 'View CRM deal values ($)', description: 'See CRM deal dollar values rather than a masked/blank figure.', defaultForRole: hasFinancialAccess },

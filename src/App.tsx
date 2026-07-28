@@ -1,8 +1,9 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { OfficeLayout } from '@/components/layout/OfficeLayout'
 import { FieldLayout } from '@/components/layout/FieldLayout'
 import { RequireAuth, RequirePermission } from '@/components/RouteGuards'
 import { usePermissions } from '@/context/PermissionsContext'
+import { CrmDataProvider } from '@/context/CrmDataContext'
 import { Login } from '@/pages/Login'
 import { CapacityBoard } from '@/pages/office/CapacityBoard'
 import { TargetHistory } from '@/pages/office/TargetHistory'
@@ -11,16 +12,27 @@ import { JobPhaseScheduling } from '@/pages/office/JobPhaseScheduling'
 import { ResourceCalendar } from '@/pages/office/ResourceCalendar'
 import { TeamsContractorsSetup } from '@/pages/office/TeamsContractorsSetup'
 import { MarketingDashboard } from '@/pages/office/marketing/MarketingDashboard'
+import { CrmBoard } from '@/pages/office/deals/CrmBoard'
+import { CrmConfig } from '@/pages/office/deals/CrmConfig'
 import { LogHours } from '@/pages/field/LogHours'
 import { UpdateProgress } from '@/pages/field/UpdateProgress'
 
 function RoleHome() {
   const { hasPermission } = usePermissions()
   if (hasPermission('production.view')) return <Navigate to="/capacity" replace />
-  if (hasPermission('deals.view')) return <Navigate to="/jobs" replace />
+  if (hasPermission('crm.view')) return <Navigate to="/deals" replace />
+  if (hasPermission('jobs.view')) return <Navigate to="/jobs" replace />
   if (hasPermission('scheduler.view')) return <Navigate to="/calendar" replace />
   if (hasPermission('marketing.view')) return <Navigate to="/marketing" replace />
   return <Navigate to="/log-hours" replace />
+}
+
+function CrmLayout() {
+  return (
+    <CrmDataProvider>
+      <Outlet />
+    </CrmDataProvider>
+  )
 }
 
 function App() {
@@ -37,9 +49,18 @@ function App() {
             <Route path="/capacity/history" element={<TargetHistory />} />
           </Route>
 
-          <Route element={<RequirePermission permissionKey="deals.view" />}>
+          <Route element={<RequirePermission permissionKey="jobs.view" />}>
             <Route path="/jobs" element={<JobsList />} />
             <Route path="/jobs/:jobId" element={<JobPhaseScheduling />} />
+          </Route>
+
+          <Route element={<RequirePermission permissionKey="crm.view" />}>
+            <Route element={<CrmLayout />}>
+              <Route path="/deals" element={<CrmBoard />} />
+              <Route element={<RequirePermission permissionKey="crm.manage_config" />}>
+                <Route path="/deals/config" element={<CrmConfig />} />
+              </Route>
+            </Route>
           </Route>
 
           <Route element={<RequirePermission permissionKey="scheduler.view" />}>

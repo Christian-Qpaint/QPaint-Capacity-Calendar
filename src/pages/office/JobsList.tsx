@@ -14,7 +14,6 @@ import { StagePill, StageColorDot } from '@/components/StagePill'
 import { ClientTypeIcon } from '@/components/ClientTypeIcon'
 import { JobsAdvancedFilterDialog } from '@/components/JobsAdvancedFilterDialog'
 import { AddEditPhaseDialog, type PhaseDialogState } from '@/components/AddEditPhaseDialog'
-import { JobFormDialog, type JobFormState } from '@/components/JobFormDialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   applyConditions,
@@ -36,7 +35,6 @@ import {
   Columns3,
   ListFilter,
   MapPin,
-  Pencil,
   Plus,
   Rows3,
   Search,
@@ -91,13 +89,11 @@ function JobKanbanCard({
   clientType,
   onNavigate,
   onAddPhase,
-  onEdit,
 }: {
   row: JobFilterContext
   clientType: ClientType
   onNavigate: () => void
   onAddPhase: () => void
-  onEdit: () => void
 }) {
   const { job, status, allocatedHours, actualDollars, productionPercent } = row
   return (
@@ -108,18 +104,6 @@ function JobKanbanCard({
           <span className="truncate">{row.jobName}</span>
         </span>
         <div className="flex shrink-0 items-center gap-0.5">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="size-6"
-            aria-label={`Edit ${row.jobName}`}
-            onClick={(e) => {
-              e.stopPropagation()
-              onEdit()
-            }}
-          >
-            <Pencil className="size-3.5" />
-          </Button>
           <Button
             variant="ghost"
             size="icon-sm"
@@ -169,7 +153,6 @@ export function JobsList() {
   const [pageSize, setPageSize] = usePersistedState<PageSize>('qpaint:jobsList:pageSize', 10)
   const [page, setPage] = usePersistedState('qpaint:jobsList:page', 1)
   const [viewMode, setViewMode] = usePersistedState<ViewMode>('qpaint:jobsList:viewMode', 'table')
-  const [jobFormState, setJobFormState] = useState<JobFormState>({ open: false, job: null })
 
   // Every synced job shows up here, and can be scheduled onto the Calendar, regardless of its
   // Pipedrive stage — so nothing is ever invisible or un-addable purely because of its stage.
@@ -260,15 +243,12 @@ export function JobsList() {
               <Columns3 /> Kanban
             </Button>
           </div>
-          <Button size="sm" onClick={() => setJobFormState({ open: true, job: null })}>
-            <Plus /> New job
-          </Button>
         </div>
       </div>
 
       <p className="text-xs text-muted-foreground">
-        New jobs are copied in automatically from Pipedrive once won — this list is now this app's own
-        copy, independent of anything that happens in Pipedrive afterward.
+        Jobs land here automatically once a deal is won (in Pipedrive or the Deals CRM) — view-only;
+        manage the deal itself from the Deals page.
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -324,7 +304,7 @@ export function JobsList() {
               <TableRow>
                 <TableCell colSpan={9} className="py-8 text-center text-sm text-muted-foreground">
                   {visibleJobs.length === 0
-                    ? 'No jobs yet — they appear here automatically once won in Pipedrive, or add one manually.'
+                    ? 'No jobs yet — they appear here automatically once a deal is won.'
                     : 'No jobs match your search / filter.'}
                 </TableCell>
               </TableRow>
@@ -366,17 +346,6 @@ export function JobsList() {
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-0.5">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Edit ${row.jobName}`}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setJobFormState({ open: true, job })
-                        }}
-                      >
-                        <Pencil />
-                      </Button>
                       <Button
                         variant="ghost"
                         size="icon-sm"
@@ -456,7 +425,7 @@ export function JobsList() {
         <div className="flex gap-3 overflow-x-auto pb-2">
           {kanbanColumns.length === 0 && (
             <p className="rounded-md border border-dashed border-border py-8 text-center text-sm text-muted-foreground w-full">
-              {visibleJobs.length === 0 ? 'No jobs yet — they appear here automatically once won in Pipedrive, or add one manually.' : 'No jobs match your search / filter.'}
+              {visibleJobs.length === 0 ? 'No jobs yet — they appear here automatically once a deal is won.' : 'No jobs match your search / filter.'}
             </p>
           )}
           {kanbanColumns.map(({ stageId, rows: columnRows, totalValue }) => {
@@ -486,7 +455,6 @@ export function JobsList() {
                         setPhaseDialogJobId(row.job.id)
                         setPhaseDialogState({ open: true, block: null })
                       }}
-                      onEdit={() => setJobFormState({ open: true, job: row.job })}
                     />
                   ))}
                 </div>
@@ -513,8 +481,6 @@ export function JobsList() {
         onOpenChange={(open) => setPhaseDialogState((s) => ({ ...s, open }))}
         lockedJobId={phaseDialogJobId ?? undefined}
       />
-
-      <JobFormDialog state={jobFormState} onOpenChange={(open) => setJobFormState((s) => ({ ...s, open }))} />
     </div>
   )
 }

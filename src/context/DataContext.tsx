@@ -46,14 +46,6 @@ interface DataContextValue extends DataState {
   updateContractor: (id: string, patch: Partial<Contractor>) => Promise<void>
   deleteContractor: (id: string) => Promise<void>
   addClient: (client: Omit<Client, 'id'>) => Promise<Client>
-  /** Manually add a job outside the Pipedrive sync — the server generates a synthetic
-   * `MANUAL-<uuid>` pipedriveDealId (real deal ids are always numeric strings) so it satisfies the
-   * same not-null/unique column the sync relies on without colliding with a real deal. */
-  addJob: (job: Omit<Job, 'id' | 'pipedriveDealId' | 'actualHoursSource' | 'productionPercentSource'>) => Promise<Job>
-  updateJob: (id: string, patch: Partial<Job>) => Promise<void>
-  /** Deletes the job and, via ON DELETE CASCADE, every schedule block/hours entry logged against
-   * it — the caller is responsible for warning the user about that before calling this. */
-  deleteJob: (id: string) => Promise<void>
   addCredential: (credential: Omit<Credential, 'id'>) => Promise<Credential>
   updateCredential: (id: string, patch: Partial<Credential>) => Promise<void>
   deleteCredential: (id: string) => Promise<void>
@@ -190,27 +182,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
         setState((prev) => ({ ...prev, clients: [...prev.clients, created] }))
         return created
       },
-      addJob: async (job) => {
-        const created = await api.post<Job>('/api/jobs', job)
-        setState((prev) => ({ ...prev, jobs: [...prev.jobs, created] }))
-        return created
-      },
-      updateJob: async (id, patch) => {
-        const current = state.jobs.find((j) => j.id === id)
-        if (!current) throw new Error('Job not found')
-        const merged = { ...current, ...patch }
-        await api.patch(`/api/jobs?id=${id}`, merged)
-        setState((prev) => ({ ...prev, jobs: prev.jobs.map((j) => (j.id === id ? merged : j)) }))
-      },
-      deleteJob: async (id) => {
-        await api.delete(`/api/jobs?id=${id}`)
-        setState((prev) => ({
-          ...prev,
-          jobs: prev.jobs.filter((j) => j.id !== id),
-          scheduleBlocks: prev.scheduleBlocks.filter((b) => b.jobId !== id),
-        }))
-      },
-
       addCredential: async (credential) => {
         const created = await api.post<Credential>('/api/credentials', credential)
         setState((prev) => ({ ...prev, credentials: [...prev.credentials, created] }))

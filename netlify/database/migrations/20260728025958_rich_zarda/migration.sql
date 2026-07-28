@@ -1,9 +1,17 @@
-CREATE TYPE "crm_deal_status" AS ENUM('open', 'won', 'lost');--> statement-breakpoint
-CREATE TYPE "crm_field_type" AS ENUM('text', 'number', 'date', 'boolean', 'select', 'multiselect', 'address', 'monetary');--> statement-breakpoint
-ALTER TYPE "job_category" ADD VALUE 'QPaint';--> statement-breakpoint
-ALTER TYPE "job_category" ADD VALUE 'Work Projects';--> statement-breakpoint
-ALTER TYPE "job_category" ADD VALUE 'Other';--> statement-breakpoint
-CREATE TABLE "crm_deals" (
+DO $$ BEGIN
+  CREATE TYPE "crm_deal_status" AS ENUM('open', 'won', 'lost');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  CREATE TYPE "crm_field_type" AS ENUM('text', 'number', 'date', 'boolean', 'select', 'multiselect', 'address', 'monetary');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+ALTER TYPE "job_category" ADD VALUE IF NOT EXISTS 'QPaint';--> statement-breakpoint
+ALTER TYPE "job_category" ADD VALUE IF NOT EXISTS 'Work Projects';--> statement-breakpoint
+ALTER TYPE "job_category" ADD VALUE IF NOT EXISTS 'Other';--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "crm_deals" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 	"pipeline_id" uuid NOT NULL,
 	"stage_id" uuid NOT NULL,
@@ -23,7 +31,7 @@ CREATE TABLE "crm_deals" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "crm_field_definitions" (
+CREATE TABLE IF NOT EXISTS "crm_field_definitions" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 	"key" text NOT NULL UNIQUE,
 	"label" text NOT NULL,
@@ -34,7 +42,7 @@ CREATE TABLE "crm_field_definitions" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "crm_pipelines" (
+CREATE TABLE IF NOT EXISTS "crm_pipelines" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 	"pipedrive_pipeline_id" integer UNIQUE,
 	"name" text NOT NULL,
@@ -43,7 +51,7 @@ CREATE TABLE "crm_pipelines" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "crm_stages" (
+CREATE TABLE IF NOT EXISTS "crm_stages" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 	"pipeline_id" uuid NOT NULL,
 	"pipedrive_stage_id" integer UNIQUE,
@@ -55,9 +63,25 @@ CREATE TABLE "crm_stages" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX "crm_deals_pipeline_stage_idx" ON "crm_deals" ("pipeline_id","stage_id");--> statement-breakpoint
-CREATE INDEX "crm_deals_status_idx" ON "crm_deals" ("status");--> statement-breakpoint
-ALTER TABLE "crm_deals" ADD CONSTRAINT "crm_deals_pipeline_id_crm_pipelines_id_fkey" FOREIGN KEY ("pipeline_id") REFERENCES "crm_pipelines"("id") ON DELETE RESTRICT;--> statement-breakpoint
-ALTER TABLE "crm_deals" ADD CONSTRAINT "crm_deals_stage_id_crm_stages_id_fkey" FOREIGN KEY ("stage_id") REFERENCES "crm_stages"("id") ON DELETE RESTRICT;--> statement-breakpoint
-ALTER TABLE "crm_deals" ADD CONSTRAINT "crm_deals_job_id_jobs_id_fkey" FOREIGN KEY ("job_id") REFERENCES "jobs"("id") ON DELETE SET NULL;--> statement-breakpoint
-ALTER TABLE "crm_stages" ADD CONSTRAINT "crm_stages_pipeline_id_crm_pipelines_id_fkey" FOREIGN KEY ("pipeline_id") REFERENCES "crm_pipelines"("id") ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS "crm_deals_pipeline_stage_idx" ON "crm_deals" ("pipeline_id","stage_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "crm_deals_status_idx" ON "crm_deals" ("status");--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "crm_deals" ADD CONSTRAINT "crm_deals_pipeline_id_crm_pipelines_id_fkey" FOREIGN KEY ("pipeline_id") REFERENCES "crm_pipelines"("id") ON DELETE RESTRICT;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "crm_deals" ADD CONSTRAINT "crm_deals_stage_id_crm_stages_id_fkey" FOREIGN KEY ("stage_id") REFERENCES "crm_stages"("id") ON DELETE RESTRICT;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "crm_deals" ADD CONSTRAINT "crm_deals_job_id_jobs_id_fkey" FOREIGN KEY ("job_id") REFERENCES "jobs"("id") ON DELETE SET NULL;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "crm_stages" ADD CONSTRAINT "crm_stages_pipeline_id_crm_pipelines_id_fkey" FOREIGN KEY ("pipeline_id") REFERENCES "crm_pipelines"("id") ON DELETE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
