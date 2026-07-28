@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
-import { supabase } from '@/lib/supabaseClient'
+import { api } from '@/lib/apiClient'
 import { findPermission } from '@/lib/permissionCatalog'
 import { useCurrentUser } from './AuthContext'
 
@@ -24,20 +24,17 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
 
   const refetch = useCallback(async () => {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('user_permission_overrides')
-      .select('permission_key, granted')
-      .eq('user_id', currentUser.id)
-    if (error) {
-      console.error('Failed to load permission overrides', error)
+    try {
+      const { overrides: rows } = await api.get<{ overrides: { permissionKey: string; granted: boolean }[] }>('/api/my-permission-overrides')
+      const map: Record<string, boolean> = {}
+      for (const row of rows) map[row.permissionKey] = row.granted
+      setOverrides(map)
+    } catch (err) {
+      console.error('Failed to load permission overrides', err)
+    } finally {
       setLoading(false)
-      return
     }
-    const map: Record<string, boolean> = {}
-    for (const row of data ?? []) map[row.permission_key] = row.granted
-    setOverrides(map)
-    setLoading(false)
-  }, [currentUser.id])
+  }, [])
 
   useEffect(() => {
     refetch()

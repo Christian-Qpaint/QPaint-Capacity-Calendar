@@ -22,6 +22,7 @@ import {
   date,
   index,
   integer,
+  jsonb,
   numeric,
   pgEnum,
   pgTable,
@@ -44,7 +45,15 @@ export const appRoleEnum = pgEnum('app_role', [
   'marketing',
 ])
 export const clientTypeEnum = pgEnum('client_type', ['Individual', 'Company', 'Government', 'Body Corporate'])
-export const jobCategoryEnum = pgEnum('job_category', ['Residential', 'Government', 'Corporate', 'Commercial'])
+export const jobCategoryEnum = pgEnum('job_category', [
+  'Residential',
+  'Government',
+  'Corporate',
+  'Commercial',
+  'QPaint',
+  'Work Projects',
+  'Other',
+])
 export const workAreaEnum = pgEnum('work_area', ['External', 'Internal', 'Roof', 'Epoxy Floors', 'Decks'])
 export const scheduleBlockStatusEnum = pgEnum('schedule_block_status', [
   'Unscheduled',
@@ -88,7 +97,7 @@ export const users = pgTable('users', {
   role: appRoleEnum('role').notNull().default('painter_crew_member'),
   teamId: uuid('team_id').references(() => teams.id, { onDelete: 'set null' }),
   workerId: uuid('worker_id').references(() => workers.id, { onDelete: 'set null' }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
 })
 
 // ============================================================================
@@ -104,7 +113,7 @@ export const clients = pgTable('clients', {
 export const contractors = pgTable('contractors', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
-  reportedMonthlyCapacity: numeric('reported_monthly_capacity').notNull().default('0'),
+  reportedMonthlyCapacity: numeric('reported_monthly_capacity', { mode: 'number' }).notNull().default(0),
   tradingName: text('trading_name'),
   abn: text('abn'),
   acn: text('acn'),
@@ -140,7 +149,7 @@ export const teams = pgTable(
     type: teamTypeEnum('type').notNull(),
     contractorId: uuid('contractor_id').references(() => contractors.id, { onDelete: 'cascade' }),
     headcount: integer('headcount'),
-    standardHoursPerWeek: numeric('standard_hours_per_week'),
+    standardHoursPerWeek: numeric('standard_hours_per_week', { mode: 'number' }),
     color: text('color'),
   },
   (table) => [
@@ -159,14 +168,14 @@ export const jobs = pgTable('jobs', {
     .references(() => clients.id, { onDelete: 'restrict' }),
   address: text('address').notNull(),
   category: jobCategoryEnum('category').notNull(),
-  totalValue: numeric('total_value').notNull().default('0'),
-  targetHours: numeric('target_hours').notNull(),
+  totalValue: numeric('total_value', { mode: 'number' }).notNull().default(0),
+  targetHours: numeric('target_hours', { mode: 'number' }).notNull(),
   dateWon: date('date_won').notNull(),
   pipedriveStageId: integer('pipedrive_stage_id'),
   pipedriveDealTitle: text('pipedrive_deal_title'),
-  actualHoursOverride: numeric('actual_hours_override'),
+  actualHoursOverride: numeric('actual_hours_override', { mode: 'number' }),
   actualHoursSource: text('actual_hours_source').notNull().default('computed'),
-  productionPercentOverride: numeric('production_percent_override'),
+  productionPercentOverride: numeric('production_percent_override', { mode: 'number' }),
   productionPercentSource: text('production_percent_source').notNull().default('computed'),
 }, (table) => [
   check('jobs_actual_hours_source_check', sql`${table.actualHoursSource} in ('computed', 'manual')`),
@@ -186,7 +195,7 @@ export const scheduleBlocks = pgTable(
     workArea: workAreaEnum('work_area').notNull(),
     startDate: date('start_date').notNull(),
     endDate: date('end_date').notNull(),
-    phaseHours: numeric('phase_hours').notNull(),
+    phaseHours: numeric('phase_hours', { mode: 'number' }).notNull(),
     status: scheduleBlockStatusEnum('status').notNull().default('Scheduled'),
     percentComplete: integer('percent_complete').notNull().default(0),
     percentCompleteUpdatedBy: text('percent_complete_updated_by'),
@@ -244,7 +253,7 @@ export const credentials = pgTable('credentials', {
   credentialType: credentialTypeEnum('credential_type').notNull(),
   number: text('number'),
   issuer: text('issuer'),
-  coverageAmount: numeric('coverage_amount'),
+  coverageAmount: numeric('coverage_amount', { mode: 'number' }),
   expiryDate: date('expiry_date'),
   jobTypeScope: credentialJobTypeScopeEnum('job_type_scope'),
 })
@@ -261,7 +270,7 @@ export const dailyHoursEntries = pgTable('daily_hours_entries', {
     .notNull()
     .references(() => users.id, { onDelete: 'restrict' }),
   date: date('date').notNull(),
-  hours: numeric('hours').notNull(),
+  hours: numeric('hours', { mode: 'number' }).notNull(),
 }, (table) => [check('daily_hours_entries_hours_check', sql`${table.hours} > 0`)])
 
 export const weeklyActuals = pgTable(
@@ -272,7 +281,7 @@ export const weeklyActuals = pgTable(
       .notNull()
       .references(() => jobs.id, { onDelete: 'cascade' }),
     weekEnding: date('week_ending').notNull(),
-    actualHours: numeric('actual_hours').notNull(),
+    actualHours: numeric('actual_hours', { mode: 'number' }).notNull(),
   },
   (table) => [unique('weekly_actuals_job_id_week_ending_key').on(table.jobId, table.weekEnding)],
 )
@@ -283,8 +292,8 @@ export const monthlyTargets = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     year: integer('year').notNull(),
     month: integer('month').notNull(),
-    targetDollars: numeric('target_dollars').notNull().default('0'),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    targetDollars: numeric('target_dollars', { mode: 'number' }).notNull().default(0),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
   },
   (table) => [
     unique('monthly_targets_year_month_key').on(table.year, table.month),
@@ -298,9 +307,9 @@ export const monthlySnapshots = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     year: integer('year').notNull(),
     month: integer('month').notNull(),
-    targetDollars: numeric('target_dollars').notNull(),
-    actualDollars: numeric('actual_dollars').notNull(),
-    capturedAt: timestamp('captured_at', { withTimezone: true }).notNull().defaultNow(),
+    targetDollars: numeric('target_dollars', { mode: 'number' }).notNull(),
+    actualDollars: numeric('actual_dollars', { mode: 'number' }).notNull(),
+    capturedAt: timestamp('captured_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
     capturedBy: uuid('captured_by').references(() => users.id),
   },
   (table) => [
@@ -318,9 +327,9 @@ export const adSpend = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     month: date('month').notNull(),
     referralSource: text('referral_source').notNull(),
-    amount: numeric('amount').notNull().default('0'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    amount: numeric('amount', { mode: 'number' }).notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
   },
   (table) => [unique('ad_spend_month_referral_source_key').on(table.month, table.referralSource)],
 )
@@ -336,17 +345,109 @@ export const marketingDeals = pgTable(
     rawStage: text('raw_stage'),
     isQuoted: boolean('is_quoted').notNull().default(false),
     isWon: boolean('is_won').notNull().default(false),
-    value: numeric('value').notNull().default('0'),
+    value: numeric('value', { mode: 'number' }).notNull().default(0),
     createdDate: date('created_date').notNull(),
     eventDate: date('event_date'),
     importBatchId: uuid('import_batch_id').notNull(),
-    importedAt: timestamp('imported_at', { withTimezone: true }).notNull().defaultNow(),
+    importedAt: timestamp('imported_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
     pipeline: text('pipeline'),
     lostReason: text('lost_reason'),
     expectedCloseDate: date('expected_close_date'),
     importSource: text('import_source'),
   },
   (table) => [index('marketing_deals_import_batch_idx').on(table.importBatchId)],
+)
+
+// ============================================================================
+// CRM — local mirror of Pipedrive's pipelines/stages/deals. Pipelines/stages/field
+// definitions are SEEDED from Pipedrive (same ids/keys as source-of-truth) but diverge locally
+// from then on — nothing here ever pushes back to Pipedrive. See
+// netlify/functions/crm-deal-created for the one-way, creation-only Sales Pipeline automation.
+// ============================================================================
+export const crmDealStatusEnum = pgEnum('crm_deal_status', ['open', 'won', 'lost'])
+export const crmFieldTypeEnum = pgEnum('crm_field_type', [
+  'text',
+  'number',
+  'date',
+  'boolean',
+  'select',
+  'multiselect',
+  'address',
+  'monetary',
+])
+
+export const crmPipelines = pgTable('crm_pipelines', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // Null for a pipeline created locally that never existed in Pipedrive.
+  pipedrivePipelineId: integer('pipedrive_pipeline_id').unique(),
+  name: text('name').notNull(),
+  order: integer('order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+})
+
+export const crmStages = pgTable('crm_stages', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  pipelineId: uuid('pipeline_id')
+    .notNull()
+    .references(() => crmPipelines.id, { onDelete: 'cascade' }),
+  pipedriveStageId: integer('pipedrive_stage_id').unique(),
+  name: text('name').notNull(),
+  order: integer('order').notNull().default(0),
+  // Dragging a deal into (or explicitly marking Won while in) a stage with this set triggers
+  // Won->Job promotion. Defaults false everywhere at seed time — not auto-derived from
+  // "last stage in pipeline"; an office admin opts specific stages in deliberately.
+  isWonStage: boolean('is_won_stage').notNull().default(false),
+  color: text('color'),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+})
+
+export const crmFieldDefinitions = pgTable('crm_field_definitions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // Pipedrive's own opaque hash key for seeded fields; `local_<slug>` for fields added later.
+  key: text('key').notNull().unique(),
+  label: text('label').notNull(),
+  fieldType: crmFieldTypeEnum('field_type').notNull(),
+  options: jsonb('options').$type<{ id: string; label: string }[]>(),
+  order: integer('order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+})
+
+export const crmDeals = pgTable(
+  'crm_deals',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    pipelineId: uuid('pipeline_id')
+      .notNull()
+      .references(() => crmPipelines.id, { onDelete: 'restrict' }),
+    stageId: uuid('stage_id')
+      .notNull()
+      .references(() => crmStages.id, { onDelete: 'restrict' }),
+    title: text('title').notNull(),
+    value: numeric('value', { mode: 'number' }).notNull().default(0),
+    currency: text('currency').notNull().default('AUD'),
+    status: crmDealStatusEnum('status').notNull().default('open'),
+    // Null for a deal added manually here that never existed in Pipedrive. Postgres allows
+    // multiple NULLs under a unique constraint, so no synthetic id is needed to satisfy this.
+    pipedriveDealId: text('pipedrive_deal_id').unique(),
+    orgName: text('org_name'),
+    personName: text('person_name'),
+    lostReason: text('lost_reason'),
+    wonAt: timestamp('won_at', { withTimezone: true, mode: 'string' }),
+    lostAt: timestamp('lost_at', { withTimezone: true, mode: 'string' }),
+    jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'set null' }),
+    // Custom field values keyed by crmFieldDefinitions.key — the ~65 Pipedrive fields that
+    // aren't already real columns above (referral source, quoter, extent of work, etc.).
+    fields: jsonb('fields').$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('crm_deals_pipeline_stage_idx').on(table.pipelineId, table.stageId),
+    index('crm_deals_status_idx').on(table.status),
+  ],
 )
 
 // ============================================================================
@@ -361,7 +462,7 @@ export const userPermissionOverrides = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     permissionKey: text('permission_key').notNull(),
     granted: boolean('granted').notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
     updatedBy: uuid('updated_by').references(() => users.id),
   },
   (table) => [uniqueIndex('user_permission_overrides_user_id_permission_key_key').on(table.userId, table.permissionKey)],
@@ -377,6 +478,6 @@ export const notifications = pgTable('notifications', {
   body: text('body'),
   link: text('link'),
   read: boolean('read').notNull().default(false),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
   createdBy: uuid('created_by').references(() => users.id),
 }, (table) => [index('notifications_recipient_idx').on(table.recipientId, table.read, table.createdAt)])

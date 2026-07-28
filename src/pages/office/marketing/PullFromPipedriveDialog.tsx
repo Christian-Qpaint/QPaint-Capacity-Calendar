@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { CloudDownload } from 'lucide-react'
 import { toast } from 'sonner'
-import { supabase } from '@/lib/supabaseClient'
+import { api } from '@/lib/apiClient'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -42,11 +42,7 @@ export function PullFromPipedriveDialog() {
     setLoading(true)
     setError(null)
     try {
-      const { data, error: fnError } = await supabase.functions.invoke<{ deals: PipedriveRow[]; warnings: string[]; totalFetched: number }>(
-        'marketing-pipedrive-deals',
-      )
-      if (fnError) throw fnError
-      if (!data) throw new Error('No data returned from Pipedrive')
+      const data = await api.get<{ deals: PipedriveRow[]; warnings: string[]; totalFetched: number }>('/api/marketing-pipedrive-deals')
       setRows(data.deals)
       setWarnings(data.warnings ?? [])
       setSelected(new Set())

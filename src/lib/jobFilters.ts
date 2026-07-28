@@ -1,7 +1,15 @@
 import type { Job, JobCategory } from '@/types'
 import { PIPEDRIVE_STAGE_LABELS, PIPEDRIVE_TARGET_STAGE_IDS } from '@/lib/pipedriveStages'
 
-export const JOB_CATEGORIES: JobCategory[] = ['Residential', 'Corporate', 'Commercial', 'Government']
+export const JOB_CATEGORIES: JobCategory[] = [
+  'Residential',
+  'Corporate',
+  'Commercial',
+  'Government',
+  'QPaint',
+  'Work Projects',
+  'Other',
+]
 export const JOB_STATUSES = ['Unscheduled', 'Scheduled', 'In Production', 'Overdue', 'Completed'] as const
 
 export type FilterFieldKey =

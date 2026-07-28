@@ -31,7 +31,7 @@ export interface Client {
   contactInfo: string
 }
 
-export type JobCategory = 'Residential' | 'Government' | 'Corporate' | 'Commercial'
+export type JobCategory = 'Residential' | 'Government' | 'Corporate' | 'Commercial' | 'QPaint' | 'Work Projects' | 'Other'
 
 export interface Job {
   id: string

@@ -26,10 +26,16 @@ export interface PermissionDef {
 export const PERMISSION_PAGES = ['Deals', 'Scheduler', 'Production', 'Marketing', 'Settings', 'Field'] as const
 
 export const PERMISSION_CATALOG: PermissionDef[] = [
-  // Deals
+  // Deals (the Jobs page, at /jobs — will be renamed jobs.* in the CRM cutover phase)
   { key: 'deals.view', page: 'Deals', label: 'View Deals page', description: 'Open the Deals list at all.', defaultForRole: isOfficeRole },
   { key: 'deals.manage', page: 'Deals', label: 'Add / edit deals & phases', description: 'Create or edit jobs and schedule phases from the Deals page.', defaultForRole: isOfficeRole },
   { key: 'deals.view_financials', page: 'Deals', label: 'View deal values ($)', description: 'See deal dollar values rather than a masked/blank figure.', defaultForRole: hasFinancialAccess },
+
+  // CRM (the new Deals pipeline board, at /deals)
+  { key: 'crm.view', page: 'Deals', label: 'View CRM pipeline board', description: 'Open the CRM Deals board (Sales/Jobs/Business Development pipelines) at all.', defaultForRole: isOfficeRole },
+  { key: 'crm.manage', page: 'Deals', label: 'Add / edit / move CRM deals', description: 'Create deals, edit fields, drag between stages, mark Won/Lost, delete.', defaultForRole: isOfficeRole },
+  { key: 'crm.view_financials', page: 'Deals', label: 'View CRM deal values ($)', description: 'See CRM deal dollar values rather than a masked/blank figure.', defaultForRole: hasFinancialAccess },
+  { key: 'crm.manage_config', page: 'Deals', label: 'Manage pipelines, stages & fields', description: 'Rename/add/delete pipelines, stages, and custom field definitions.', defaultForRole: (role) => role === 'owner' },
 
   // Scheduler
   { key: 'scheduler.view', page: 'Scheduler', label: 'View Scheduler page', description: 'Open the Scheduler (calendar) at all.', defaultForRole: isOfficeRole },

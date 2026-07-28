@@ -1,10 +1,9 @@
-import { supabase } from '@/lib/supabaseClient'
-import { marketingDealToRow } from '@/lib/marketingMappers'
+import { api } from '@/lib/apiClient'
 import type { MarketingDeal } from '@/types'
 
-// Keep each upsert small enough to stay well under Supabase's request size/statement-timeout
-// limits — a single request for thousands of rows either times out or fails outright, and gives
-// no feedback until it does. Chunking also lets progress be reported as it goes.
+// Keep each request small enough to report progress as it goes — the Netlify Function itself has
+// no PostgREST-style row cap, but a single request for thousands of rows still gives no feedback
+// until it either finishes or times out.
 const IMPORT_CHUNK_SIZE = 300
 
 /** Upserts deals in fixed-size chunks, reporting how many rows have been processed after each
@@ -18,15 +17,8 @@ export async function chunkedImportDeals(
   let imported = 0
   for (let i = 0; i < rows.length; i += IMPORT_CHUNK_SIZE) {
     const chunk = rows.slice(i, i + IMPORT_CHUNK_SIZE)
-    const { data, error } = await supabase
-      .from('marketing_deals')
-      .upsert(
-        chunk.map((r) => marketingDealToRow(r)),
-        { onConflict: 'external_id', ignoreDuplicates: false },
-      )
-      .select('id')
-    if (error) throw new Error(error.message)
-    imported += (data ?? []).length
+    const { imported: chunkImported } = await api.post<{ imported: number }>('/api/marketing-deals', { deals: chunk })
+    imported += chunkImported
     onProgress(Math.min(i + IMPORT_CHUNK_SIZE, rows.length))
   }
   return { imported }

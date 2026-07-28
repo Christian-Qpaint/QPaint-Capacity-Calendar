@@ -86,6 +86,9 @@ const JOB_CATEGORY_STYLES: Record<JobCategory, string> = {
   Corporate: 'bg-info-bg text-info',
   Commercial: 'bg-warning-bg text-warning',
   Government: 'bg-muted text-muted-foreground',
+  QPaint: 'bg-primary/10 text-primary',
+  'Work Projects': 'bg-danger-bg text-danger',
+  Other: 'bg-muted text-muted-foreground',
 }
 
 export function CategoryPill({ category }: { category: JobCategory }) {
