@@ -17,6 +17,7 @@ import { getDb } from '../_shared/db.js'
 import { isPipedriveWebhookAuthorized } from '../_shared/pipedriveAuth.js'
 import { fetchFullDeal, extractFieldsFromV1Deal, type PipedriveDealPayload } from '../_shared/pipedriveApi.js'
 import { attemptPromotion } from '../_shared/dealToJob.js'
+import { recordStageEntry } from '../_shared/stageHistory.js'
 import { crmStages, crmFieldDefinitions, crmDeals } from '../../../db/schema.js'
 
 const SALES_PIPELINE_ID = 2
@@ -57,11 +58,12 @@ export default async (req: Request): Promise<Response> => {
     const becameWon = status === 'won'
 
     const stageChanged = stage.id !== existing.stageId
+    const stageEnteredAtValue = new Date().toISOString()
     const [updated] = await db
       .update(crmDeals)
       .set({
         stageId: stage.id,
-        ...(stageChanged ? { stageEnteredAt: new Date().toISOString() } : {}),
+        ...(stageChanged ? { stageEnteredAt: stageEnteredAtValue } : {}),
         title: deal.title || existing.title,
         value: deal.value ?? existing.value,
         currency: deal.currency || existing.currency,
@@ -76,6 +78,8 @@ export default async (req: Request): Promise<Response> => {
       })
       .where(eq(crmDeals.id, existing.id))
       .returning()
+
+    if (stageChanged) await recordStageEntry(db, updated.id, stage.id, stageEnteredAtValue)
 
     if (!becameWon) return Response.json({ updated: true, dealId: deal.id, crmDealId: updated.id })
 

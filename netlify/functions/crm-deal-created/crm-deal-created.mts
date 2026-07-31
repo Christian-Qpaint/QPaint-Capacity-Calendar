@@ -18,6 +18,7 @@ import { eq } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { isPipedriveWebhookAuthorized } from '../_shared/pipedriveAuth.js'
 import { fetchFullDeal, extractFieldsFromV1Deal, type PipedriveDealPayload } from '../_shared/pipedriveApi.js'
+import { recordStageEntry } from '../_shared/stageHistory.js'
 import { crmPipelines, crmStages, crmFieldDefinitions, crmDeals } from '../../../db/schema.js'
 
 const SALES_PIPELINE_ID = 2
@@ -74,8 +75,9 @@ export default async (req: Request): Promise<Response> => {
         createdAt: deal.add_time ?? undefined,
         stageEnteredAt: deal.add_time ?? undefined,
       })
-      .returning({ id: crmDeals.id })
+      .returning({ id: crmDeals.id, stageEnteredAt: crmDeals.stageEnteredAt })
 
+    await recordStageEntry(db, created.id, stage.id, created.stageEnteredAt)
     return Response.json({ imported: true, dealId: deal.id, crmDealId: created.id })
   } catch (err) {
     return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })

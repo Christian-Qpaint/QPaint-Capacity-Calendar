@@ -23,7 +23,7 @@ export interface PermissionDef {
   defaultForRole: (role: Role) => boolean
 }
 
-export const PERMISSION_PAGES = ['Deals', 'Jobs', 'Scheduler', 'Production', 'Marketing', 'Settings', 'Field'] as const
+export const PERMISSION_PAGES = ['Deals', 'Jobs', 'Scheduler', 'Sales', 'Production', 'Marketing', 'Settings', 'Field'] as const
 
 export const PERMISSION_CATALOG: PermissionDef[] = [
   // Jobs (view-only production tracking, at /jobs — job records themselves are now managed from
@@ -41,6 +41,12 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   // Scheduler
   { key: 'scheduler.view', page: 'Scheduler', label: 'View Scheduler page', description: 'Open the Scheduler (calendar) at all.', defaultForRole: isOfficeRole },
   { key: 'scheduler.manage', page: 'Scheduler', label: 'Create / move / resize schedule blocks', description: 'Drag, drop, resize, or add phases on the calendar.', defaultForRole: isOfficeRole },
+
+  // Sales — a deliberately stripped-down read of the Scheduler for non-scheduling staff (e.g.
+  // sales reps) who just need to see how much booking room is left, without the full drag-and-drop
+  // calendar. Defaults to office roles like Scheduler does; grant it to a 'marketing'-role user via
+  // an override if they need it without full office access.
+  { key: 'sales.view_availability', page: 'Sales', label: 'View Sales Availability page', description: 'Open the simplified Sales page — booking-window paginator and Gap to Target only, no calendar grid.', defaultForRole: isOfficeRole },
 
   // Production
   { key: 'production.view', page: 'Production', label: 'View Production page', description: 'Open the Production (Capacity Board) at all.', defaultForRole: isOfficeRole },

@@ -22,12 +22,12 @@
 // does). `crm-deals.mts`'s GET ?id= fetches one deal's full record (fields included) on demand
 // when a card/row is actually opened. Custom fields are also deliberately NOT filterable/sortable
 // here for the same reason — see src/lib/crmDealFilters.ts's header comment.
-import { asc, desc, eq, and, or, ilike, ne, notInArray, lt, lte, gt, gte, sql, type SQL, type AnyColumn } from 'drizzle-orm'
+import { asc, desc, eq, and, or, not, ilike, ne, notInArray, inArray, isNotNull, lt, lte, gt, gte, sql, type SQL, type AnyColumn } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { requireOfficeRole, isOfficeRole, withErrorHandling, HttpError } from '../_shared/authz.js'
 import { stripNullsAll } from '../_shared/rows.js'
 import { buildSavedFilterSql, savedFilterReferencesField, type SavedFilterNode } from '../_shared/savedFilterSql.js'
-import { crmPipelines, crmStages, crmFieldDefinitions, crmDeals, crmSavedFilters } from '../../../db/schema.js'
+import { crmPipelines, crmStages, crmFieldDefinitions, crmDeals, crmSavedFilters, crmDealStageHistory } from '../../../db/schema.js'
 
 // Once a Sales Pipeline deal is Won or Lost it's a closed deal — Won moves on to become a real Job
 // (see crm-deal-updated.mts) and Pipedrive stops driving it, Lost is just dead weight on the
@@ -178,6 +178,7 @@ export default withErrorHandling(async (req: Request) => {
   const savedFilterId = url.searchParams.get('savedFilterId')
   const includeWon = url.searchParams.get('includeWon') === '1'
   const includeLost = url.searchParams.get('includeLost') === '1'
+  const includeAged = url.searchParams.get('includeAged') === '1'
 
   const [pipelineRows, stageRows, fieldDefinitionRows, savedFilterRows] = await Promise.all([
     db.select().from(crmPipelines).orderBy(asc(crmPipelines.order)),
@@ -217,6 +218,7 @@ export default withErrorHandling(async (req: Request) => {
   let deals: DealListRow[] = []
   let total = 0
   let stageSummary: { stageId: string; count: number; totalValue: number }[] = []
+  let stageAvgDwellDays: Record<string, number> = {}
 
   if (pipelineId) {
     const baseConditions: SQL[] = [eq(crmDeals.pipelineId, pipelineId)]
@@ -227,6 +229,16 @@ export default withErrorHandling(async (req: Request) => {
       if (!includeWon) excludedStatuses.push('won')
       if (!includeLost) excludedStatuses.push('lost')
       if (excludedStatuses.length) baseConditions.push(notInArray(crmDeals.status, excludedStatuses))
+    }
+    // Generalized "archive after N days" — any stage with autoHideAfterDays set (currently just
+    // Jobs Pipeline's "All Done & Paid", 180 days) drops deals that have sat there longer than
+    // that from the default view. `?includeAged=1` brings them back without deleting anything.
+    if (!includeAged) {
+      for (const stage of stageRows) {
+        if (stage.autoHideAfterDays == null) continue
+        const cutoff = new Date(Date.now() - stage.autoHideAfterDays * 86_400_000).toISOString()
+        baseConditions.push(not(and(eq(crmDeals.stageId, stage.id), lt(crmDeals.stageEnteredAt, cutoff))!))
+      }
     }
     if (search) {
       const like = `%${search}%`
@@ -242,7 +254,9 @@ export default withErrorHandling(async (req: Request) => {
     const orderColumn = sortKey ? SORTABLE_COLUMNS[sortKey] : undefined
     const orderBy = orderColumn ? (sortDir === 'desc' ? desc(orderColumn) : asc(orderColumn)) : desc(crmDeals.createdAt)
 
-    const [dealRows, countRows, summaryRows] = await Promise.all([
+    const pipelineStageIds = stageRows.filter((s) => s.pipelineId === pipelineId).map((s) => s.id)
+
+    const [dealRows, countRows, summaryRows, avgDwellRows] = await Promise.all([
       db.select(DEAL_LIST_COLUMNS).from(crmDeals).where(where).orderBy(orderBy).limit(limit).offset(offset),
       db.select({ count: sql<number>`count(*)::int` }).from(crmDeals).where(where),
       db
@@ -254,11 +268,26 @@ export default withErrorHandling(async (req: Request) => {
         .from(crmDeals)
         .where(summaryWhere)
         .groupBy(crmDeals.stageId),
+      // "How long does a deal typically stay here" — averaged over completed stints only
+      // (exitedAt IS NOT NULL): an in-progress stay's eventual length is still unknown, so
+      // including it would understate the real average. Not scoped by search/filter/stageId —
+      // this is a historical stage-level stat, not a property of the current result set.
+      pipelineStageIds.length > 0
+        ? db
+            .select({
+              stageId: crmDealStageHistory.stageId,
+              avgSeconds: sql<string>`avg(extract(epoch from (${crmDealStageHistory.exitedAt} - ${crmDealStageHistory.enteredAt})))`,
+            })
+            .from(crmDealStageHistory)
+            .where(and(inArray(crmDealStageHistory.stageId, pipelineStageIds), isNotNull(crmDealStageHistory.exitedAt)))
+            .groupBy(crmDealStageHistory.stageId)
+        : Promise.resolve([]),
     ])
 
     deals = dealRows
     total = countRows[0]?.count ?? 0
     stageSummary = summaryRows.map((r) => ({ stageId: r.stageId, count: r.count, totalValue: Number(r.totalValue) }))
+    stageAvgDwellDays = Object.fromEntries(avgDwellRows.map((r) => [r.stageId, Number(r.avgSeconds) / 86_400]))
   }
 
   // Same total_value masking convention as data-bootstrap.mts's jobs.totalValue: hide the real
@@ -275,6 +304,7 @@ export default withErrorHandling(async (req: Request) => {
     deals: responseDeals,
     total,
     stageSummary: responseSummary,
+    stageAvgDwellDays,
   })
 })
 

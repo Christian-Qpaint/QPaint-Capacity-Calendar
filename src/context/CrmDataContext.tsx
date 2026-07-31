@@ -32,6 +32,9 @@ export interface CrmDealsQuery {
    * ignored server-side whenever the active saved/ad-hoc filter already constrains `status`
    * itself (e.g. picking Pipedrive's real "All lost deals" filter just works on its own). */
   includeLost?: boolean
+  /** Stages configured with an auto-hide age (e.g. Jobs Pipeline's "All Done & Paid", 180 days)
+   * drop their long-sitting deals from the default view too — set true to bring them back. */
+  includeAged?: boolean
   limit?: number
   offset?: number
 }
@@ -44,6 +47,9 @@ export interface CrmDealsQueryResult {
   deals: CrmDeal[]
   total: number
   stageSummary: CrmStageSummary[]
+  /** Average days a completed stint spends in each stage (keyed by stageId) — historical
+   * throughput, not scoped by the current search/filter. Absent key = no completed stints yet. */
+  stageAvgDwellDays: Record<string, number>
 }
 
 interface CrmDataContextValue {
@@ -123,6 +129,7 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
     if (query.savedFilterId) params.set('savedFilterId', query.savedFilterId)
     if (query.includeWon) params.set('includeWon', '1')
     if (query.includeLost) params.set('includeLost', '1')
+    if (query.includeAged) params.set('includeAged', '1')
     params.set('limit', String(query.limit ?? 50))
     params.set('offset', String(query.offset ?? 0))
     return api.get<CrmDealsQueryResult>(`/api/crm-data?${params.toString()}`)

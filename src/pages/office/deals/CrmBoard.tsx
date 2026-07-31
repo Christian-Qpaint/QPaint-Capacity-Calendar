@@ -26,10 +26,9 @@ import type { CrmDeal, CrmStage } from '@/types'
 
 type ViewMode = 'table' | 'kanban'
 const PAGE_SIZE = 50
-// Matches crm-data.mts's own SALES_PIPELINE_PIPEDRIVE_ID — the "Show Won" toggle only applies
-// there, since that's the only pipeline whose Won deals get hidden by default (see its comment).
+// Matches crm-data.mts's own SALES_PIPELINE_PIPEDRIVE_ID — the "Show Won"/"Show Lost" toggles only
+// apply there, since that's the only pipeline whose Won/Lost deals are hidden by default.
 const SALES_PIPELINE_PIPEDRIVE_ID = 2
-const STALE_THRESHOLD_DAYS = 7 // one tier escalation per week — see STALE_TIER_* below
 
 const STATUS_STYLES: Record<CrmDeal['status'], string> = {
   open: 'bg-info-bg text-info',
@@ -38,62 +37,71 @@ const STATUS_STYLES: Record<CrmDeal['status'], string> = {
 }
 
 /** Same border-l-2 + tint + hover convention as JobsList's JOB_ROW_STATUS_STYLES, just keyed by
- * the CRM's own open/won/lost status instead of a schedule-derived one. */
+ * the CRM's own open/won/lost status instead of a schedule-derived one. Overridden by rot styling
+ * below whenever a deal is old enough — rotting is a stronger, more actionable signal than plain
+ * status color. */
 const DEAL_ROW_STATUS_STYLES: Record<CrmDeal['status'], string> = {
   open: 'border-l-2 border-l-transparent',
   won: 'border-l-2 border-l-success bg-success-bg/50 hover:brightness-[0.97]',
   lost: 'border-l-2 border-l-danger bg-danger-bg/50 hover:brightness-[0.97]',
 }
 
-type StaleTier = 'none' | 'week1' | 'week2' | 'week3' | 'week4'
+type RotTier = 'none' | 'yellow' | 'orange' | 'red'
 
-/** Escalating "stuck in this stage" warning — yellow after 1 week, orange after 2, red after 3,
- * dark red after 4+. Only meaningful for still-open deals: a Won/Lost deal has already left the
- * pipeline, so how long it once sat somewhere doesn't matter anymore. */
-function staleTier(deal: CrmDeal): StaleTier {
-  if (deal.status !== 'open') return 'none'
-  const days = daysInStage(deal)
-  if (days >= STALE_THRESHOLD_DAYS * 4) return 'week4'
-  if (days >= STALE_THRESHOLD_DAYS * 3) return 'week3'
-  if (days >= STALE_THRESHOLD_DAYS * 2) return 'week2'
-  if (days >= STALE_THRESHOLD_DAYS) return 'week1'
-  return 'none'
-}
+// Fallback for any stage that hasn't configured its own thresholds (Business Development, Test
+// Pipeline, anything added later) — see db/schema.ts's crmStages comment for the per-stage columns
+// this backs off in favor of. Jobs Pipeline and Sales Pipeline stages are seeded with their own
+// specific values (migration 20260731090052) and never fall back to this.
+const DEFAULT_ROT_THRESHOLDS = { yellow: 7, orange: 14, red: 21 } as const
 
 function daysInStage(deal: CrmDeal): number {
   return Math.floor((Date.now() - new Date(deal.stageEnteredAt).getTime()) / 86_400_000)
 }
 
-const STALE_ROW_STYLES: Record<Exclude<StaleTier, 'none'>, string> = {
-  week1: 'border-l-2 border-l-warning bg-warning-bg/60',
-  week2: 'border-l-2 border-l-[color:var(--stale-orange)] bg-[color:var(--stale-orange-bg)]/60',
-  week3: 'border-l-2 border-l-danger bg-danger-bg/60',
-  week4: 'border-l-2 border-l-[color:var(--stale-darkred)] bg-[color:var(--stale-darkred-bg)]/70',
-}
-const STALE_CARD_STYLES: Record<Exclude<StaleTier, 'none'>, string> = {
-  week1: 'bg-warning-bg/60',
-  week2: 'bg-[color:var(--stale-orange-bg)]/60',
-  week3: 'bg-danger-bg/60',
-  week4: 'bg-[color:var(--stale-darkred-bg)]/70',
-}
-const STALE_BADGE_STYLES: Record<Exclude<StaleTier, 'none'>, string> = {
-  week1: 'bg-warning-bg text-warning',
-  week2: 'bg-[color:var(--stale-orange-bg)] text-[color:var(--stale-orange)]',
-  week3: 'bg-danger-bg text-danger',
-  week4: 'bg-[color:var(--stale-darkred-bg)] text-[color:var(--stale-darkred)]',
+/** Deliberately NOT status-gated — Jobs Pipeline deals sit at status 'won' for their entire
+ * production lifecycle (Admin through All Done & Paid), so excluding non-open deals would mean
+ * rot coloring never applies to the one pipeline it matters most for. Sales Pipeline's Won/Lost
+ * deals are hidden from the default view anyway (see crm-data.mts), so this only shows up there
+ * if someone explicitly toggles Show Won/Lost on. */
+function rotTier(deal: CrmDeal, stage: CrmStage | undefined): RotTier {
+  const days = daysInStage(deal)
+  const hasOwnThresholds = !!stage && (stage.rotYellowDays != null || stage.rotOrangeDays != null || stage.rotRedDays != null)
+  const { yellow, orange, red } = hasOwnThresholds
+    ? { yellow: stage!.rotYellowDays, orange: stage!.rotOrangeDays, red: stage!.rotRedDays }
+    : DEFAULT_ROT_THRESHOLDS
+  if (red != null && days >= red) return 'red'
+  if (orange != null && days >= orange) return 'orange'
+  if (yellow != null && days >= yellow) return 'yellow'
+  return 'none'
 }
 
-function dealRowClassName(deal: CrmDeal): string {
-  const tier = staleTier(deal)
+const ROT_ROW_STYLES: Record<Exclude<RotTier, 'none'>, string> = {
+  yellow: 'border-l-2 border-l-warning bg-warning-bg/60',
+  orange: 'border-l-2 border-l-rot-orange bg-rot-orange-bg/60',
+  red: 'border-l-2 border-l-danger bg-danger-bg/60',
+}
+const ROT_CARD_STYLES: Record<Exclude<RotTier, 'none'>, string> = {
+  yellow: 'bg-warning-bg/60',
+  orange: 'bg-rot-orange-bg/60',
+  red: 'bg-danger-bg/60',
+}
+const ROT_BADGE_STYLES: Record<Exclude<RotTier, 'none'>, string> = {
+  yellow: 'bg-warning-bg text-warning',
+  orange: 'bg-rot-orange-bg text-rot-orange',
+  red: 'bg-danger-bg text-danger',
+}
+
+function dealRowClassName(deal: CrmDeal, stage: CrmStage | undefined): string {
+  const tier = rotTier(deal, stage)
   if (tier === 'none') return DEAL_ROW_STATUS_STYLES[deal.status]
-  return STALE_ROW_STYLES[tier]
+  return ROT_ROW_STYLES[tier]
 }
 
-function StaleBadge({ deal }: { deal: CrmDeal }) {
-  const tier = staleTier(deal)
+function RotBadge({ deal, stage }: { deal: CrmDeal; stage: CrmStage | undefined }) {
+  const tier = rotTier(deal, stage)
   if (tier === 'none') return null
   return (
-    <span className={cn('inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium', STALE_BADGE_STYLES[tier])}>
+    <span className={cn('inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium', ROT_BADGE_STYLES[tier])}>
       {daysInStage(deal)}d in stage
     </span>
   )
@@ -140,10 +148,10 @@ function SortableHead({
   )
 }
 
-function DraggableDealCard({ deal, onClick, disabled }: { deal: CrmDeal; onClick: () => void; disabled: boolean }) {
+function DraggableDealCard({ deal, stage, onClick, disabled }: { deal: CrmDeal; stage: CrmStage | undefined; onClick: () => void; disabled: boolean }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: deal.id, disabled })
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 10 } : undefined
-  const tier = staleTier(deal)
+  const tier = rotTier(deal, stage)
   return (
     <Card
       ref={setNodeRef}
@@ -152,7 +160,7 @@ function DraggableDealCard({ deal, onClick, disabled }: { deal: CrmDeal; onClick
       {...attributes}
       className={cn(
         'cursor-pointer gap-2 p-3 transition hover:shadow-md',
-        tier !== 'none' && STALE_CARD_STYLES[tier],
+        tier !== 'none' && ROT_CARD_STYLES[tier],
         isDragging && 'opacity-50 shadow-lg',
       )}
       onClick={onClick}
@@ -162,7 +170,7 @@ function DraggableDealCard({ deal, onClick, disabled }: { deal: CrmDeal; onClick
       <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
         <span className="font-medium text-foreground">{deal.value === null ? '—' : formatCurrency(deal.value)}</span>
         <div className="flex items-center gap-1">
-          <StaleBadge deal={deal} />
+          <RotBadge deal={deal} stage={stage} />
           <StatusBadge status={deal.status} />
         </div>
       </div>
@@ -182,6 +190,7 @@ const EMPTY_COLUMN: ColumnState = { deals: [], total: 0, initialLoading: true, l
 function KanbanColumn({
   stage,
   color,
+  avgDwellDays,
   state,
   summary,
   canManage,
@@ -190,6 +199,7 @@ function KanbanColumn({
 }: {
   stage: CrmStage
   color: string
+  avgDwellDays?: number
   state: ColumnState
   summary?: CrmStageSummary
   canManage: boolean
@@ -214,6 +224,11 @@ function KanbanColumn({
         <p className="text-xs text-muted-foreground">
           {count} deal{count === 1 ? '' : 's'} · {totalValue === null ? '—' : formatCurrency(totalValue)}
         </p>
+        {/* Historical throughput — how long a deal typically sits here before moving on, so it's
+            obvious at a glance which stages tend to hold deals longest. */}
+        <p className="text-xs text-muted-foreground">
+          Avg time here: {avgDwellDays == null ? 'no data yet' : `${avgDwellDays.toFixed(1)}d`}
+        </p>
       </div>
       <div
         ref={(el) => {
@@ -227,7 +242,7 @@ function KanbanColumn({
           <p className="py-6 text-center text-xs text-muted-foreground">No deals</p>
         )}
         {state.deals.map((deal) => (
-          <DraggableDealCard key={deal.id} deal={deal} onClick={() => onOpenDeal(deal)} disabled={!canManage} />
+          <DraggableDealCard key={deal.id} deal={deal} stage={stage} onClick={() => onOpenDeal(deal)} disabled={!canManage} />
         ))}
         {/* Always rendered (not just while hasMore) — the sentinel DOM node must exist and stay
             stable from the first render so the IntersectionObserver (created once `root` is
@@ -301,6 +316,10 @@ export function CrmBoard() {
   // filter — works on its own without needing these; see crm-data.mts's statusAlreadyGoverned.)
   const [showWon, setShowWon] = useState(false)
   const [showLost, setShowLost] = useState(false)
+  // Same idea for any stage configured with an auto-hide age (currently just Jobs Pipeline's
+  // "All Done & Paid", 180 days) — only shown when the active pipeline actually has one.
+  const [showArchived, setShowArchived] = useState(false)
+  const hasArchivableStage = useMemo(() => pipelineStages.some((s) => s.autoHideAfterDays != null), [pipelineStages])
 
   // Debounced so typing doesn't fire a server round-trip on every keystroke — the search now
   // drives a real SQL query, not an in-memory filter.
@@ -319,8 +338,9 @@ export function CrmBoard() {
       savedFilterId: savedFilterId ?? undefined,
       includeWon: isSalesPipeline && showWon,
       includeLost: isSalesPipeline && showLost,
+      includeAged: hasArchivableStage && showArchived,
     }),
-    [debouncedSearch, sort, conditions, matchMode, savedFilterId, isSalesPipeline, showWon, showLost],
+    [debouncedSearch, sort, conditions, matchMode, savedFilterId, isSalesPipeline, showWon, showLost, hasArchivableStage, showArchived],
   )
 
   // A pipeline-wide count/$ summary, grouped by stage — crm-data.mts computes it under the current
@@ -329,6 +349,7 @@ export function CrmBoard() {
   // $X total" card at the top of the board, always accurate regardless of how many rows either
   // view has actually loaded into the DOM.
   const [stageSummary, setStageSummary] = useState<Record<string, CrmStageSummary>>({})
+  const [stageAvgDwellDays, setStageAvgDwellDays] = useState<Record<string, number>>({})
 
   // ---- Table mode: one flat, lazily-extended page ----
   const [tableDeals, setTableDeals] = useState<CrmDeal[]>([])
@@ -349,6 +370,7 @@ export function CrmBoard() {
         for (const s of result.stageSummary) next[s.stageId] = s
         return next
       })
+      setStageAvgDwellDays((prev) => ({ ...prev, ...result.stageAvgDwellDays }))
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to load deals')
     } finally {
@@ -385,6 +407,7 @@ export function CrmBoard() {
         for (const s of result.stageSummary) next[s.stageId] = s
         return next
       })
+      setStageAvgDwellDays((prev) => ({ ...prev, ...result.stageAvgDwellDays }))
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to load deals')
       setColumnState((prev) => ({ ...prev, [stageId]: { ...(prev[stageId] ?? EMPTY_COLUMN), loadingMore: false, initialLoading: false } }))
@@ -398,6 +421,7 @@ export function CrmBoard() {
     if (!activePipelineId) return
     setStageSummary({}) // stage ids are pipeline-specific uuids — stale entries from a previous
     // pipeline/filter scope would otherwise never get overwritten, just silently accumulate.
+    setStageAvgDwellDays({})
     if (viewMode === 'table') {
       setTableDeals([])
       setTableTotal(0)
@@ -563,6 +587,9 @@ export function CrmBoard() {
     [pipelineStages],
   )
   const stageNameById = useMemo(() => new Map(pipelineStages.map((s) => [s.id, s.name])), [pipelineStages])
+  // Full stage objects, for the Table view's per-deal rot-tier lookup (needs each stage's own
+  // thresholds, not just its name/color).
+  const stageById = useMemo(() => new Map(pipelineStages.map((s) => [s.id, s])), [pipelineStages])
   // A stage keeps its own saved color if set (via Deals > Configure); otherwise falls back to a
   // stable palette color by position, so every stage is visually distinct even before anyone's
   // gone in and picked colors deliberately.
@@ -624,14 +651,32 @@ export function CrmBoard() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex gap-1.5 rounded-md border border-border bg-card p-1">
-          {sortedPipelines.map((p) => (
-            <Button key={p.id} size="sm" variant={p.id === activePipelineId ? 'secondary' : 'ghost'} onClick={() => setPipelineId(p.id)}>
-              {p.name}
-            </Button>
-          ))}
+      <div className="flex gap-1.5 rounded-md border border-border bg-card p-1">
+        {sortedPipelines.map((p) => (
+          <Button key={p.id} size="sm" variant={p.id === activePipelineId ? 'secondary' : 'ghost'} onClick={() => setPipelineId(p.id)}>
+            {p.name}
+          </Button>
+        ))}
+      </div>
+
+      {/* Same "count + total value" concept Pipedrive shows in its per-pipeline popup — a full-width
+          horizontal strip right under the pipeline picker, not a small corner card, so the space
+          reads as intentional rather than mostly empty. */}
+      <Card className="flex flex-wrap items-center gap-6 border-none bg-info-bg px-4 py-2.5 text-info">
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-xs font-medium tracking-wide uppercase opacity-80">Deals</span>
+          <span className="text-lg font-semibold">{pipelineSummary.count.toLocaleString()}</span>
         </div>
+        <div className="h-5 w-px bg-info/25" />
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-xs font-medium tracking-wide uppercase opacity-80">Total Value</span>
+          <span className="text-lg font-semibold">
+            {pipelineSummary.totalValue === null ? '—' : formatCurrency(pipelineSummary.totalValue)}
+          </span>
+        </div>
+      </Card>
+
+      <div className="flex flex-wrap items-center gap-2">
         {isSalesPipeline && (
           <Button
             variant={showWon ? 'secondary' : 'outline'}
@@ -652,6 +697,17 @@ export function CrmBoard() {
           >
             {showLost ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
             {showLost ? 'Showing Lost' : 'Show Lost'}
+          </Button>
+        )}
+        {hasArchivableStage && (
+          <Button
+            variant={showArchived ? 'secondary' : 'outline'}
+            size="sm"
+            onClick={() => setShowArchived((v) => !v)}
+            title="Deals sitting a long time in an auto-archive stage (e.g. All Done & Paid) are hidden by default — toggle to bring them back into view"
+          >
+            {showArchived ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+            {showArchived ? 'Showing Archived' : 'Show Archived'}
           </Button>
         )}
         <div className="relative w-full max-w-xs">
@@ -682,23 +738,6 @@ export function CrmBoard() {
             {syncFetching ? 'Fetching…' : `Sync ${activePipeline.name}`}
           </Button>
         )}
-
-        {/* Same "count + total value" concept Pipedrive shows in its per-pipeline popup — pinned to
-            the top-right of the table/kanban area below rather than stretched full-width, so it
-            reads as a compact stat card, not another toolbar row. */}
-        <Card className="ml-auto flex shrink-0 items-center gap-4 border-none bg-info-bg px-4 py-2 text-info">
-          <div className="text-center">
-            <p className="text-[10px] font-medium tracking-wide uppercase opacity-80">Deals</p>
-            <p className="text-base leading-tight font-semibold">{pipelineSummary.count.toLocaleString()}</p>
-          </div>
-          <div className="h-7 w-px bg-info/25" />
-          <div className="text-center">
-            <p className="text-[10px] font-medium tracking-wide uppercase opacity-80">Total Value</p>
-            <p className="text-base leading-tight font-semibold">
-              {pipelineSummary.totalValue === null ? '—' : formatCurrency(pipelineSummary.totalValue)}
-            </p>
-          </div>
-        </Card>
       </div>
 
       {viewMode === 'table' && (
@@ -734,7 +773,7 @@ export function CrmBoard() {
                   tableDeals.map((deal) => (
                     <TableRow
                       key={deal.id}
-                      className={cn('cursor-pointer', dealRowClassName(deal))}
+                      className={cn('cursor-pointer', dealRowClassName(deal, stageById.get(deal.stageId)))}
                       onClick={() => openDeal(deal)}
                     >
                       <TableCell className="font-medium">{deal.title}</TableCell>
@@ -749,7 +788,7 @@ export function CrmBoard() {
                       <TableCell>
                         <div className="flex flex-wrap items-center gap-1">
                           <StatusBadge status={deal.status} />
-                          <StaleBadge deal={deal} />
+                          <RotBadge deal={deal} stage={stageById.get(deal.stageId)} />
                         </div>
                       </TableCell>
                       <TableCell className="text-muted-foreground">{formatDate(deal.createdAt)}</TableCell>
@@ -781,6 +820,7 @@ export function CrmBoard() {
                 key={stage.id}
                 stage={stage}
                 color={stageColorById.get(stage.id) ?? '#94A3B8'}
+                avgDwellDays={stageAvgDwellDays[stage.id]}
                 state={columnState[stage.id] ?? EMPTY_COLUMN}
                 summary={stageSummary[stage.id]}
                 canManage={canManage}

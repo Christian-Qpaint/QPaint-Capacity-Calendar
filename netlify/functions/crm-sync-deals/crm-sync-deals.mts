@@ -22,6 +22,7 @@ import { requireOfficeRole, withErrorHandling, HttpError } from '../_shared/auth
 import { parseJsonBody } from '../_shared/http.js'
 import { extractFieldsFromV1Deal, type PipedriveDealPayload } from '../_shared/pipedriveApi.js'
 import { attemptPromotion } from '../_shared/dealToJob.js'
+import { recordStageEntry } from '../_shared/stageHistory.js'
 import { crmPipelines, crmStages, crmFieldDefinitions, crmDeals } from '../../../db/schema.js'
 
 interface PipedriveListResponse {
@@ -118,11 +119,12 @@ export default withErrorHandling(async (req: Request) => {
 
       if (existing) {
         const stageChanged = stage.id !== existing.stageId
+        const stageEnteredAtValue = new Date().toISOString()
         const [row] = await db
           .update(crmDeals)
           .set({
             stageId: stage.id,
-            ...(stageChanged ? { stageEnteredAt: new Date().toISOString() } : {}),
+            ...(stageChanged ? { stageEnteredAt: stageEnteredAtValue } : {}),
             title: deal.title || existing.title,
             value: deal.value ?? existing.value,
             currency: deal.currency || existing.currency,
@@ -137,27 +139,32 @@ export default withErrorHandling(async (req: Request) => {
           })
           .where(eq(crmDeals.id, existing.id))
           .returning()
+        if (stageChanged) await recordStageEntry(db, row.id, stage.id, stageEnteredAtValue)
         // existing.status is already guaranteed not 'won' by the guard above, so any 'won' here is new.
         if (status === 'won') await attemptPromotion(db, row)
         updated++
       } else {
-        await db.insert(crmDeals).values({
-          pipelineId,
-          stageId: stage.id,
-          title: deal.title || `Deal ${deal.id}`,
-          value: deal.value ?? 0,
-          currency: deal.currency || 'AUD',
-          status,
-          pipedriveDealId,
-          orgName: deal.org_name ?? null,
-          personName: deal.person_name ?? null,
-          lostReason: deal.lost_reason ?? null,
-          wonAt: status === 'won' ? (deal.won_time ?? new Date().toISOString()) : null,
-          lostAt: status === 'lost' ? (deal.lost_time ?? new Date().toISOString()) : null,
-          fields,
-          createdAt: deal.add_time ?? undefined,
-          stageEnteredAt: deal.add_time ?? undefined,
-        })
+        const [row] = await db
+          .insert(crmDeals)
+          .values({
+            pipelineId,
+            stageId: stage.id,
+            title: deal.title || `Deal ${deal.id}`,
+            value: deal.value ?? 0,
+            currency: deal.currency || 'AUD',
+            status,
+            pipedriveDealId,
+            orgName: deal.org_name ?? null,
+            personName: deal.person_name ?? null,
+            lostReason: deal.lost_reason ?? null,
+            wonAt: status === 'won' ? (deal.won_time ?? new Date().toISOString()) : null,
+            lostAt: status === 'lost' ? (deal.lost_time ?? new Date().toISOString()) : null,
+            fields,
+            createdAt: deal.add_time ?? undefined,
+            stageEnteredAt: deal.add_time ?? undefined,
+          })
+          .returning({ id: crmDeals.id, stageEnteredAt: crmDeals.stageEnteredAt })
+        await recordStageEntry(db, row.id, stage.id, row.stageEnteredAt)
         created++
       }
     }

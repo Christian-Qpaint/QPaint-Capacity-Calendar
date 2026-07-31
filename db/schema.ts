@@ -399,6 +399,19 @@ export const crmStages = pgTable('crm_stages', {
   // "last stage in pipeline"; an office admin opts specific stages in deliberately.
   isWonStage: boolean('is_won_stage').notNull().default(false),
   color: text('color'),
+  // "Rotting" thresholds (days sitting in this stage before the board tints a deal) — nullable per
+  // tier so a stage can configure just one (e.g. Sales pipeline stages: red only, no yellow/orange)
+  // or none at all, in which case the board falls back to a generic 7/14/21 default (see
+  // CrmBoard.tsx's DEFAULT_ROT_THRESHOLDS). Deliberately per-stage rather than one global constant
+  // — different stages rot at very different rates (a 3-day-old Lead Received deal is stale; a
+  // 3-day-old Completed job isn't).
+  rotYellowDays: integer('rot_yellow_days'),
+  rotOrangeDays: integer('rot_orange_days'),
+  rotRedDays: integer('rot_red_days'),
+  // Once a deal has sat in this stage longer than this, it's hidden from the board's default view
+  // (still counted everywhere else, never deleted) — e.g. Jobs Pipeline's "All Done & Paid" stage
+  // auto-archives after 6 months so the board doesn't accumulate every job ever finished.
+  autoHideAfterDays: integer('auto_hide_after_days'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
 })
@@ -452,6 +465,34 @@ export const crmDeals = pgTable(
   (table) => [
     index('crm_deals_pipeline_stage_idx').on(table.pipelineId, table.stageId),
     index('crm_deals_status_idx').on(table.status),
+  ],
+)
+
+// One row per stint a deal spends in a stage — `exitedAt` null means "still there right now".
+// Written by `_shared/stageHistory.ts`'s recordStageEntry, called from every place a deal's
+// stageId changes (drag, drawer edit, both Pipedrive webhooks, the manual pipeline sync) and once
+// on creation. Powers two things the deal_stage_entered_at column alone can't: the deal drawer's
+// full stage-by-stage age breakdown (needs every past stint, not just the current one), and each
+// stage's average dwell time (needs completed stints across every deal that's ever passed through).
+// Deleting a stage config cascades here too — a stage's own history is meaningless once the stage
+// itself no longer exists, and crm_deals.stage_id already blocks deleting a stage anything is
+// CURRENTLY in, so this only ever prunes history for stages nothing references anymore.
+export const crmDealStageHistory = pgTable(
+  'crm_deal_stage_history',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    dealId: uuid('deal_id')
+      .notNull()
+      .references(() => crmDeals.id, { onDelete: 'cascade' }),
+    stageId: uuid('stage_id')
+      .notNull()
+      .references(() => crmStages.id, { onDelete: 'cascade' }),
+    enteredAt: timestamp('entered_at', { withTimezone: true, mode: 'string' }).notNull(),
+    exitedAt: timestamp('exited_at', { withTimezone: true, mode: 'string' }),
+  },
+  (table) => [
+    index('crm_deal_stage_history_deal_idx').on(table.dealId),
+    index('crm_deal_stage_history_stage_idx').on(table.stageId),
   ],
 )
 

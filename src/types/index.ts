@@ -281,6 +281,13 @@ export interface CrmStage {
   order: number
   isWonStage: boolean
   color: string | null
+  // "Rotting" thresholds in days — any/all nullable, see db/schema.ts's crmStages comment for the
+  // fallback-to-default-7/14/21 rule CrmBoard.tsx applies when a stage sets none of these.
+  rotYellowDays: number | null
+  rotOrangeDays: number | null
+  rotRedDays: number | null
+  // Once a deal's been sitting here longer than this, it's hidden from the board's default view.
+  autoHideAfterDays: number | null
 }
 
 /** Configurable custom-field definition — seeded 1:1 from Pipedrive's own deal fields (same
@@ -322,6 +329,9 @@ export interface CrmDeal {
   fields?: Record<string, unknown> // keyed by CrmFieldDefinition.key
   createdAt: string // ISO timestamp
   updatedAt: string // ISO timestamp
+  // Same "only on single-deal fetch" convention as `fields` — one row per stint in a stage,
+  // oldest first, `exitedAt` null for whichever stage the deal is currently in.
+  stageHistory?: { stageId: string; stageName: string; enteredAt: string; exitedAt: string | null }[]
 }
 
 /** A one-time-imported copy of one of Pipedrive's own saved deal filters, selectable from a

@@ -10,6 +10,7 @@ import { TargetHistory } from '@/pages/office/TargetHistory'
 import { JobsList } from '@/pages/office/JobsList'
 import { JobPhaseScheduling } from '@/pages/office/JobPhaseScheduling'
 import { ResourceCalendar } from '@/pages/office/ResourceCalendar'
+import { SalesAvailability } from '@/pages/office/SalesAvailability'
 import { TeamsContractorsSetup } from '@/pages/office/TeamsContractorsSetup'
 import { MarketingDashboard } from '@/pages/office/marketing/MarketingDashboard'
 import { CrmBoard } from '@/pages/office/deals/CrmBoard'
@@ -65,6 +66,10 @@ function App() {
 
           <Route element={<RequirePermission permissionKey="scheduler.view" />}>
             <Route path="/calendar" element={<ResourceCalendar />} />
+          </Route>
+
+          <Route element={<RequirePermission permissionKey="sales.view_availability" />}>
+            <Route path="/sales" element={<SalesAvailability />} />
           </Route>
 
           <Route element={<RequirePermission permissionKey="settings.view" />}>

@@ -19,6 +19,40 @@ const STATUS_STYLES: Record<CrmDeal['status'], string> = {
   lost: 'bg-danger-bg text-danger',
 }
 
+function daysBetween(fromIso: string, toIso: string | null): number {
+  const end = toIso ? new Date(toIso).getTime() : Date.now()
+  return Math.max(0, Math.floor((end - new Date(fromIso).getTime()) / 86_400_000))
+}
+
+/** Gray "how old is this deal" card — total age since creation, plus a stage-by-stage breakdown
+ * of how long it sat in each one it's passed through (including its current, still-open stint).
+ * Deliberately the first thing in the drawer, above the status/edit fields, per the ask for it to
+ * be "obvious" rather than buried among the other details. */
+function DealAgeCard({ deal }: { deal: CrmDeal }) {
+  const totalAgeDays = daysBetween(deal.createdAt, null)
+  return (
+    <div className="space-y-2 rounded-lg bg-muted/50 p-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium">Deal age</p>
+        <p className="text-sm font-semibold">{totalAgeDays}d total</p>
+      </div>
+      {deal.stageHistory && deal.stageHistory.length > 0 && (
+        <div className="space-y-1 border-t border-border pt-2">
+          {deal.stageHistory.map((h, i) => (
+            <div key={i} className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">
+                {h.stageName}
+                {h.exitedAt === null && ' (current)'}
+              </span>
+              <span className="font-medium">{daysBetween(h.enteredAt, h.exitedAt)}d</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function DealDrawer({
   open,
   onOpenChange,
@@ -150,6 +184,8 @@ export function DealDrawer({
         </SheetHeader>
 
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4">
+          <DealAgeCard deal={currentDeal} />
+
           <div className="flex flex-wrap items-center gap-2">
             <span className={`inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLES[currentDeal.status]}`}>
               {currentDeal.status === 'open' ? 'Open' : currentDeal.status === 'won' ? 'Won' : 'Lost'}

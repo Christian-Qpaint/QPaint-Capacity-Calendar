@@ -1,10 +1,25 @@
-import { eq } from 'drizzle-orm'
+import { asc, eq } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { requireOfficeRole, isOfficeRole, withErrorHandling, HttpError } from '../_shared/authz.js'
 import { parseJsonBody } from '../_shared/http.js'
 import { stripNulls } from '../_shared/rows.js'
-import { crmDeals, crmStages, crmFieldDefinitions } from '../../../db/schema.js'
+import { crmDeals, crmStages, crmFieldDefinitions, crmDealStageHistory } from '../../../db/schema.js'
 import { attemptPromotion } from '../_shared/dealToJob.js'
+import { recordStageEntry } from '../_shared/stageHistory.js'
+
+async function fetchStageHistory(db: ReturnType<typeof getDb>, dealId: string) {
+  return db
+    .select({
+      stageId: crmDealStageHistory.stageId,
+      stageName: crmStages.name,
+      enteredAt: crmDealStageHistory.enteredAt,
+      exitedAt: crmDealStageHistory.exitedAt,
+    })
+    .from(crmDealStageHistory)
+    .innerJoin(crmStages, eq(crmStages.id, crmDealStageHistory.stageId))
+    .where(eq(crmDealStageHistory.dealId, dealId))
+    .orderBy(asc(crmDealStageHistory.enteredAt))
+}
 
 function toValues(body: Record<string, unknown>) {
   return {
@@ -29,7 +44,8 @@ export default withErrorHandling(async (req: Request) => {
     if (!id) throw new HttpError(400, 'Missing id')
     const [deal] = await db.select().from(crmDeals).where(eq(crmDeals.id, id)).limit(1)
     if (!deal) throw new HttpError(404, 'Deal not found')
-    if (isOfficeRole(user)) return Response.json(stripNulls(deal))
+    const stageHistory = await fetchStageHistory(db, id)
+    if (isOfficeRole(user)) return Response.json({ ...stripNulls(deal), stageHistory })
 
     // Same financial masking as crm-data.mts: hide the real value + any monetary custom field.
     const fieldDefs = await db.select().from(crmFieldDefinitions)
@@ -37,12 +53,13 @@ export default withErrorHandling(async (req: Request) => {
     const maskedFields = Object.fromEntries(
       Object.entries(deal.fields as Record<string, unknown>).map(([k, v]) => [k, monetaryKeys.has(k) ? null : v]),
     )
-    return Response.json(stripNulls({ ...deal, value: null, fields: maskedFields }))
+    return Response.json({ ...stripNulls({ ...deal, value: null, fields: maskedFields }), stageHistory })
   }
 
   if (req.method === 'POST') {
     const body = await parseJsonBody(req)
     const [created] = await db.insert(crmDeals).values(toValues(body)).returning()
+    await recordStageEntry(db, created.id, created.stageId, created.stageEnteredAt)
     return Response.json(stripNulls(created))
   }
 
@@ -55,13 +72,15 @@ export default withErrorHandling(async (req: Request) => {
     if (!targetStage) throw new HttpError(404, 'Stage not found')
 
     // Dragging into a Won-flagged stage is a status transition, not just a stage move.
-    const patch: Record<string, unknown> = { stageId, stageEnteredAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+    const stageEnteredAtValue = new Date().toISOString()
+    const patch: Record<string, unknown> = { stageId, stageEnteredAt: stageEnteredAtValue, updatedAt: stageEnteredAtValue }
     if (targetStage.isWonStage) {
       patch.status = 'won'
-      patch.wonAt = new Date().toISOString()
+      patch.wonAt = stageEnteredAtValue
     }
     const [updated] = await db.update(crmDeals).set(patch).where(eq(crmDeals.id, id)).returning()
     if (!updated) throw new HttpError(404, 'Deal not found')
+    await recordStageEntry(db, updated.id, stageId, stageEnteredAtValue)
 
     if (!targetStage.isWonStage) return Response.json({ ...stripNulls(updated), promoted: false })
     const { promoted, jobId, skippedReason } = await attemptPromotion(db, updated)
@@ -102,6 +121,7 @@ export default withErrorHandling(async (req: Request) => {
     for (const key of ['pipelineId', 'stageId', 'title', 'value', 'currency', 'orgName', 'personName', 'lostReason'] as const) {
       if (key in body) patch[key] = body[key]
     }
+    let stageChangedTo: string | null = null
     const needsCurrent = 'stageId' in body || (body.fields && typeof body.fields === 'object')
     if (needsCurrent) {
       const [current] = await db.select({ fields: crmDeals.fields, stageId: crmDeals.stageId }).from(crmDeals).where(eq(crmDeals.id, id)).limit(1)
@@ -110,10 +130,14 @@ export default withErrorHandling(async (req: Request) => {
       }
       // Same "did the stage actually change" tracking as the dedicated action=stage endpoint above
       // — this generic PATCH also lets the deal drawer move a deal between stages directly.
-      if ('stageId' in body && current && current.stageId !== body.stageId) patch.stageEnteredAt = new Date().toISOString()
+      if ('stageId' in body && current && current.stageId !== body.stageId) {
+        patch.stageEnteredAt = new Date().toISOString()
+        stageChangedTo = body.stageId as string
+      }
     }
     const [updated] = await db.update(crmDeals).set(patch).where(eq(crmDeals.id, id)).returning()
     if (!updated) throw new HttpError(404, 'Deal not found')
+    if (stageChangedTo) await recordStageEntry(db, updated.id, stageChangedTo, updated.stageEnteredAt)
     return Response.json(stripNulls(updated))
   }
 

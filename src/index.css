@@ -51,10 +51,8 @@
     --color-info: var(--info);
     --color-info-bg: var(--info-bg);
     --color-info-fill: var(--info-fill);
-    --color-stale-orange: var(--stale-orange);
-    --color-stale-orange-bg: var(--stale-orange-bg);
-    --color-stale-darkred: var(--stale-darkred);
-    --color-stale-darkred-bg: var(--stale-darkred-bg);
+    --color-rot-orange: var(--rot-orange);
+    --color-rot-orange-bg: var(--rot-orange-bg);
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
@@ -111,13 +109,10 @@
     --info-bg: #E6F1FB;
     --info-fill: #378ADD;
 
-    /* Staleness escalation for CRM deals sitting too long in one stage — yellow (1wk) reuses
-       --warning, red (3wk) reuses --danger, these two fill the orange (2wk) / dark red (4wk+)
-       steps in between. */
-    --stale-orange: #9A3412;
-    --stale-orange-bg: #FDEDD3;
-    --stale-darkred: #7A1F1F;
-    --stale-darkred-bg: #F5C6C6;
+    /* "Rotting" escalation for CRM deals sitting too long in one stage — yellow reuses --warning,
+       red reuses --danger, this fills the orange step in between. */
+    --rot-orange: #9A3412;
+    --rot-orange-bg: #FDEDD3;
 }
 
 .dark {
@@ -166,10 +161,8 @@
     --info-bg: #10233A;
     --info-fill: #2E79C4;
 
-    --stale-orange: #FDBA74;
-    --stale-orange-bg: #3A1A05;
-    --stale-darkred: #FF8A8A;
-    --stale-darkred-bg: #3D0F0F;
+    --rot-orange: #FDBA74;
+    --rot-orange-bg: #3A1A05;
 }
 
 @layer base {
