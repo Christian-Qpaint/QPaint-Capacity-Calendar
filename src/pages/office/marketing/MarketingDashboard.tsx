@@ -2,8 +2,6 @@ import { useEffect, useMemo } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, XAxis, YAxis } from 'recharts'
 import {
   CheckCircle2,
-  CloudDownload,
-  Database,
   DollarSign,
   FileText,
   Info,
@@ -12,7 +10,6 @@ import {
   Printer,
   Target,
   TrendingUp,
-  Upload,
   Users,
   X,
 } from 'lucide-react'
@@ -35,7 +32,6 @@ import {
   groupByReferralSource,
   topReferralSourcesByLeads,
   uniqueReferralSources,
-  uniqueSalespeople,
   uniqueStages,
   COMPARISON_METRIC_LABELS,
   type ComparisonMetric,
@@ -44,12 +40,9 @@ import {
 import { colorForIndex, colorForReferralSource, KPI_COLORS } from '@/lib/marketingColors'
 import { formatCurrency, formatPercent } from '@/lib/formulas'
 import { cn } from '@/lib/utils'
-import { ImportDealsDialog } from './ImportDealsDialog'
 import { AdSpendDialog } from './AdSpendDialog'
 import { MultiSelectFilter } from './MultiSelectFilter'
 import { PeriodComparisonCard } from './PeriodComparisonCard'
-import { DataManagementDialog } from './DataManagementDialog'
-import { PullFromPipedriveDialog } from './PullFromPipedriveDialog'
 
 function KpiCard({
   label,
@@ -177,21 +170,25 @@ const SPEND_CHART_CONFIG: ChartConfig = {
 }
 
 const METRIC_OPTIONS: ComparisonMetric[] = ['leads', 'quotes', 'jobsWon', 'quoteValue', 'jobsWonValue']
+const STATUS_OPTIONS = ['Open', 'Won', 'Lost']
+const STATUS_LABEL_TO_VALUE: Record<string, 'open' | 'won' | 'lost'> = { Open: 'open', Won: 'won', Lost: 'lost' }
 
 export function MarketingDashboard() {
-  const { adSpend, deals, loading, error, addAdSpend, deleteAdSpend, deleteImportBatches, clearAllDeals } = useMarketingData()
+  const { adSpend, deals, loading, error, addAdSpend, deleteAdSpend } = useMarketingData()
 
   const [dateFrom, setDateFrom] = usePersistedState('qpaint:marketing:dateFrom', '')
   const [dateTo, setDateTo] = usePersistedState('qpaint:marketing:dateTo', '')
   const [referralSources, setReferralSources] = usePersistedState<string[]>('qpaint:marketing:referralSources', [])
-  const [salespeople, setSalespeople] = usePersistedState<string[]>('qpaint:marketing:salespeople', [])
   const [stages, setStages] = usePersistedState<string[]>('qpaint:marketing:stages', [])
+  const [statusLabels, setStatusLabels] = usePersistedState<string[]>('qpaint:marketing:statuses', [])
   const [compareSources, setCompareSources] = usePersistedState<string[]>('qpaint:marketing:compareSources', [])
   const [compareMetric, setCompareMetric] = usePersistedState<ComparisonMetric>('qpaint:marketing:compareMetric', 'leads')
 
+  const statuses = useMemo(() => statusLabels.map((s) => STATUS_LABEL_TO_VALUE[s]).filter(Boolean), [statusLabels])
+
   const filters: MarketingFilters = useMemo(
-    () => ({ dateFrom: dateFrom || undefined, dateTo: dateTo || undefined, referralSources, salespeople, stages }),
-    [dateFrom, dateTo, referralSources, salespeople, stages],
+    () => ({ dateFrom: dateFrom || undefined, dateTo: dateTo || undefined, referralSources, stages, statuses }),
+    [dateFrom, dateTo, referralSources, stages, statuses],
   )
 
   const filteredDeals = useMemo(() => filterDeals(deals, filters), [deals, filters])
@@ -202,7 +199,6 @@ export function MarketingDashboard() {
   const monthlySpend = useMemo(() => groupAdSpendByMonth(filteredAdSpend), [filteredAdSpend])
 
   const allSources = useMemo(() => uniqueReferralSources(deals, adSpend), [deals, adSpend])
-  const allSalespeople = useMemo(() => uniqueSalespeople(deals), [deals])
   const allStages = useMemo(() => uniqueStages(deals), [deals])
 
   // First-load default: compare the top 5 sources by lead volume, rather than opening on an empty
@@ -223,22 +219,22 @@ export function MarketingDashboard() {
     [filteredDeals, compareSources, compareMetric],
   )
 
-  const hasActiveFilters = !!dateFrom || !!dateTo || referralSources.length > 0 || salespeople.length > 0 || stages.length > 0
+  const hasActiveFilters = !!dateFrom || !!dateTo || referralSources.length > 0 || stages.length > 0 || statusLabels.length > 0
 
   function clearFilters() {
     setDateFrom('')
     setDateTo('')
     setReferralSources([])
-    setSalespeople([])
     setStages([])
+    setStatusLabels([])
   }
 
   function describeActiveFilters(): string {
     const parts: string[] = []
     if (dateFrom || dateTo) parts.push(`${dateFrom || 'earliest'} → ${dateTo || 'latest'}`)
     if (referralSources.length > 0) parts.push(`Source: ${referralSources.join(', ')}`)
-    if (salespeople.length > 0) parts.push(`Salesperson: ${salespeople.join(', ')}`)
     if (stages.length > 0) parts.push(`Stage: ${stages.join(', ')}`)
+    if (statusLabels.length > 0) parts.push(`Status: ${statusLabels.join(', ')}`)
     return parts.length > 0 ? parts.join(' · ') : 'All deals, no filters applied'
   }
 
@@ -264,17 +260,8 @@ export function MarketingDashboard() {
               </Button>
             )}
           </GatedButton>
-          <GatedButton permissionKey="marketing.manage_data" label="Data" icon={Database}>
-            {() => <DataManagementDialog deals={deals} onDeleteBatches={deleteImportBatches} onClearAll={clearAllDeals} />}
-          </GatedButton>
           <GatedButton permissionKey="marketing.manage_ad_spend" label="Ad Spend" icon={DollarSign}>
             {() => <AdSpendDialog adSpend={adSpend} knownReferralSources={allSources} onSave={addAdSpend} onDelete={deleteAdSpend} />}
-          </GatedButton>
-          <GatedButton permissionKey="marketing.import" label="Pull from Pipedrive" icon={CloudDownload}>
-            {() => <PullFromPipedriveDialog />}
-          </GatedButton>
-          <GatedButton permissionKey="marketing.import" label="Import Deals" icon={Upload}>
-            {() => <ImportDealsDialog />}
           </GatedButton>
         </div>
       </div>
@@ -289,17 +276,15 @@ export function MarketingDashboard() {
       {deals.length === 0 ? (
         <Card className="flex flex-col items-center gap-3 p-10 text-center">
           <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-            <Upload className="size-6" />
+            <FileText className="size-6" />
           </span>
           <div className="space-y-1">
-            <p className="font-medium">No deals imported yet</p>
+            <p className="font-medium">No deals yet</p>
             <p className="text-sm text-muted-foreground">
-              Import a CSV or Excel export from Pipedrive to see Lead/Quote/Won performance here.
+              Marketing reads live from the Deals CRM's Sales and Jobs pipelines — once deals start flowing in
+              from Pipedrive (or are added manually there), Lead/Quote/Won performance will show up here automatically.
             </p>
           </div>
-          <GatedButton permissionKey="marketing.import" label="Import Deals" icon={Upload}>
-            {() => <ImportDealsDialog />}
-          </GatedButton>
         </Card>
       ) : (
         <>
@@ -318,12 +303,12 @@ export function MarketingDashboard() {
                 <MultiSelectFilter label="Source" options={allSources} selected={referralSources} onChange={setReferralSources} />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Salesperson</Label>
-                <MultiSelectFilter label="Salesperson" options={allSalespeople} selected={salespeople} onChange={setSalespeople} />
-              </div>
-              <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">Stage</Label>
                 <MultiSelectFilter label="Stage" options={allStages} selected={stages} onChange={setStages} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Status</Label>
+                <MultiSelectFilter label="Status" options={STATUS_OPTIONS} selected={statusLabels} onChange={setStatusLabels} />
               </div>
               {hasActiveFilters && (
                 <Button variant="ghost" size="sm" onClick={clearFilters}>

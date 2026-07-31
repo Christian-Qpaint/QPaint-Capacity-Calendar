@@ -3,8 +3,8 @@ import { api } from '@/lib/apiClient'
 import { useImportProgress } from '@/context/ImportProgressContext'
 import type { AdSpendEntry, MarketingDeal } from '@/types'
 
-/** Own fetch/CRUD hook rather than folding into the app-wide DataContext — marketing_deals grows
- * with every CSV import (potentially thousands of rows over time) and is only ever read by the
+/** Own fetch/CRUD hook rather than folding into the app-wide DataContext — `deals` (read live from
+ * the Deals CRM's Sales Pipeline, see marketing-data.mts) is only ever needed by the
  * Marketing/Owner roles, so there's no reason to load it for every office user on every page. */
 export function useMarketingData() {
   const [adSpend, setAdSpend] = useState<AdSpendEntry[]>([])
@@ -30,9 +30,9 @@ export function useMarketingData() {
     refetch()
   }, [refetch])
 
-  // A background import (started here or from a previous mount of this page) writes straight to
-  // the API without touching this hook's local `deals` state — pick up the fresh rows as soon as
-  // it finishes, whether that's while the user is still on this page or after they've come back to it.
+  // Refetch once a background job finishes — most relevantly the Deals board's "Sync from
+  // Pipedrive" button (same ImportProgressContext), since that writes straight to crm_deals
+  // without touching this hook's local `deals` state, and this IS that data now.
   const { job } = useImportProgress()
   const handledJobId = useRef<string | null>(null)
   useEffect(() => {
@@ -58,22 +58,5 @@ export function useMarketingData() {
     setAdSpend((prev) => prev.filter((a) => a.id !== id))
   }
 
-  /** Bulk-remove one or more import batches at once — the Data Management view's "delete
-   * selected" action, so cleaning up a handful of bad imports doesn't mean deleting them one by
-   * one. */
-  async function deleteImportBatches(importBatchIds: string[]) {
-    if (importBatchIds.length === 0) return
-    await api.delete(`/api/marketing-deals?importBatchIds=${importBatchIds.join(',')}`)
-    const idSet = new Set(importBatchIds)
-    setDeals((prev) => prev.filter((d) => !idSet.has(d.importBatchId)))
-  }
-
-  /** Wipes every deal so the user can re-sync from Pipedrive with a clean slate — deliberately
-   * does not touch ad_spend (that's manually entered, unrelated to any import). */
-  async function clearAllDeals() {
-    await api.delete('/api/marketing-deals?all=true')
-    setDeals([])
-  }
-
-  return { adSpend, deals, loading, error, refetch, addAdSpend, updateAdSpend, deleteAdSpend, deleteImportBatches, clearAllDeals }
+  return { adSpend, deals, loading, error, refetch, addAdSpend, updateAdSpend, deleteAdSpend }
 }

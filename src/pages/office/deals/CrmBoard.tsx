@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { DndContext, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
@@ -6,22 +6,30 @@ import { useCrmData, type CrmStageSummary } from '@/context/CrmDataContext'
 import { usePermissions } from '@/context/PermissionsContext'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import { useInfiniteScrollSentinel } from '@/hooks/useInfiniteScrollSentinel'
+import { useImportProgress } from '@/context/ImportProgressContext'
+import { fetchPipelineDealsFromPipedrive, chunkedSyncPipelineDeals } from '@/lib/crmSyncRunner'
 import { DealDrawer } from '@/components/crm/DealDrawer'
 import { AddDealDialog } from '@/components/crm/AddDealDialog'
 import { CrmAdvancedFilterDialog } from '@/components/crm/CrmAdvancedFilterDialog'
+import { SavedFilterDropdown } from '@/components/crm/SavedFilterDropdown'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { formatCurrency } from '@/lib/formulas'
+import { colorForIndex } from '@/lib/marketingColors'
 import { type FilterCondition, type FilterFieldKey, type MatchMode, type SortState } from '@/lib/crmDealFilters'
-import { ArrowDown, ArrowUp, ArrowUpDown, Columns3, ListFilter, Plus, Rows3, Search, Settings2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpDown, Columns3, Eye, EyeOff, ListFilter, Plus, RefreshCw, Rows3, Search, Settings2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { CrmDeal, CrmStage } from '@/types'
 
 type ViewMode = 'table' | 'kanban'
 const PAGE_SIZE = 50
+// Matches crm-data.mts's own SALES_PIPELINE_PIPEDRIVE_ID — the "Show Won" toggle only applies
+// there, since that's the only pipeline whose Won deals get hidden by default (see its comment).
+const SALES_PIPELINE_PIPEDRIVE_ID = 2
+const STALE_THRESHOLD_DAYS = 7 // one tier escalation per week — see STALE_TIER_* below
 
 const STATUS_STYLES: Record<CrmDeal['status'], string> = {
   open: 'bg-info-bg text-info',
@@ -35,6 +43,60 @@ const DEAL_ROW_STATUS_STYLES: Record<CrmDeal['status'], string> = {
   open: 'border-l-2 border-l-transparent',
   won: 'border-l-2 border-l-success bg-success-bg/50 hover:brightness-[0.97]',
   lost: 'border-l-2 border-l-danger bg-danger-bg/50 hover:brightness-[0.97]',
+}
+
+type StaleTier = 'none' | 'week1' | 'week2' | 'week3' | 'week4'
+
+/** Escalating "stuck in this stage" warning — yellow after 1 week, orange after 2, red after 3,
+ * dark red after 4+. Only meaningful for still-open deals: a Won/Lost deal has already left the
+ * pipeline, so how long it once sat somewhere doesn't matter anymore. */
+function staleTier(deal: CrmDeal): StaleTier {
+  if (deal.status !== 'open') return 'none'
+  const days = daysInStage(deal)
+  if (days >= STALE_THRESHOLD_DAYS * 4) return 'week4'
+  if (days >= STALE_THRESHOLD_DAYS * 3) return 'week3'
+  if (days >= STALE_THRESHOLD_DAYS * 2) return 'week2'
+  if (days >= STALE_THRESHOLD_DAYS) return 'week1'
+  return 'none'
+}
+
+function daysInStage(deal: CrmDeal): number {
+  return Math.floor((Date.now() - new Date(deal.stageEnteredAt).getTime()) / 86_400_000)
+}
+
+const STALE_ROW_STYLES: Record<Exclude<StaleTier, 'none'>, string> = {
+  week1: 'border-l-2 border-l-warning bg-warning-bg/60',
+  week2: 'border-l-2 border-l-[color:var(--stale-orange)] bg-[color:var(--stale-orange-bg)]/60',
+  week3: 'border-l-2 border-l-danger bg-danger-bg/60',
+  week4: 'border-l-2 border-l-[color:var(--stale-darkred)] bg-[color:var(--stale-darkred-bg)]/70',
+}
+const STALE_CARD_STYLES: Record<Exclude<StaleTier, 'none'>, string> = {
+  week1: 'bg-warning-bg/60',
+  week2: 'bg-[color:var(--stale-orange-bg)]/60',
+  week3: 'bg-danger-bg/60',
+  week4: 'bg-[color:var(--stale-darkred-bg)]/70',
+}
+const STALE_BADGE_STYLES: Record<Exclude<StaleTier, 'none'>, string> = {
+  week1: 'bg-warning-bg text-warning',
+  week2: 'bg-[color:var(--stale-orange-bg)] text-[color:var(--stale-orange)]',
+  week3: 'bg-danger-bg text-danger',
+  week4: 'bg-[color:var(--stale-darkred-bg)] text-[color:var(--stale-darkred)]',
+}
+
+function dealRowClassName(deal: CrmDeal): string {
+  const tier = staleTier(deal)
+  if (tier === 'none') return DEAL_ROW_STATUS_STYLES[deal.status]
+  return STALE_ROW_STYLES[tier]
+}
+
+function StaleBadge({ deal }: { deal: CrmDeal }) {
+  const tier = staleTier(deal)
+  if (tier === 'none') return null
+  return (
+    <span className={cn('inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium', STALE_BADGE_STYLES[tier])}>
+      {daysInStage(deal)}d in stage
+    </span>
+  )
 }
 
 function formatDate(iso: string): string {
@@ -81,20 +143,28 @@ function SortableHead({
 function DraggableDealCard({ deal, onClick, disabled }: { deal: CrmDeal; onClick: () => void; disabled: boolean }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: deal.id, disabled })
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 10 } : undefined
+  const tier = staleTier(deal)
   return (
     <Card
       ref={setNodeRef}
       style={style}
       {...listeners}
       {...attributes}
-      className={cn('cursor-pointer gap-2 p-3 transition hover:shadow-md', isDragging && 'opacity-50 shadow-lg')}
+      className={cn(
+        'cursor-pointer gap-2 p-3 transition hover:shadow-md',
+        tier !== 'none' && STALE_CARD_STYLES[tier],
+        isDragging && 'opacity-50 shadow-lg',
+      )}
       onClick={onClick}
     >
       <p className="truncate text-sm font-medium">{deal.title}</p>
       <p className="truncate text-xs text-muted-foreground">{deal.orgName || deal.personName || '—'}</p>
-      <div className="flex items-center justify-between text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
         <span className="font-medium text-foreground">{deal.value === null ? '—' : formatCurrency(deal.value)}</span>
-        <StatusBadge status={deal.status} />
+        <div className="flex items-center gap-1">
+          <StaleBadge deal={deal} />
+          <StatusBadge status={deal.status} />
+        </div>
       </div>
     </Card>
   )
@@ -111,6 +181,7 @@ const EMPTY_COLUMN: ColumnState = { deals: [], total: 0, initialLoading: true, l
 
 function KanbanColumn({
   stage,
+  color,
   state,
   summary,
   canManage,
@@ -118,6 +189,7 @@ function KanbanColumn({
   onLoadMore,
 }: {
   stage: CrmStage
+  color: string
   state: ColumnState
   summary?: CrmStageSummary
   canManage: boolean
@@ -135,7 +207,7 @@ function KanbanColumn({
   return (
     <div
       className="flex w-72 shrink-0 flex-col rounded-lg border border-border bg-muted/30 border-t-4"
-      style={{ borderTopColor: stage.color ?? undefined }}
+      style={{ borderTopColor: color }}
     >
       <div className="space-y-0.5 border-b border-border p-3">
         <p className="truncate text-sm font-medium">{stage.name}</p>
@@ -173,7 +245,7 @@ function KanbanColumn({
 }
 
 export function CrmBoard() {
-  const { pipelines, stages, loading, error, queryDeals, loadDealDetail, moveDealStage } = useCrmData()
+  const { pipelines, stages, savedFilters, fieldDefinitions, loading, error, queryDeals, loadDealDetail, moveDealStage } = useCrmData()
   const { hasPermission } = usePermissions()
   const canManage = hasPermission('crm.manage')
   const canManageConfig = hasPermission('crm.manage_config')
@@ -186,19 +258,49 @@ export function CrmBoard() {
   const [filterOpen, setFilterOpen] = useState(false)
   const [conditions, setConditions] = usePersistedState<FilterCondition[]>('qpaint:crmBoard:conditions', [])
   const [matchMode, setMatchMode] = usePersistedState<MatchMode>('qpaint:crmBoard:matchMode', 'AND')
+  // Combines with the ad-hoc conditions above (AND'ed together server-side) rather than being
+  // mutually exclusive — picking a saved filter narrows the board, and the Advanced Filter can
+  // still layer extra conditions on top of it for a customized view.
+  const [savedFilterId, setSavedFilterId] = usePersistedState<string | null>('qpaint:crmBoard:savedFilterId', null)
   const [selectedDeal, setSelectedDeal] = useState<CrmDeal | null>(null)
   const [addDialogState, setAddDialogState] = useState<{ open: boolean; stageId?: string }>({ open: false })
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
+  // Seed the board to Pipedrive's own "All open deals" filter (its pipedriveFilterId is always 86
+  // in this account) the very first time anyone ever opens this page — matches what Pipedrive
+  // itself shows by default (closed deals hidden) instead of every historical deal ever backfilled.
+  // `isFirstEverVisit` is captured once, during the initial render's state initializer — BEFORE any
+  // effect runs. Checking localStorage from inside a useEffect instead raced against
+  // usePersistedState's own persistence effect for this same key, which writes the default `null`
+  // back to localStorage on mount before a later-registered effect ever got a chance to see it as
+  // untouched — so it appeared "already set" even on a genuine first visit.
+  const [isFirstEverVisit] = useState(() => window.localStorage.getItem('qpaint:crmBoard:savedFilterId') == null)
+  useEffect(() => {
+    if (!isFirstEverVisit || !savedFilters.length) return
+    const defaultFilter = savedFilters.find((f) => f.pipedriveFilterId === 86 && f.supported)
+    if (defaultFilter) setSavedFilterId(defaultFilter.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFirstEverVisit, savedFilters])
+
   const sortedPipelines = useMemo(() => [...pipelines].sort((a, b) => a.order - b.order), [pipelines])
   const activePipelineId = pipelineId && sortedPipelines.some((p) => p.id === pipelineId) ? pipelineId : (sortedPipelines[0]?.id ?? '')
+  const activePipeline = sortedPipelines.find((p) => p.id === activePipelineId)
+  const isSalesPipeline = activePipeline?.pipedrivePipelineId === SALES_PIPELINE_PIPEDRIVE_ID
 
   const pipelineStages = useMemo(
     () => stages.filter((s) => s.pipelineId === activePipelineId).sort((a, b) => a.order - b.order),
     [stages, activePipelineId],
   )
   const stageIdsKey = pipelineStages.map((s) => s.id).join(',')
+
+  // Won/Lost Sales Pipeline deals are hidden by default (see crm-data.mts) — these toggles bring
+  // them back into view without deleting/losing anything; not persisted, since "show closed
+  // deals" is a temporary look-something-up need, not a lasting view preference like the other
+  // board state. (Picking a filter that already targets status — e.g. a "Lost deals" saved
+  // filter — works on its own without needing these; see crm-data.mts's statusAlreadyGoverned.)
+  const [showWon, setShowWon] = useState(false)
+  const [showLost, setShowLost] = useState(false)
 
   // Debounced so typing doesn't fire a server round-trip on every keystroke — the search now
   // drives a real SQL query, not an in-memory filter.
@@ -214,9 +316,19 @@ export function CrmBoard() {
       sortDir: sort.direction,
       conditions: conditions.length ? conditions : undefined,
       matchMode,
+      savedFilterId: savedFilterId ?? undefined,
+      includeWon: isSalesPipeline && showWon,
+      includeLost: isSalesPipeline && showLost,
     }),
-    [debouncedSearch, sort, conditions, matchMode],
+    [debouncedSearch, sort, conditions, matchMode, savedFilterId, isSalesPipeline, showWon, showLost],
   )
+
+  // A pipeline-wide count/$ summary, grouped by stage — crm-data.mts computes it under the current
+  // pipeline/search/filter scope regardless of whether the request was stage-scoped (Kanban) or
+  // not (Table), so both view modes feed the same map. Summing every entry gives the "N deals ·
+  // $X total" card at the top of the board, always accurate regardless of how many rows either
+  // view has actually loaded into the DOM.
+  const [stageSummary, setStageSummary] = useState<Record<string, CrmStageSummary>>({})
 
   // ---- Table mode: one flat, lazily-extended page ----
   const [tableDeals, setTableDeals] = useState<CrmDeal[]>([])
@@ -232,6 +344,11 @@ export function CrmBoard() {
       const result = await queryDeals({ pipelineId: activePipelineId, offset, limit: PAGE_SIZE, ...queryScope })
       setTableDeals((prev) => (append ? [...prev, ...result.deals] : result.deals))
       setTableTotal(result.total)
+      setStageSummary((prev) => {
+        const next = { ...prev }
+        for (const s of result.stageSummary) next[s.stageId] = s
+        return next
+      })
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to load deals')
     } finally {
@@ -240,10 +357,8 @@ export function CrmBoard() {
     }
   }
 
-  // ---- Kanban mode: one lazily-extended page PER stage, plus a pipeline-wide count/$ summary
-  // that always reflects the true totals regardless of how much of each column is loaded ----
+  // ---- Kanban mode: one lazily-extended page PER stage ----
   const [columnState, setColumnState] = useState<Record<string, ColumnState>>({})
-  const [stageSummary, setStageSummary] = useState<Record<string, CrmStageSummary>>({})
 
   async function fetchStagePage(stageId: string, offset: number, append: boolean) {
     if (!activePipelineId) return
@@ -281,17 +396,59 @@ export function CrmBoard() {
   // on, just server-driven here since the full result set is never held in memory.
   useEffect(() => {
     if (!activePipelineId) return
+    setStageSummary({}) // stage ids are pipeline-specific uuids — stale entries from a previous
+    // pipeline/filter scope would otherwise never get overwritten, just silently accumulate.
     if (viewMode === 'table') {
       setTableDeals([])
       setTableTotal(0)
       fetchTablePage(0, false)
     } else {
       setColumnState({})
-      setStageSummary({})
       for (const stage of pipelineStages) fetchStagePage(stage.id, 0, false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePipelineId, viewMode, queryScope, stageIdsKey])
+
+  // ---- "Sync from Pipedrive" — an on-demand catch-up for the pipeline currently in view, on top
+  // of the two webhooks that keep things current automatically going forward. Phase 1 (fetching
+  // every deal from Pipedrive) runs once up front so the tracked job has a known total; phase 2
+  // (upserting each in chunks) runs via ImportProgressContext so it survives navigating away. ----
+  const { job, runImport } = useImportProgress()
+  const [syncFetching, setSyncFetching] = useState(false)
+  const lastSyncResultRef = useRef<{ created: number; updated: number; skipped: number } | null>(null)
+  const handledSyncJobRef = useRef<string | null>(null)
+
+  async function handleSyncPipeline() {
+    if (!activePipeline) return
+    setSyncFetching(true)
+    try {
+      const { deals, total } = await fetchPipelineDealsFromPipedrive(activePipeline.id)
+      const label = `Sync ${activePipeline.name} from Pipedrive`
+      const started = runImport(label, total, async (onProgress) => {
+        const result = await chunkedSyncPipelineDeals(activePipeline.id, deals, onProgress)
+        lastSyncResultRef.current = result
+        return { imported: result.created + result.updated }
+      })
+      if (!started) toast.error('A sync or import is already running — wait for it to finish first.')
+      else toast.success(`Syncing ${total.toLocaleString()} deals from ${activePipeline.name} in the background…`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to fetch deals from Pipedrive')
+    } finally {
+      setSyncFetching(false)
+    }
+  }
+
+  // Once a sync job finishes, refresh whichever view is currently on screen so the newly-synced
+  // rows actually show up without a manual reload.
+  useEffect(() => {
+    if (!job || job.status !== 'done' || !job.label.startsWith('Sync ') || handledSyncJobRef.current === job.id) return
+    handledSyncJobRef.current = job.id
+    const result = lastSyncResultRef.current
+    toast.success(result ? `Sync complete — ${result.created} new, ${result.updated} updated, ${result.skipped} skipped` : 'Sync complete')
+    if (viewMode === 'table') fetchTablePage(0, false)
+    else for (const stage of pipelineStages) fetchStagePage(stage.id, 0, false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job])
 
   async function openDeal(deal: CrmDeal) {
     try {
@@ -391,6 +548,7 @@ export function CrmBoard() {
       setTableDeals((prev) => prev.map((d) => (d.id === dealId ? updated : d)))
       if (promoted) toast.success('Moved to a Won stage — a Job was created')
       else if (promotionSkippedReason) toast.warning(`Moved, but couldn't create a Job yet: ${promotionSkippedReason}`)
+      else toast.success('Saved')
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to move deal')
     }
@@ -405,6 +563,35 @@ export function CrmBoard() {
     [pipelineStages],
   )
   const stageNameById = useMemo(() => new Map(pipelineStages.map((s) => [s.id, s.name])), [pipelineStages])
+  // A stage keeps its own saved color if set (via Deals > Configure); otherwise falls back to a
+  // stable palette color by position, so every stage is visually distinct even before anyone's
+  // gone in and picked colors deliberately.
+  const stageColorById = useMemo(
+    () => new Map(pipelineStages.map((s, i) => [s.id, s.color || colorForIndex(i)])),
+    [pipelineStages],
+  )
+
+  // Live option lists for the Advanced Filter's two custom-field conditions — resolved by label
+  // since crm_field_definitions.key is an opaque, account-specific Pipedrive hash.
+  const categoryOptions = useMemo(() => {
+    const def = fieldDefinitions.find((f) => f.label === 'Category Type')
+    return (def?.options ?? []).map((o) => ({ value: o.id, label: o.label }))
+  }, [fieldDefinitions])
+  const referralSourceOptions = useMemo(() => {
+    const def = fieldDefinitions.find((f) => f.label === 'Referral Source')
+    return (def?.options ?? []).map((o) => ({ value: o.id, label: o.label }))
+  }, [fieldDefinitions])
+
+  // Sum of every loaded stage's summary — accurate for the whole current pipeline/search/filter
+  // scope regardless of which view is active or how much of it has actually loaded into the DOM,
+  // since crm-data.mts computes stageSummary un-paginated either way.
+  const pipelineSummary = useMemo(() => {
+    const rows = Object.values(stageSummary)
+    const count = rows.reduce((sum, s) => sum + s.count, 0)
+    const masked = rows.some((s) => s.totalValue === null)
+    const totalValue = masked ? null : rows.reduce((sum, s) => sum + (s.totalValue ?? 0), 0)
+    return { count, totalValue }
+  }, [stageSummary])
 
   const tableHasMore = tableDeals.length < tableTotal
 
@@ -445,10 +632,33 @@ export function CrmBoard() {
             </Button>
           ))}
         </div>
+        {isSalesPipeline && (
+          <Button
+            variant={showWon ? 'secondary' : 'outline'}
+            size="sm"
+            onClick={() => setShowWon((v) => !v)}
+            title="Won deals are hidden by default once promoted to a Job — toggle to bring them back into view"
+          >
+            {showWon ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+            {showWon ? 'Showing Won' : 'Show Won'}
+          </Button>
+        )}
+        {isSalesPipeline && (
+          <Button
+            variant={showLost ? 'secondary' : 'outline'}
+            size="sm"
+            onClick={() => setShowLost((v) => !v)}
+            title="Lost deals are hidden by default — toggle to bring them back into view"
+          >
+            {showLost ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+            {showLost ? 'Showing Lost' : 'Show Lost'}
+          </Button>
+        )}
         <div className="relative w-full max-w-xs">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search title, client…" className="pl-8" />
         </div>
+        <SavedFilterDropdown filters={savedFilters} activeId={savedFilterId} onSelect={setSavedFilterId} />
         <Button variant="outline" size="sm" onClick={() => setFilterOpen(true)}>
           <ListFilter /> Advanced filter
           {conditions.length > 0 && <Badge variant="secondary">{conditions.length}</Badge>}
@@ -458,6 +668,37 @@ export function CrmBoard() {
             <X /> Clear filter
           </Button>
         )}
+        {/* Last button in the toolbar, deliberately — everything above narrows/reads the current
+            view; this is the one action that reaches out to Pipedrive. */}
+        {canManage && activePipeline?.pipedrivePipelineId && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSyncPipeline}
+            disabled={syncFetching || job?.status === 'running'}
+            title={`Pull every deal in ${activePipeline.name} from Pipedrive and catch up its stage/status here`}
+          >
+            <RefreshCw className={cn('size-3.5', (syncFetching || (job?.status === 'running' && job.label.startsWith('Sync'))) && 'animate-spin')} />
+            {syncFetching ? 'Fetching…' : `Sync ${activePipeline.name}`}
+          </Button>
+        )}
+
+        {/* Same "count + total value" concept Pipedrive shows in its per-pipeline popup — pinned to
+            the top-right of the table/kanban area below rather than stretched full-width, so it
+            reads as a compact stat card, not another toolbar row. */}
+        <Card className="ml-auto flex shrink-0 items-center gap-4 border-none bg-info-bg px-4 py-2 text-info">
+          <div className="text-center">
+            <p className="text-[10px] font-medium tracking-wide uppercase opacity-80">Deals</p>
+            <p className="text-base leading-tight font-semibold">{pipelineSummary.count.toLocaleString()}</p>
+          </div>
+          <div className="h-7 w-px bg-info/25" />
+          <div className="text-center">
+            <p className="text-[10px] font-medium tracking-wide uppercase opacity-80">Total Value</p>
+            <p className="text-base leading-tight font-semibold">
+              {pipelineSummary.totalValue === null ? '—' : formatCurrency(pipelineSummary.totalValue)}
+            </p>
+          </div>
+        </Card>
       </div>
 
       {viewMode === 'table' && (
@@ -493,15 +734,23 @@ export function CrmBoard() {
                   tableDeals.map((deal) => (
                     <TableRow
                       key={deal.id}
-                      className={cn('cursor-pointer', DEAL_ROW_STATUS_STYLES[deal.status])}
+                      className={cn('cursor-pointer', dealRowClassName(deal))}
                       onClick={() => openDeal(deal)}
                     >
                       <TableCell className="font-medium">{deal.title}</TableCell>
                       <TableCell className="text-muted-foreground">{deal.orgName || deal.personName || '—'}</TableCell>
-                      <TableCell>{stageNameById.get(deal.stageId) ?? '—'}</TableCell>
+                      <TableCell>
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: stageColorById.get(deal.stageId) }} />
+                          {stageNameById.get(deal.stageId) ?? '—'}
+                        </span>
+                      </TableCell>
                       <TableCell>{deal.value === null ? '—' : formatCurrency(deal.value)}</TableCell>
                       <TableCell>
-                        <StatusBadge status={deal.status} />
+                        <div className="flex flex-wrap items-center gap-1">
+                          <StatusBadge status={deal.status} />
+                          <StaleBadge deal={deal} />
+                        </div>
                       </TableCell>
                       <TableCell className="text-muted-foreground">{formatDate(deal.createdAt)}</TableCell>
                     </TableRow>
@@ -531,6 +780,7 @@ export function CrmBoard() {
               <KanbanColumn
                 key={stage.id}
                 stage={stage}
+                color={stageColorById.get(stage.id) ?? '#94A3B8'}
                 state={columnState[stage.id] ?? EMPTY_COLUMN}
                 summary={stageSummary[stage.id]}
                 canManage={canManage}
@@ -565,6 +815,8 @@ export function CrmBoard() {
         conditions={conditions}
         matchMode={matchMode}
         stageOptions={stageOptions}
+        categoryOptions={categoryOptions}
+        referralSourceOptions={referralSourceOptions}
         onApply={(next, mode) => {
           setConditions(next)
           setMatchMode(mode)

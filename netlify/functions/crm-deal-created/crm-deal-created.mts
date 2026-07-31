@@ -17,35 +17,10 @@
 import { eq } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { isPipedriveWebhookAuthorized } from '../_shared/pipedriveAuth.js'
+import { fetchFullDeal, extractFieldsFromV1Deal, type PipedriveDealPayload } from '../_shared/pipedriveApi.js'
 import { crmPipelines, crmStages, crmFieldDefinitions, crmDeals } from '../../../db/schema.js'
 
 const SALES_PIPELINE_ID = 2
-
-interface PipedriveDealPayload {
-  id: number
-  title?: string | null
-  value?: number | null
-  currency?: string | null
-  status?: string | null
-  stage_id?: number | null
-  pipeline_id?: number | null
-  org_name?: string | null
-  person_name?: string | null
-  lost_reason?: string | null
-  won_time?: string | null
-  lost_time?: string | null
-  add_time?: string | null
-  [key: string]: unknown
-}
-
-async function fetchFullDeal(dealId: number): Promise<PipedriveDealPayload | null> {
-  const token = process.env.PIPEDRIVE_API_TOKEN
-  if (!token) return null
-  const res = await fetch(`https://api.pipedrive.com/v1/deals/${dealId}?api_token=${token}`)
-  if (!res.ok) return null
-  const json = (await res.json()) as { success?: boolean; data?: PipedriveDealPayload }
-  return json.success ? (json.data ?? null) : null
-}
 
 export default async (req: Request): Promise<Response> => {
   if (!isPipedriveWebhookAuthorized(req)) return Response.json({ error: 'Unauthorized' }, { status: 401 })
@@ -77,17 +52,7 @@ export default async (req: Request): Promise<Response> => {
     }
 
     const fieldDefs = await db.select().from(crmFieldDefinitions)
-    const fields: Record<string, unknown> = {}
-    for (const def of fieldDefs) {
-      if (def.fieldType === 'address') {
-        const formatted = deal[`${def.key}_formatted_address`] as string | undefined
-        const raw = deal[def.key] as string | undefined
-        if (formatted || raw) fields[def.key] = formatted ?? raw
-        continue
-      }
-      const raw = deal[def.key]
-      if (raw !== null && raw !== undefined && raw !== '') fields[def.key] = raw
-    }
+    const fields = extractFieldsFromV1Deal(deal, fieldDefs)
 
     const status = deal.status === 'won' || deal.status === 'lost' ? deal.status : 'open'
     const [created] = await db
@@ -107,6 +72,7 @@ export default async (req: Request): Promise<Response> => {
         lostAt: status === 'lost' ? (deal.lost_time ?? new Date().toISOString()) : null,
         fields,
         createdAt: deal.add_time ?? undefined,
+        stageEnteredAt: deal.add_time ?? undefined,
       })
       .returning({ id: crmDeals.id })
 

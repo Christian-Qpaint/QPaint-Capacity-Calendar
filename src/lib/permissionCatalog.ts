@@ -50,9 +50,13 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
 
   // Marketing
   { key: 'marketing.view', page: 'Marketing', label: 'View Marketing page', description: 'Open the Marketing dashboard at all.', defaultForRole: canAccessMarketing },
-  { key: 'marketing.import', page: 'Marketing', label: 'Import / sync deals', description: 'Import a CSV/Excel file or pull deals from Pipedrive.', defaultForRole: canAccessMarketing },
+  // Historically gated the CSV/Pipedrive-import buttons (both removed now that Marketing reads
+  // live from the Deals CRM) — kept because ad-spend.mts's server-side check is still keyed on
+  // this exact permission string; only the label/description changed to stop describing a feature
+  // that no longer exists. See ad-spend.mts + the "Ad Spend" button's own marketing.manage_ad_spend
+  // gate for the pre-existing mismatch this key papers over.
+  { key: 'marketing.import', page: 'Marketing', label: 'Manage Ad Spend (server-side)', description: 'Also enforced server-side for adding/editing/deleting Ad Spend entries.', defaultForRole: canAccessMarketing },
   { key: 'marketing.manage_ad_spend', page: 'Marketing', label: 'Manage Ad Spend', description: 'Add, edit, or delete monthly ad spend entries.', defaultForRole: canAccessMarketing },
-  { key: 'marketing.manage_data', page: 'Marketing', label: 'Manage / clear data', description: 'Bulk-delete import batches or clear all Marketing data.', defaultForRole: (role) => role === 'owner' },
   { key: 'marketing.export', page: 'Marketing', label: 'Print / export report', description: 'Use the Print / Export button to generate a report.', defaultForRole: canAccessMarketing },
 
   // Settings

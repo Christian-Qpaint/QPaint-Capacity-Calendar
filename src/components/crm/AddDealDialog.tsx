@@ -32,7 +32,6 @@ export function AddDealDialog({
   const [title, setTitle] = useState('')
   const [orgName, setOrgName] = useState('')
   const [value, setValue] = useState('')
-  const [currency, setCurrency] = useState('AUD')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -41,7 +40,6 @@ export function AddDealDialog({
     setTitle('')
     setOrgName('')
     setValue('')
-    setCurrency('AUD')
     setError(null)
     setPipelineId(defaultPipelineId ?? sortedPipelines[0]?.id ?? '')
     setStageId(defaultStageId ?? '')
@@ -67,7 +65,7 @@ export function AddDealDialog({
         stageId,
         title: title.trim(),
         value: Number(value) || 0,
-        currency,
+        currency: 'AUD',
         orgName: orgName.trim() || undefined,
       })
       toast.success('Deal added')
@@ -122,15 +120,9 @@ export function AddDealDialog({
             <Input value={orgName} onChange={(e) => setOrgName(e.target.value)} placeholder="Optional" />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Value</Label>
-              <Input type="number" value={value} onChange={(e) => setValue(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Currency</Label>
-              <Input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} maxLength={3} />
-            </div>
+          <div className="space-y-1.5">
+            <Label>Value (AUD)</Label>
+            <Input type="number" value={value} onChange={(e) => setValue(e.target.value)} />
           </div>
 
           {error && <p className="text-sm text-danger">{error}</p>}

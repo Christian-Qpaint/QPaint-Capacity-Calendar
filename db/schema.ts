@@ -441,6 +441,11 @@ export const crmDeals = pgTable(
     // Custom field values keyed by crmFieldDefinitions.key — the ~65 Pipedrive fields that
     // aren't already real columns above (referral source, quoter, extent of work, etc.).
     fields: jsonb('fields').$type<Record<string, unknown>>().notNull().default({}),
+    // Set whenever stageId actually changes (drag-and-drop, Pipedrive sync/webhook picking up a
+    // stage move) — deliberately NOT the same as updatedAt, which also changes on plain field
+    // edits/syncs that don't move the stage. This is what the board's staleness color-coding
+    // (CrmBoard.tsx) measures "days sitting in this stage" against.
+    stageEnteredAt: timestamp('stage_entered_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
   },
@@ -449,6 +454,27 @@ export const crmDeals = pgTable(
     index('crm_deals_status_idx').on(table.status),
   ],
 )
+
+// One-time-imported copies of Pipedrive's own saved deal filters (Filters > Deals in Pipedrive),
+// selectable from a dropdown on the Deals board — same "copy from Pipedrive once, then a normal
+// locally-editable row from then on" philosophy as pipelines/stages/field definitions. `conditions`
+// is a translated nested AND/OR condition tree (see crmSavedFilterConditions.ts), evaluated
+// entirely in SQL against crm_deals — NOT a live call back to Pipedrive. Not every Pipedrive filter
+// is translatable this way: some reference things this app doesn't track at all (Pipedrive
+// activities/orgs directly, deactivated-user ownership, "time in current stage"). Those import with
+// `supported: false` and a human-readable `unsupportedReason` so the dropdown can show them
+// disabled with an explanation instead of silently returning a wrong result set.
+export const crmSavedFilters = pgTable('crm_saved_filters', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  pipedriveFilterId: integer('pipedrive_filter_id').unique(),
+  name: text('name').notNull(),
+  order: integer('order').notNull().default(0),
+  conditions: jsonb('conditions').notNull(),
+  supported: boolean('supported').notNull().default(true),
+  unsupportedReason: text('unsupported_reason'),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+})
 
 // ============================================================================
 // Permissions & notifications

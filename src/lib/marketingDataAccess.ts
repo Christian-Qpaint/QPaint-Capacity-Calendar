@@ -8,8 +8,8 @@ export interface MarketingFilters {
   dateFrom?: string // ISO date, inclusive, compared against deal.createdDate
   dateTo?: string // ISO date, inclusive
   referralSources?: string[] // empty/omitted = every source
-  salespeople?: string[] // empty/omitted = every salesperson
   stages?: string[] // empty/omitted = every raw stage
+  statuses?: ('open' | 'won' | 'lost')[] // empty/omitted = every status
 }
 
 export interface MarketingSummary {
@@ -57,8 +57,8 @@ export function filterDeals(deals: MarketingDeal[], filters: MarketingFilters): 
     if (filters.dateFrom && d.createdDate < filters.dateFrom) return false
     if (filters.dateTo && d.createdDate > filters.dateTo) return false
     if (filters.referralSources?.length && !filters.referralSources.includes(d.referralSource)) return false
-    if (filters.salespeople?.length && !(d.salesperson && filters.salespeople.includes(d.salesperson))) return false
     if (filters.stages?.length && !(d.rawStage && filters.stages.includes(d.rawStage))) return false
+    if (filters.statuses?.length && !filters.statuses.includes(d.status)) return false
     return true
   })
 }
@@ -201,10 +201,6 @@ export function buildReferralSourceTimeSeries(
   })
 }
 
-export function uniqueSalespeople(deals: MarketingDeal[]): string[] {
-  return Array.from(new Set(deals.map((d) => d.salesperson).filter((s): s is string => !!s))).sort()
-}
-
 export function uniqueStages(deals: MarketingDeal[]): string[] {
   return Array.from(new Set(deals.map((d) => d.rawStage).filter((s): s is string => !!s))).sort()
 }
@@ -247,33 +243,3 @@ export function monthKeyToDateRange(key: string): { from: string; to: string } {
   return { from: `${key}-01`, to: `${key}-${String(lastDay).padStart(2, '0')}` }
 }
 
-export interface ImportBatch {
-  importBatchId: string
-  importedAt: string
-  source: string | null
-  count: number
-  leads: number
-  quotes: number
-  won: number
-}
-
-/** Groups deals by their import batch for the Data Management history view — newest first. */
-export function groupIntoImportBatches(deals: MarketingDeal[]): ImportBatch[] {
-  const byBatch = new Map<string, MarketingDeal[]>()
-  for (const d of deals) {
-    const list = byBatch.get(d.importBatchId) ?? []
-    list.push(d)
-    byBatch.set(d.importBatchId, list)
-  }
-  return Array.from(byBatch.entries())
-    .map(([importBatchId, list]) => ({
-      importBatchId,
-      importedAt: list[0].importedAt,
-      source: list[0].importSource,
-      count: list.length,
-      leads: list.length,
-      quotes: list.filter((d) => d.isQuoted).length,
-      won: list.filter((d) => d.isWon).length,
-    }))
-    .sort((a, b) => b.importedAt.localeCompare(a.importedAt))
-}

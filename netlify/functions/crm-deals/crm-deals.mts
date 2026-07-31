@@ -4,7 +4,7 @@ import { requireOfficeRole, isOfficeRole, withErrorHandling, HttpError } from '.
 import { parseJsonBody } from '../_shared/http.js'
 import { stripNulls } from '../_shared/rows.js'
 import { crmDeals, crmStages, crmFieldDefinitions } from '../../../db/schema.js'
-import { createOrAdoptJobFromDeal, CATEGORY_OPTION_MAP, FIELD_TARGET_HOURS, FIELD_CATEGORY, FIELD_ADDRESS } from '../_shared/dealToJob.js'
+import { attemptPromotion } from '../_shared/dealToJob.js'
 
 function toValues(body: Record<string, unknown>) {
   return {
@@ -16,41 +16,6 @@ function toValues(body: Record<string, unknown>) {
     orgName: (body.orgName as string | undefined) ?? null,
     personName: (body.personName as string | undefined) ?? null,
   }
-}
-
-/** Attempts to promote a deal to a real Job — used when a deal is dragged into an isWonStage
- * stage, or explicitly marked Won. A no-op (not an error) if the deal is already linked to a Job;
- * routes through the same createOrAdoptJobFromDeal the legacy Pipedrive webhook uses, so the two
- * paths can never double-create a Job for one deal. Returns a reason (not an error/rejection) when
- * promotion can't complete yet — the stage move / Won status change itself always still succeeds. */
-async function attemptPromotion(
-  db: ReturnType<typeof getDb>,
-  deal: typeof crmDeals.$inferSelect,
-): Promise<{ promoted: boolean; jobId: string | null; skippedReason?: string }> {
-  if (deal.jobId) return { promoted: false, jobId: deal.jobId }
-
-  const fields = deal.fields as Record<string, unknown>
-  const rawTargetHours = fields[FIELD_TARGET_HOURS]
-  const targetHours = typeof rawTargetHours === 'number' ? rawTargetHours : null
-  const categoryOptionId = String(fields[FIELD_CATEGORY] ?? '')
-  const address = (fields[FIELD_ADDRESS] as string | undefined) ?? ''
-
-  const result = await createOrAdoptJobFromDeal(db, {
-    pipedriveDealId: deal.pipedriveDealId,
-    title: deal.title,
-    orgName: deal.orgName,
-    personName: deal.personName,
-    value: deal.value,
-    targetHours,
-    category: CATEGORY_OPTION_MAP[categoryOptionId] ?? 'Commercial',
-    address,
-    dateWon: (deal.wonAt ?? new Date().toISOString()).slice(0, 10),
-    pipedriveStageId: null,
-  })
-
-  if (result.status === 'skipped') return { promoted: false, jobId: null, skippedReason: result.reason }
-  await db.update(crmDeals).set({ jobId: result.jobId }).where(eq(crmDeals.id, deal.id))
-  return { promoted: result.status === 'created', jobId: result.jobId }
 }
 
 export default withErrorHandling(async (req: Request) => {
@@ -90,7 +55,7 @@ export default withErrorHandling(async (req: Request) => {
     if (!targetStage) throw new HttpError(404, 'Stage not found')
 
     // Dragging into a Won-flagged stage is a status transition, not just a stage move.
-    const patch: Record<string, unknown> = { stageId, updatedAt: new Date().toISOString() }
+    const patch: Record<string, unknown> = { stageId, stageEnteredAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
     if (targetStage.isWonStage) {
       patch.status = 'won'
       patch.wonAt = new Date().toISOString()
@@ -137,9 +102,15 @@ export default withErrorHandling(async (req: Request) => {
     for (const key of ['pipelineId', 'stageId', 'title', 'value', 'currency', 'orgName', 'personName', 'lostReason'] as const) {
       if (key in body) patch[key] = body[key]
     }
-    if (body.fields && typeof body.fields === 'object') {
-      const [current] = await db.select({ fields: crmDeals.fields }).from(crmDeals).where(eq(crmDeals.id, id)).limit(1)
-      patch.fields = { ...(current?.fields ?? {}), ...(body.fields as Record<string, unknown>) }
+    const needsCurrent = 'stageId' in body || (body.fields && typeof body.fields === 'object')
+    if (needsCurrent) {
+      const [current] = await db.select({ fields: crmDeals.fields, stageId: crmDeals.stageId }).from(crmDeals).where(eq(crmDeals.id, id)).limit(1)
+      if (body.fields && typeof body.fields === 'object') {
+        patch.fields = { ...(current?.fields ?? {}), ...(body.fields as Record<string, unknown>) }
+      }
+      // Same "did the stage actually change" tracking as the dedicated action=stage endpoint above
+      // — this generic PATCH also lets the deal drawer move a deal between stages directly.
+      if ('stageId' in body && current && current.stageId !== body.stageId) patch.stageEnteredAt = new Date().toISOString()
     }
     const [updated] = await db.update(crmDeals).set(patch).where(eq(crmDeals.id, id)).returning()
     if (!updated) throw new HttpError(404, 'Deal not found')

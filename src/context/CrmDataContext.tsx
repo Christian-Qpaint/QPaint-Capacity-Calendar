@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { api } from '@/lib/apiClient'
 import type { FilterCondition, MatchMode } from '@/lib/crmDealFilters'
-import type { CrmPipeline, CrmStage, CrmFieldDefinition, CrmDeal } from '@/types'
+import type { CrmPipeline, CrmStage, CrmFieldDefinition, CrmDeal, CrmSavedFilter } from '@/types'
 
 /** Own context rather than folding into the app-wide DataContext (same reasoning as
  * useMarketingData/`/api/marketing-data`) — crm_deals holds every stage of every pipeline
@@ -22,6 +22,16 @@ export interface CrmDealsQuery {
   sortDir?: 'asc' | 'desc'
   conditions?: FilterCondition[]
   matchMode?: MatchMode
+  /** Mutually exclusive with `conditions` in practice (the board clears one when the other is set)
+   * — applies a copied-in Pipedrive saved filter's condition tree instead of the ad-hoc builder's. */
+  savedFilterId?: string
+  /** Sales Pipeline deals already marked Won are hidden by default once promoted to a Job (see
+   * crm-data.mts) — set true to bring them back into view without needing a filter for it. */
+  includeWon?: boolean
+  /** Same idea for Lost deals — hidden by default on the Sales Pipeline board. Both flags are
+   * ignored server-side whenever the active saved/ad-hoc filter already constrains `status`
+   * itself (e.g. picking Pipedrive's real "All lost deals" filter just works on its own). */
+  includeLost?: boolean
   limit?: number
   offset?: number
 }
@@ -40,6 +50,7 @@ interface CrmDataContextValue {
   pipelines: CrmPipeline[]
   stages: CrmStage[]
   fieldDefinitions: CrmFieldDefinition[]
+  savedFilters: CrmSavedFilter[]
   loading: boolean
   error: string | null
   refetch: () => Promise<void>
@@ -72,6 +83,7 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
   const [pipelines, setPipelines] = useState<CrmPipeline[]>([])
   const [stages, setStages] = useState<CrmStage[]>([])
   const [fieldDefinitions, setFieldDefinitions] = useState<CrmFieldDefinition[]>([])
+  const [savedFilters, setSavedFilters] = useState<CrmSavedFilter[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -79,10 +91,11 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     setError(null)
     try {
-      const data = await api.get<{ pipelines: CrmPipeline[]; stages: CrmStage[]; fieldDefinitions: CrmFieldDefinition[] }>('/api/crm-data')
+      const data = await api.get<{ pipelines: CrmPipeline[]; stages: CrmStage[]; fieldDefinitions: CrmFieldDefinition[]; savedFilters: CrmSavedFilter[] }>('/api/crm-data')
       setPipelines(data.pipelines)
       setStages(data.stages)
       setFieldDefinitions(data.fieldDefinitions)
+      setSavedFilters(data.savedFilters)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load CRM data')
     } finally {
@@ -107,6 +120,9 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
       params.set('conditions', JSON.stringify(query.conditions))
       params.set('matchMode', query.matchMode ?? 'AND')
     }
+    if (query.savedFilterId) params.set('savedFilterId', query.savedFilterId)
+    if (query.includeWon) params.set('includeWon', '1')
+    if (query.includeLost) params.set('includeLost', '1')
     params.set('limit', String(query.limit ?? 50))
     params.set('offset', String(query.offset ?? 0))
     return api.get<CrmDealsQueryResult>(`/api/crm-data?${params.toString()}`)
@@ -195,6 +211,7 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
         pipelines,
         stages,
         fieldDefinitions,
+        savedFilters,
         loading,
         error,
         refetch,

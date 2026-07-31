@@ -45,6 +45,8 @@ export interface DealForJobCreation {
 
 export type JobCreationResult = { status: 'created' | 'adopted'; jobId: string } | { status: 'skipped'; reason: string }
 
+import { crmDeals } from '../../../db/schema.js'
+
 export async function createOrAdoptJobFromDeal(db: ReturnType<typeof getDb>, input: DealForJobCreation): Promise<JobCreationResult> {
   if (input.targetHours === null || input.targetHours === undefined) {
     return { status: 'skipped', reason: 'No Target Hours custom field set on this deal yet' }
@@ -82,4 +84,40 @@ export async function createOrAdoptJobFromDeal(db: ReturnType<typeof getDb>, inp
     .returning({ id: jobs.id })
 
   return { status: 'created', jobId: created.id }
+}
+
+/** Attempts to promote a CRM deal to a real Job — used when a deal is dragged into an isWonStage
+ * stage, explicitly marked Won, or (via crm-deal-updated.mts) marked Won directly in Pipedrive
+ * itself. A no-op (not an error) if the deal is already linked to a Job; routes through the same
+ * createOrAdoptJobFromDeal every other promotion path uses, so none of them can ever double-create
+ * a Job for one deal. Returns a reason (not an error/rejection) when promotion can't complete yet —
+ * the stage move / Won status change itself always still succeeds. */
+export async function attemptPromotion(
+  db: ReturnType<typeof getDb>,
+  deal: typeof crmDeals.$inferSelect,
+): Promise<{ promoted: boolean; jobId: string | null; skippedReason?: string }> {
+  if (deal.jobId) return { promoted: false, jobId: deal.jobId }
+
+  const fields = deal.fields as Record<string, unknown>
+  const rawTargetHours = fields[FIELD_TARGET_HOURS]
+  const targetHours = typeof rawTargetHours === 'number' ? rawTargetHours : null
+  const categoryOptionId = String(fields[FIELD_CATEGORY] ?? '')
+  const address = (fields[FIELD_ADDRESS] as string | undefined) ?? ''
+
+  const result = await createOrAdoptJobFromDeal(db, {
+    pipedriveDealId: deal.pipedriveDealId,
+    title: deal.title,
+    orgName: deal.orgName,
+    personName: deal.personName,
+    value: deal.value,
+    targetHours,
+    category: CATEGORY_OPTION_MAP[categoryOptionId] ?? 'Commercial',
+    address,
+    dateWon: (deal.wonAt ?? new Date().toISOString()).slice(0, 10),
+    pipedriveStageId: null,
+  })
+
+  if (result.status === 'skipped') return { promoted: false, jobId: null, skippedReason: result.reason }
+  await db.update(crmDeals).set({ jobId: result.jobId }).where(eq(crmDeals.id, deal.id))
+  return { promoted: result.status === 'created', jobId: result.jobId }
 }

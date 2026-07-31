@@ -242,28 +242,23 @@ export interface AdSpendEntry {
   amount: number
 }
 
-/** One CRM deal (Lead/Quote/Won), populated via CSV/Excel import from Pipedrive exports.
- * isQuoted/isWon are explicit flags set during import's stage-classification step, not inferred
- * from rawStage, so the KPI math never has to assume a particular pipeline's stage names/order. */
+/** One Sales or Jobs pipeline CRM deal (Lead/Quote/Won), read live from crm_deals — no separate
+ * import step. isQuoted/isWon are derived server-side (marketing-data.mts) from the deal's actual
+ * status and its "Date - Quote Sent" custom field, not inferred from rawStage, so the KPI math
+ * never has to assume a particular pipeline's stage names/order. `status` is the raw open/won/lost
+ * value, kept alongside isWon so the dashboard can offer a genuine Won/Lost filter (isWon alone
+ * can't distinguish "still open" from "lost"). */
 export interface MarketingDeal {
   id: string
-  externalId: string | null
   title: string | null
   referralSource: string
-  salesperson: string | null
   rawStage: string | null
+  status: 'open' | 'won' | 'lost'
   isQuoted: boolean
   isWon: boolean
   value: number
   createdDate: string // ISO date
-  eventDate: string | null // ISO date — won date if won, else usually same as createdDate
-  importBatchId: string
-  importedAt: string // ISO timestamp
-  importSource: string | null // e.g. "CSV: filename.csv" or "Pipedrive" — for the import history list
-  // Carried verbatim from the standard Pipedrive export but not used in any KPI formula yet.
-  pipeline: string | null
-  lostReason: string | null
-  expectedCloseDate: string | null // ISO date
+  eventDate: string | null // ISO date — won date if won, else null
 }
 
 /** A local mirror of one Pipedrive pipeline (Sales/Jobs/Business Development, or a pipeline
@@ -318,12 +313,28 @@ export interface CrmDeal {
   wonAt: string | null // ISO timestamp
   lostAt: string | null // ISO timestamp
   jobId: string | null // set once promoted to a real Job
+  // When the deal last actually changed stage — not the same as updatedAt, which also moves on
+  // plain field edits. CrmBoard.tsx measures "days sitting in this stage" against this.
+  stageEnteredAt: string // ISO timestamp
   // Omitted (not just empty) on list/board rows from GET /api/crm-data — the ~65 possible custom
   // field keys made that payload the actual perf cost at scale, and board/table cards never
   // render them anyway. Only present once fetched individually via GET /api/crm-deals?id=.
   fields?: Record<string, unknown> // keyed by CrmFieldDefinition.key
   createdAt: string // ISO timestamp
   updatedAt: string // ISO timestamp
+}
+
+/** A one-time-imported copy of one of Pipedrive's own saved deal filters, selectable from a
+ * dropdown on the Deals board — mirrors Pipedrive's own Filters list by name. The frontend never
+ * sees the translated condition tree itself (only crm-data.mts needs it, to build the real SQL
+ * predicate) — just enough to render the list and know which entries are actually runnable. */
+export interface CrmSavedFilter {
+  id: string
+  pipedriveFilterId: number | null
+  name: string
+  order: number
+  supported: boolean
+  unsupportedReason: string | null
 }
 
 /** A single user's explicit grant/revoke for one PERMISSION_CATALOG key — absence of a row for a

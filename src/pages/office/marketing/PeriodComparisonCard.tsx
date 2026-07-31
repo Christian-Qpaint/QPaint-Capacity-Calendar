@@ -93,14 +93,14 @@ export function PeriodComparisonCard({
           dateFrom: from,
           dateTo: to,
           referralSources: referralSources.length > 0 ? referralSources : undefined,
-          salespeople: baseFilters.salespeople,
           stages: baseFilters.stages,
+          statuses: baseFilters.statuses,
         }
         const periodDeals = filterDeals(deals, periodFilters)
         const periodAdSpend = filterAdSpend(adSpend, periodFilters)
         return { key, label: formatMonthKeyLabel(key), index, summary: computeMarketingSummary(periodDeals, periodAdSpend) }
       }),
-    [monthKeys, referralSources, baseFilters.salespeople, baseFilters.stages, deals, adSpend],
+    [monthKeys, referralSources, baseFilters.stages, baseFilters.statuses, deals, adSpend],
   )
 
   const isCurrency = metric === 'quoteValue' || metric === 'jobsWonValue'

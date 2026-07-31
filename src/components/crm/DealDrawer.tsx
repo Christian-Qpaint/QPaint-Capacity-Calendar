@@ -45,7 +45,6 @@ export function DealDrawer({
   const [currentDeal, setCurrentDeal] = useState<CrmDeal | null>(null)
   const [title, setTitle] = useState('')
   const [value, setValue] = useState('')
-  const [currency, setCurrency] = useState('AUD')
   const [orgName, setOrgName] = useState('')
   const [personName, setPersonName] = useState('')
   const [stageId, setStageId] = useState('')
@@ -60,7 +59,6 @@ export function DealDrawer({
     setCurrentDeal(deal)
     setTitle(deal.title)
     setValue(deal.value === null ? '' : String(deal.value))
-    setCurrency(deal.currency)
     setOrgName(deal.orgName ?? '')
     setPersonName(deal.personName ?? '')
     setStageId(deal.stageId)
@@ -86,7 +84,7 @@ export function DealDrawer({
       latest = await updateDeal(currentDeal.id, {
         title: title.trim(),
         value: Number(value) || 0,
-        currency,
+        currency: 'AUD',
         orgName: orgName.trim() || undefined,
         personName: personName.trim() || undefined,
         fields,
@@ -191,15 +189,9 @@ export function DealDrawer({
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            <div className="col-span-2 space-y-1.5">
-              <Label>Value</Label>
-              <Input type="number" value={value} onChange={(e) => setValue(e.target.value)} disabled={!canManage} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Currency</Label>
-              <Input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} maxLength={3} disabled={!canManage} />
-            </div>
+          <div className="space-y-1.5">
+            <Label>Value (AUD)</Label>
+            <Input type="number" value={value} onChange={(e) => setValue(e.target.value)} disabled={!canManage} />
           </div>
 
           <div className="space-y-1.5">

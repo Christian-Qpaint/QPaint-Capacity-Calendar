@@ -22,11 +22,22 @@
 // does). `crm-deals.mts`'s GET ?id= fetches one deal's full record (fields included) on demand
 // when a card/row is actually opened. Custom fields are also deliberately NOT filterable/sortable
 // here for the same reason — see src/lib/crmDealFilters.ts's header comment.
-import { asc, desc, eq, and, or, ilike, ne, lt, lte, gt, gte, sql, type SQL, type AnyColumn } from 'drizzle-orm'
+import { asc, desc, eq, and, or, ilike, ne, notInArray, lt, lte, gt, gte, sql, type SQL, type AnyColumn } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
-import { requireOfficeRole, isOfficeRole, withErrorHandling } from '../_shared/authz.js'
+import { requireOfficeRole, isOfficeRole, withErrorHandling, HttpError } from '../_shared/authz.js'
 import { stripNullsAll } from '../_shared/rows.js'
-import { crmPipelines, crmStages, crmFieldDefinitions, crmDeals } from '../../../db/schema.js'
+import { buildSavedFilterSql, savedFilterReferencesField, type SavedFilterNode } from '../_shared/savedFilterSql.js'
+import { crmPipelines, crmStages, crmFieldDefinitions, crmDeals, crmSavedFilters } from '../../../db/schema.js'
+
+// Once a Sales Pipeline deal is Won or Lost it's a closed deal — Won moves on to become a real Job
+// (see crm-deal-updated.mts) and Pipedrive stops driving it, Lost is just dead weight on the
+// working board — so both are hidden from the board's own default view, matching Pipedrive's own
+// kanban (closed deals hidden unless you ask). Nothing is deleted or excluded from Marketing's own
+// read (marketing-data.mts queries crm_deals directly, unaffected by this): `?includeWon=1` /
+// `?includeLost=1` bring them back into this endpoint's results for anyone who explicitly wants to
+// see them (or picks a filter that specifically targets them). Scoped to the Sales Pipeline only,
+// matching the CRM's existing Won→Job promotion scope.
+const SALES_PIPELINE_PIPEDRIVE_ID = 2
 
 const DEAL_LIST_COLUMNS = {
   id: crmDeals.id,
@@ -43,6 +54,7 @@ const DEAL_LIST_COLUMNS = {
   wonAt: crmDeals.wonAt,
   lostAt: crmDeals.lostAt,
   jobId: crmDeals.jobId,
+  stageEnteredAt: crmDeals.stageEnteredAt,
   createdAt: crmDeals.createdAt,
   updatedAt: crmDeals.updatedAt,
 }
@@ -62,6 +74,16 @@ const NUMBER_FIELDS = new Set(['value'])
 const ENUM_FIELDS = new Set(['status', 'stageId'])
 const DATE_FIELDS = new Set(['createdAt'])
 
+// The advanced filter's only two custom-field options — Category and Referral Source — compared
+// as text against the `fields` jsonb blob. Not a general "filter on any custom field" mechanism:
+// loading the rest of the ~90-key blob back for every list row is the exact cost crm-data.mts's
+// list query was rewritten to avoid, so this stays limited to these two named fields rather than
+// looking any key up dynamically.
+const CUSTOM_FILTER_FIELD_KEYS: Record<string, string> = {
+  category: '27b0830b634b7730cc4cc6680db2ac2c7391ee77',
+  referralSource: 'e7f330cf1cbe354a1592472798c8709842330bee',
+}
+
 interface RawCondition {
   field: string
   operator: string
@@ -69,8 +91,18 @@ interface RawCondition {
 }
 
 function conditionToSql(c: RawCondition): SQL | undefined {
+  if (c.value === '' || c.value == null) return undefined
+
+  const customKey = CUSTOM_FILTER_FIELD_KEYS[c.field]
+  if (customKey) {
+    const expr = sql`(${crmDeals.fields} ->> ${customKey})`
+    if (c.operator === 'equals') return sql`${expr} = ${c.value}`
+    if (c.operator === 'not_equals') return sql`${expr} != ${c.value}`
+    return undefined
+  }
+
   const col = FILTER_COLUMNS[c.field]
-  if (!col || c.value === '' || c.value == null) return undefined
+  if (!col) return undefined
 
   if (TEXT_FIELDS.has(c.field)) {
     if (c.operator === 'contains') return ilike(col, `%${c.value}%`)
@@ -105,14 +137,16 @@ function conditionToSql(c: RawCondition): SQL | undefined {
   return undefined
 }
 
-function buildFilterConditions(conditionsParam: string | null, matchMode: string | null): SQL[] {
+function parseConditions(conditionsParam: string | null): RawCondition[] {
   if (!conditionsParam) return []
-  let raw: RawCondition[]
   try {
-    raw = JSON.parse(conditionsParam)
+    return JSON.parse(conditionsParam)
   } catch {
     return []
   }
+}
+
+function buildFilterConditions(raw: RawCondition[], matchMode: string | null): SQL[] {
   const parts = raw.map(conditionToSql).filter((x): x is SQL => !!x)
   if (parts.length === 0) return []
   const combined = matchMode === 'OR' ? or(...parts) : and(...parts)
@@ -141,12 +175,43 @@ export default withErrorHandling(async (req: Request) => {
   const sortDir = url.searchParams.get('sortDir') === 'desc' ? 'desc' : 'asc'
   const conditionsParam = url.searchParams.get('conditions')
   const matchMode = url.searchParams.get('matchMode')
+  const savedFilterId = url.searchParams.get('savedFilterId')
+  const includeWon = url.searchParams.get('includeWon') === '1'
+  const includeLost = url.searchParams.get('includeLost') === '1'
 
-  const [pipelineRows, stageRows, fieldDefinitionRows] = await Promise.all([
+  const [pipelineRows, stageRows, fieldDefinitionRows, savedFilterRows] = await Promise.all([
     db.select().from(crmPipelines).orderBy(asc(crmPipelines.order)),
     db.select().from(crmStages).orderBy(asc(crmStages.order)),
     db.select().from(crmFieldDefinitions).orderBy(asc(crmFieldDefinitions.order)),
+    db
+      .select({
+        id: crmSavedFilters.id,
+        pipedriveFilterId: crmSavedFilters.pipedriveFilterId,
+        name: crmSavedFilters.name,
+        order: crmSavedFilters.order,
+        supported: crmSavedFilters.supported,
+        unsupportedReason: crmSavedFilters.unsupportedReason,
+      })
+      .from(crmSavedFilters)
+      .orderBy(asc(crmSavedFilters.order)),
   ])
+
+  const rawConditions = parseConditions(conditionsParam)
+  // If whatever's already selected (ad-hoc condition or saved filter) has its own opinion about
+  // `status` — e.g. Pipedrive's real "All lost deals" filter — the hard default exclusion below
+  // backs off instead of AND-ing against it and silently returning zero rows.
+  const adHocReferencesStatus = rawConditions.some((c) => c.field === 'status')
+
+  let savedFilterSql: SQL | undefined
+  let savedFilterReferencesStatus = false
+  if (savedFilterId) {
+    const [savedFilter] = await db.select().from(crmSavedFilters).where(eq(crmSavedFilters.id, savedFilterId)).limit(1)
+    if (!savedFilter) throw new HttpError(404, 'Saved filter not found')
+    if (!savedFilter.supported) throw new HttpError(400, `This filter can't run here — ${savedFilter.unsupportedReason ?? 'unsupported'}`)
+    const tree = savedFilter.conditions as SavedFilterNode
+    savedFilterSql = buildSavedFilterSql(tree)
+    savedFilterReferencesStatus = savedFilterReferencesField(tree, 'status')
+  }
 
   type DealListRow = { [K in keyof typeof DEAL_LIST_COLUMNS]: (typeof crmDeals.$inferSelect)[K] }
   let deals: DealListRow[] = []
@@ -155,12 +220,21 @@ export default withErrorHandling(async (req: Request) => {
 
   if (pipelineId) {
     const baseConditions: SQL[] = [eq(crmDeals.pipelineId, pipelineId)]
+    const activePipelineRow = pipelineRows.find((p) => p.id === pipelineId)
+    const statusAlreadyGoverned = adHocReferencesStatus || savedFilterReferencesStatus
+    if (activePipelineRow?.pipedrivePipelineId === SALES_PIPELINE_PIPEDRIVE_ID && !statusAlreadyGoverned) {
+      const excludedStatuses: ('won' | 'lost')[] = []
+      if (!includeWon) excludedStatuses.push('won')
+      if (!includeLost) excludedStatuses.push('lost')
+      if (excludedStatuses.length) baseConditions.push(notInArray(crmDeals.status, excludedStatuses))
+    }
     if (search) {
       const like = `%${search}%`
       const searchOr = or(ilike(crmDeals.title, like), ilike(crmDeals.orgName, like), ilike(crmDeals.personName, like))
       if (searchOr) baseConditions.push(searchOr)
     }
-    baseConditions.push(...buildFilterConditions(conditionsParam, matchMode))
+    baseConditions.push(...buildFilterConditions(rawConditions, matchMode))
+    if (savedFilterSql) baseConditions.push(savedFilterSql)
 
     const where = stageId ? and(...baseConditions, eq(crmDeals.stageId, stageId)) : and(...baseConditions)
     const summaryWhere = and(...baseConditions)
@@ -197,6 +271,7 @@ export default withErrorHandling(async (req: Request) => {
     pipelines: stripNullsAll(pipelineRows),
     stages: stripNullsAll(stageRows),
     fieldDefinitions: stripNullsAll(fieldDefinitionRows),
+    savedFilters: stripNullsAll(savedFilterRows),
     deals: responseDeals,
     total,
     stageSummary: responseSummary,

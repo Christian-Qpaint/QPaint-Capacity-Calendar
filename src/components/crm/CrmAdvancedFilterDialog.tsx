@@ -30,6 +30,8 @@ export function CrmAdvancedFilterDialog({
   matchMode,
   onApply,
   stageOptions,
+  categoryOptions,
+  referralSourceOptions,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -39,14 +41,25 @@ export function CrmAdvancedFilterDialog({
   /** Live stages for the active pipeline — overrides the empty static options baked into
    * FILTER_FIELDS so the "Stage" condition always reflects the pipeline currently in view. */
   stageOptions: { value: string; label: string; color?: string | null }[]
+  /** Live option lists for the two custom-field conditions, resolved from crm_field_definitions —
+   * same override pattern as stageOptions, since FILTER_FIELDS itself only carries empty
+   * placeholders for these (the real option id -> label list is account-specific). */
+  categoryOptions: { value: string; label: string }[]
+  referralSourceOptions: { value: string; label: string }[]
 }) {
   const [draft, setDraft] = useState<FilterCondition[]>(conditions)
   const [draftMode, setDraftMode] = useState<MatchMode>(matchMode)
   const nextId = useRef(0)
 
   const fields = useMemo(
-    () => FILTER_FIELDS.map((f) => (f.key === 'stageId' ? { ...f, options: stageOptions } : f)),
-    [stageOptions],
+    () =>
+      FILTER_FIELDS.map((f) => {
+        if (f.key === 'stageId') return { ...f, options: stageOptions }
+        if (f.key === 'category') return { ...f, options: categoryOptions }
+        if (f.key === 'referralSource') return { ...f, options: referralSourceOptions }
+        return f
+      }),
+    [stageOptions, categoryOptions, referralSourceOptions],
   )
 
   useEffect(() => {

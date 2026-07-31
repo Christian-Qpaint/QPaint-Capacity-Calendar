@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
+import { colorForIndex } from '@/lib/marketingColors'
 import type { CrmFieldDefinition, CrmPipeline, CrmStage } from '@/types'
 
 const FIELD_TYPES: CrmFieldDefinition['fieldType'][] = ['text', 'number', 'date', 'boolean', 'select', 'multiselect', 'address', 'monetary']
@@ -108,6 +109,13 @@ function PipelinesAndStagesTab() {
             <div className="mt-3 space-y-2 border-t border-border pt-3">
               {pipelineStages.map((stage, sIndex) => (
                 <div key={stage.id} className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={stage.color ?? colorForIndex(sIndex)}
+                    onChange={(e) => updateStage(stage.id, { pipelineId: stage.pipelineId, name: stage.name, order: stage.order, isWonStage: stage.isWonStage, color: e.target.value })}
+                    title="Stage color"
+                    className="size-8 shrink-0 cursor-pointer rounded border border-border p-0.5"
+                  />
                   <Input
                     value={stage.name}
                     onChange={(e) => updateStage(stage.id, { pipelineId: stage.pipelineId, name: e.target.value, order: stage.order, isWonStage: stage.isWonStage, color: stage.color })}
