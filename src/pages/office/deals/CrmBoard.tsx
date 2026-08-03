@@ -651,30 +651,31 @@ export function CrmBoard() {
         </div>
       </div>
 
-      <div className="flex gap-1.5 rounded-md border border-border bg-card p-1">
-        {sortedPipelines.map((p) => (
-          <Button key={p.id} size="sm" variant={p.id === activePipelineId ? 'secondary' : 'ghost'} onClick={() => setPipelineId(p.id)}>
-            {p.name}
-          </Button>
-        ))}
-      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex gap-1.5 rounded-md border border-border bg-card p-1">
+          {sortedPipelines.map((p) => (
+            <Button key={p.id} size="sm" variant={p.id === activePipelineId ? 'secondary' : 'ghost'} onClick={() => setPipelineId(p.id)}>
+              {p.name}
+            </Button>
+          ))}
+        </div>
 
-      {/* Same "count + total value" concept Pipedrive shows in its per-pipeline popup — a full-width
-          horizontal strip right under the pipeline picker, not a small corner card, so the space
-          reads as intentional rather than mostly empty. */}
-      <Card className="flex flex-wrap items-center gap-6 border-none bg-info-bg px-4 py-2.5 text-info">
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-xs font-medium tracking-wide uppercase opacity-80">Deals</span>
-          <span className="text-lg font-semibold">{pipelineSummary.count.toLocaleString()}</span>
-        </div>
-        <div className="h-5 w-px bg-info/25" />
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-xs font-medium tracking-wide uppercase opacity-80">Total Value</span>
-          <span className="text-lg font-semibold">
-            {pipelineSummary.totalValue === null ? '—' : formatCurrency(pipelineSummary.totalValue)}
-          </span>
-        </div>
-      </Card>
+        {/* Same "count + total value" concept Pipedrive shows in its per-pipeline popup — compact,
+            beside the pipeline picker, not a full-width strip with dead space in the middle. */}
+        <Card className="ml-auto flex shrink-0 items-center gap-4 border-none bg-info-bg px-4 py-2 text-info">
+          <div className="text-center">
+            <p className="text-[10px] font-medium tracking-wide uppercase opacity-80">Deals</p>
+            <p className="text-base leading-tight font-semibold">{pipelineSummary.count.toLocaleString()}</p>
+          </div>
+          <div className="h-7 w-px bg-info/25" />
+          <div className="text-center">
+            <p className="text-[10px] font-medium tracking-wide uppercase opacity-80">Total Value</p>
+            <p className="text-base leading-tight font-semibold">
+              {pipelineSummary.totalValue === null ? '—' : formatCurrency(pipelineSummary.totalValue)}
+            </p>
+          </div>
+        </Card>
+      </div>
 
       <div className="flex flex-wrap items-center gap-2">
         {isSalesPipeline && (

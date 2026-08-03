@@ -32,10 +32,12 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: 'jobs.manage', page: 'Jobs', label: 'Schedule phases', description: 'Add, edit, or delete schedule phases from the Jobs page.', defaultForRole: isOfficeRole },
   { key: 'jobs.view_financials', page: 'Jobs', label: 'View job values ($)', description: 'See job dollar values rather than a masked/blank figure.', defaultForRole: hasFinancialAccess },
 
-  // Deals (the CRM pipeline board, at /deals)
-  { key: 'crm.view', page: 'Deals', label: 'View CRM pipeline board', description: 'Open the CRM Deals board (Sales/Jobs/Business Development pipelines) at all.', defaultForRole: isOfficeRole },
-  { key: 'crm.manage', page: 'Deals', label: 'Add / edit / move CRM deals', description: 'Create deals, edit fields, drag between stages, mark Won/Lost, delete.', defaultForRole: isOfficeRole },
-  { key: 'crm.view_financials', page: 'Deals', label: 'View CRM deal values ($)', description: 'See CRM deal dollar values rather than a masked/blank figure.', defaultForRole: hasFinancialAccess },
+  // Deals (the CRM pipeline board, at /deals) — the 'admin' role exists specifically for this: full
+  // Deals access (view/manage/financials) with nothing else granted by default, for someone whose
+  // whole job is running the CRM pipeline.
+  { key: 'crm.view', page: 'Deals', label: 'View CRM pipeline board', description: 'Open the CRM Deals board (Sales/Jobs/Business Development pipelines) at all.', defaultForRole: (role) => isOfficeRole(role) || role === 'admin' },
+  { key: 'crm.manage', page: 'Deals', label: 'Add / edit / move CRM deals', description: 'Create deals, edit fields, drag between stages, mark Won/Lost, delete.', defaultForRole: (role) => isOfficeRole(role) || role === 'admin' },
+  { key: 'crm.view_financials', page: 'Deals', label: 'View CRM deal values ($)', description: 'See CRM deal dollar values rather than a masked/blank figure.', defaultForRole: (role) => hasFinancialAccess(role) || role === 'admin' },
   { key: 'crm.manage_config', page: 'Deals', label: 'Manage pipelines, stages & fields', description: 'Rename/add/delete pipelines, stages, and custom field definitions.', defaultForRole: (role) => role === 'owner' },
 
   // Scheduler
@@ -44,9 +46,9 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
 
   // Sales — a deliberately stripped-down read of the Scheduler for non-scheduling staff (e.g.
   // sales reps) who just need to see how much booking room is left, without the full drag-and-drop
-  // calendar. Defaults to office roles like Scheduler does; grant it to a 'marketing'-role user via
-  // an override if they need it without full office access.
-  { key: 'sales.view_availability', page: 'Sales', label: 'View Sales Availability page', description: 'Open the simplified Sales page — booking-window paginator and Gap to Target only, no calendar grid.', defaultForRole: isOfficeRole },
+  // calendar. Defaults to office roles like Scheduler does, plus the dedicated 'sales' role (which
+  // gets nothing else by default) for someone whose whole job is this one page.
+  { key: 'sales.view_availability', page: 'Sales', label: 'View Sales Availability page', description: 'Open the simplified Sales page — booking-window paginator and Gap to Target only, no calendar grid.', defaultForRole: (role) => isOfficeRole(role) || role === 'sales' },
 
   // Production
   { key: 'production.view', page: 'Production', label: 'View Production page', description: 'Open the Production (Capacity Board) at all.', defaultForRole: isOfficeRole },

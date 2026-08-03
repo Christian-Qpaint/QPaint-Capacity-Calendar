@@ -18,7 +18,7 @@
 //     slow, unobservable request.
 import { eq } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
-import { requireOfficeRole, withErrorHandling, HttpError } from '../_shared/authz.js'
+import { requireCrmAccess, withErrorHandling, HttpError } from '../_shared/authz.js'
 import { parseJsonBody } from '../_shared/http.js'
 import { extractFieldsFromV1Deal, type PipedriveDealPayload } from '../_shared/pipedriveApi.js'
 import { attemptPromotion } from '../_shared/dealToJob.js'
@@ -51,7 +51,7 @@ async function fetchDealsPage(pipedrivePipelineId: number, start: number, token:
 }
 
 export default withErrorHandling(async (req: Request) => {
-  await requireOfficeRole(req)
+  await requireCrmAccess(req)
   const db = getDb()
 
   if (req.method === 'GET') {

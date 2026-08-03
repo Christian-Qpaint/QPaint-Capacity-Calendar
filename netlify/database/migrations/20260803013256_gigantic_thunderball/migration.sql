@@ -1,0 +1,2 @@
+ALTER TYPE "app_role" ADD VALUE IF NOT EXISTS 'admin';
+ALTER TYPE "app_role" ADD VALUE IF NOT EXISTS 'sales';

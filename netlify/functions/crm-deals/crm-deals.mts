@@ -1,6 +1,6 @@
 import { asc, eq } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
-import { requireOfficeRole, isOfficeRole, withErrorHandling, HttpError } from '../_shared/authz.js'
+import { requireCrmAccess, canAccessCrm, withErrorHandling, HttpError } from '../_shared/authz.js'
 import { parseJsonBody } from '../_shared/http.js'
 import { stripNulls } from '../_shared/rows.js'
 import { crmDeals, crmStages, crmFieldDefinitions, crmDealStageHistory } from '../../../db/schema.js'
@@ -34,7 +34,7 @@ function toValues(body: Record<string, unknown>) {
 }
 
 export default withErrorHandling(async (req: Request) => {
-  const user = await requireOfficeRole(req)
+  const user = await requireCrmAccess(req)
   const db = getDb()
   const url = new URL(req.url)
   const id = url.searchParams.get('id')
@@ -45,7 +45,7 @@ export default withErrorHandling(async (req: Request) => {
     const [deal] = await db.select().from(crmDeals).where(eq(crmDeals.id, id)).limit(1)
     if (!deal) throw new HttpError(404, 'Deal not found')
     const stageHistory = await fetchStageHistory(db, id)
-    if (isOfficeRole(user)) return Response.json({ ...stripNulls(deal), stageHistory })
+    if (canAccessCrm(user)) return Response.json({ ...stripNulls(deal), stageHistory })
 
     // Same financial masking as crm-data.mts: hide the real value + any monetary custom field.
     const fieldDefs = await db.select().from(crmFieldDefinitions)

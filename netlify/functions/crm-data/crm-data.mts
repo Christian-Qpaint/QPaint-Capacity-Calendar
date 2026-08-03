@@ -24,7 +24,7 @@
 // here for the same reason — see src/lib/crmDealFilters.ts's header comment.
 import { asc, desc, eq, and, or, not, ilike, ne, notInArray, inArray, isNotNull, lt, lte, gt, gte, sql, type SQL, type AnyColumn } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
-import { requireOfficeRole, isOfficeRole, withErrorHandling, HttpError } from '../_shared/authz.js'
+import { requireCrmAccess, canAccessCrm, withErrorHandling, HttpError } from '../_shared/authz.js'
 import { stripNullsAll } from '../_shared/rows.js'
 import { buildSavedFilterSql, savedFilterReferencesField, type SavedFilterNode } from '../_shared/savedFilterSql.js'
 import { crmPipelines, crmStages, crmFieldDefinitions, crmDeals, crmSavedFilters, crmDealStageHistory } from '../../../db/schema.js'
@@ -163,7 +163,7 @@ const SORTABLE_COLUMNS: Record<string, AnyColumn> = {
 }
 
 export default withErrorHandling(async (req: Request) => {
-  const user = await requireOfficeRole(req)
+  const user = await requireCrmAccess(req)
   const db = getDb()
   const url = new URL(req.url)
   const pipelineId = url.searchParams.get('pipelineId')
@@ -292,7 +292,7 @@ export default withErrorHandling(async (req: Request) => {
 
   // Same total_value masking convention as data-bootstrap.mts's jobs.totalValue: hide the real
   // number (not the row) for roles without financial access, matching crm.view_financials.
-  const financialAccess = isOfficeRole(user)
+  const financialAccess = canAccessCrm(user)
   const responseDeals = financialAccess ? stripNullsAll(deals) : stripNullsAll(deals).map((d) => ({ ...d, value: null as unknown as number }))
   const responseSummary = financialAccess ? stageSummary : stageSummary.map((s) => ({ ...s, totalValue: null as unknown as number }))
 

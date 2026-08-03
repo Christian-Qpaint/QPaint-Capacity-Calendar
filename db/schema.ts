@@ -43,6 +43,11 @@ export const appRoleEnum = pgEnum('app_role', [
   'team_leader_foreperson',
   'painter_crew_member',
   'marketing',
+  // Scoped, single-purpose roles — deliberately narrower than office roles: 'admin' only defaults
+  // to Deals access, 'sales' only to the Sales Availability page. Neither is "office" in the
+  // isOfficeRole sense (no Jobs/Scheduler/Production/Settings by default).
+  'admin',
+  'sales',
 ])
 export const clientTypeEnum = pgEnum('client_type', ['Individual', 'Company', 'Government', 'Body Corporate'])
 export const jobCategoryEnum = pgEnum('job_category', [
@@ -97,6 +102,23 @@ export const users = pgTable('users', {
   role: appRoleEnum('role').notNull().default('painter_crew_member'),
   teamId: uuid('team_id').references(() => teams.id, { onDelete: 'set null' }),
   workerId: uuid('worker_id').references(() => workers.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+})
+
+// Replaces open public self-signup: an owner generates a one-time link (email + intended role
+// baked in) via user-invites.mts, hands it to the person directly (copy/paste — no email provider
+// wired up), and accept-invite.mts is the only way a token turns into a real account. `usedAt` null
+// means still pending/redeemable; `expiresAt` bounds how long a stale, unshared link stays valid.
+export const userInvites = pgTable('user_invites', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  email: text('email').notNull(),
+  role: appRoleEnum('role').notNull(),
+  token: text('token').notNull().unique(),
+  createdBy: uuid('created_by')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'string' }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true, mode: 'string' }),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
 })
 

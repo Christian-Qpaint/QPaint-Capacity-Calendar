@@ -35,7 +35,9 @@ interface AuthContextValue {
   currentUser: User | null
   loading: boolean
   signInWithPassword: (email: string, password: string) => Promise<{ error: string | null }>
-  signUp: (email: string, password: string, name: string) => Promise<{ error: string | null }>
+  /** The only way a new account gets created — replaces open public self-signup. `token` comes
+   * from a one-time invite link an owner generated via the Invites screen. */
+  acceptInvite: (token: string, name: string, password: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
 }
 
@@ -80,9 +82,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: null }
   }
 
-  async function signUp(email: string, password: string, name: string) {
-    const { ok, data } = await postJson('/api/auth/signup', { email, password, name })
-    if (!ok || !data.user) return { error: data.error ?? 'Failed to sign up' }
+  async function acceptInvite(token: string, name: string, password: string) {
+    const { ok, data } = await postJson('/api/accept-invite', { token, name, password })
+    if (!ok || !data.user) return { error: data.error ?? 'Failed to accept invite' }
     setSession(toSession(data.user))
     setCurrentUser(toCurrentUser(data.user))
     return { error: null }
@@ -95,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ session, currentUser, loading, signInWithPassword, signUp, signOut }}>
+    <AuthContext.Provider value={{ session, currentUser, loading, signInWithPassword, acceptInvite, signOut }}>
       {children}
     </AuthContext.Provider>
   )

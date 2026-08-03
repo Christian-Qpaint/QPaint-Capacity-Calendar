@@ -9,6 +9,10 @@ export type Role =
   | 'painter_crew_member'
   /** Marketing dashboard only — no access to Deals/Scheduler/Production/Settings by default. */
   | 'marketing'
+  /** Deals CRM only — no access to Jobs/Scheduler/Production/Settings by default. */
+  | 'admin'
+  /** The Sales Availability page only — no access to anything else by default. */
+  | 'sales'
 
 export const ROLE_LABELS: Record<Role, string> = {
   owner: 'Owner / Management',
@@ -17,6 +21,8 @@ export const ROLE_LABELS: Record<Role, string> = {
   team_leader_foreperson: 'Team Leader / Foreperson',
   painter_crew_member: 'Painter / Crew Member',
   marketing: 'Marketing',
+  admin: 'Admin',
+  sales: 'Sales',
 }
 
 export const OFFICE_ROLES: Role[] = ['owner', 'ops_manager', 'scheduler_pm']
@@ -356,6 +362,19 @@ export interface UserPermissionOverride {
   granted: boolean
   updatedAt: string
   updatedBy: string | null
+}
+
+/** A one-time invite link an owner generated — the only way a new account gets created now that
+ * open self-signup is gone. `usedAt` null = still pending/redeemable. */
+export interface UserInvite {
+  id: string
+  email: string
+  role: Role
+  token: string
+  createdBy: string
+  expiresAt: string
+  usedAt: string | null
+  createdAt: string
 }
 
 /** A persistent, per-recipient notification (distinct from sonner's transient action-result

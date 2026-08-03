@@ -5,6 +5,7 @@ import { RequireAuth, RequirePermission } from '@/components/RouteGuards'
 import { usePermissions } from '@/context/PermissionsContext'
 import { CrmDataProvider } from '@/context/CrmDataContext'
 import { Login } from '@/pages/Login'
+import { AcceptInvite } from '@/pages/AcceptInvite'
 import { CapacityBoard } from '@/pages/office/CapacityBoard'
 import { TargetHistory } from '@/pages/office/TargetHistory'
 import { JobsList } from '@/pages/office/JobsList'
@@ -24,6 +25,7 @@ function RoleHome() {
   if (hasPermission('crm.view')) return <Navigate to="/deals" replace />
   if (hasPermission('jobs.view')) return <Navigate to="/jobs" replace />
   if (hasPermission('scheduler.view')) return <Navigate to="/calendar" replace />
+  if (hasPermission('sales.view_availability')) return <Navigate to="/sales" replace />
   if (hasPermission('marketing.view')) return <Navigate to="/marketing" replace />
   return <Navigate to="/log-hours" replace />
 }
@@ -40,6 +42,7 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/accept-invite" element={<AcceptInvite />} />
 
       <Route element={<RequireAuth />}>
         <Route path="/" element={<RoleHome />} />

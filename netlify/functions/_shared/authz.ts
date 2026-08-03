@@ -26,6 +26,12 @@ export function canAccessMarketingDefault(user: UserRow): boolean {
   return user.role === 'owner' || user.role === 'marketing'
 }
 
+/** The 'admin' role exists specifically for Deals CRM access without full office access — matches
+ * permissionCatalog.ts's crm.view/crm.manage/crm.view_financials defaults exactly. */
+export function canAccessCrm(user: UserRow): boolean {
+  return isOfficeRole(user) || user.role === 'admin'
+}
+
 /** Port of permission_override() + can_access_marketing()/can_import_marketing_data() from
  * migration 0018 — the one place in the app where per-user permission overrides are enforced at
  * the data layer, not just hidden in the UI. An explicit override always wins over the role
@@ -57,6 +63,15 @@ export async function requireUser(req: Request): Promise<UserRow> {
 export async function requireOfficeRole(req: Request): Promise<UserRow> {
   const user = await requireUser(req)
   if (!isOfficeRole(user)) throw new HttpError(403, 'Requires office access')
+  return user
+}
+
+/** Office roles plus the dedicated 'admin' role (Deals CRM access only) — used by the CRM
+ * Functions in place of requireOfficeRole so 'admin' isn't also given Jobs/Scheduler/Production/
+ * Settings access it was never granted client-side. */
+export async function requireCrmAccess(req: Request): Promise<UserRow> {
+  const user = await requireUser(req)
+  if (!canAccessCrm(user)) throw new HttpError(403, 'Requires Deals CRM access')
   return user
 }
 

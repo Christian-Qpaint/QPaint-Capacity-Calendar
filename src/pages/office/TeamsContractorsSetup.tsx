@@ -5,6 +5,7 @@ import { QPaintTeamsTab } from './setup/QPaintTeamsTab'
 import { ContractorsTab } from './setup/ContractorsTab'
 import { WorkersTab } from './setup/WorkersTab'
 import { UsersPermissionsTab } from './setup/UsersPermissionsTab'
+import { InvitesTab } from './setup/InvitesTab'
 
 export function TeamsContractorsSetup() {
   const { hasPermission } = usePermissions()
@@ -21,6 +22,7 @@ export function TeamsContractorsSetup() {
           <TabsTrigger value="contractors">Contractors</TabsTrigger>
           <TabsTrigger value="workers">Workers</TabsTrigger>
           {canManageUsers && <TabsTrigger value="users">Users & Permissions</TabsTrigger>}
+          {canManageUsers && <TabsTrigger value="invites">Invites</TabsTrigger>}
         </TabsList>
         <TabsContent value="qpaint" className="pt-4">
           <QPaintTeamsTab />
@@ -34,6 +36,11 @@ export function TeamsContractorsSetup() {
         {canManageUsers && (
           <TabsContent value="users" className="pt-4">
             <UsersPermissionsTab />
+          </TabsContent>
+        )}
+        {canManageUsers && (
+          <TabsContent value="invites" className="pt-4">
+            <InvitesTab />
           </TabsContent>
         )}
       </Tabs>
