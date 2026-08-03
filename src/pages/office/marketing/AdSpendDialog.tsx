@@ -14,6 +14,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatCurrency } from '@/lib/formulas'
 import { monthKeyNow, monthsBetweenKeys } from '@/lib/marketingDataAccess'
 import type { AdSpendEntry } from '@/types'
@@ -37,7 +38,26 @@ export function AdSpendDialog({
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  const sorted = useMemo(() => [...adSpend].sort((a, b) => b.month.localeCompare(a.month) || a.referralSource.localeCompare(b.referralSource)), [adSpend])
+  const sorted = useMemo(
+    () => [...adSpend].sort((a, b) => b.month.localeCompare(a.month) || a.referralSource.localeCompare(b.referralSource)),
+    [adSpend],
+  )
+
+  const groupedBySource = useMemo(() => {
+    const bySource = new Map<string, AdSpendEntry[]>()
+    for (const entry of adSpend) {
+      const list = bySource.get(entry.referralSource) ?? []
+      list.push(entry)
+      bySource.set(entry.referralSource, list)
+    }
+    return [...bySource.entries()]
+      .map(([source, entries]) => ({
+        source,
+        entries: [...entries].sort((a, b) => b.month.localeCompare(a.month)),
+        total: entries.reduce((sum, e) => sum + e.amount, 0),
+      }))
+      .sort((a, b) => b.total - a.total || a.source.localeCompare(b.source))
+  }, [adSpend])
 
   const monthsInRange = useMemo(() => monthsBetweenKeys(fromMonth, toMonth), [fromMonth, toMonth])
 
@@ -132,44 +152,108 @@ export function AdSpendDialog({
           </div>
         </div>
 
-        <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Month</TableHead>
-                <TableHead>Referral Source</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead className="w-10" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {sorted.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground">
-                    No ad spend recorded yet.
-                  </TableCell>
-                </TableRow>
-              )}
-              {sorted.map((entry) => (
-                <TableRow key={entry.id}>
-                  <TableCell>{entry.month.slice(0, 7)}</TableCell>
-                  <TableCell>{entry.referralSource}</TableCell>
-                  <TableCell className="text-right">{formatCurrency(entry.amount)}</TableCell>
-                  <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => handleDelete(entry.id)}
-                      disabled={deletingId === entry.id}
-                    >
-                      <Trash2 className="size-4 text-danger" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <Tabs defaultValue="all" className="min-w-0 gap-2">
+          <TabsList>
+            <TabsTrigger value="all">All</TabsTrigger>
+            <TabsTrigger value="by-source">By Source</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="all">
+            <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Month</TableHead>
+                    <TableHead>Referral Source</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead className="w-10" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sorted.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center text-muted-foreground">
+                        No ad spend recorded yet.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {sorted.map((entry) => (
+                    <TableRow key={entry.id}>
+                      <TableCell>{entry.month.slice(0, 7)}</TableCell>
+                      <TableCell>{entry.referralSource}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(entry.amount)}</TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() => handleDelete(entry.id)}
+                          disabled={deletingId === entry.id}
+                        >
+                          <Trash2 className="size-4 text-danger" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="by-source">
+            {groupedBySource.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">No ad spend recorded yet.</p>
+            ) : (
+              <Tabs defaultValue={groupedBySource[0].source} className="gap-2">
+                <div className="overflow-x-auto">
+                  <TabsList className="w-max">
+                    {groupedBySource.map((group) => (
+                      <TabsTrigger key={group.source} value={group.source} className="shrink-0">
+                        {group.source}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </div>
+                {groupedBySource.map((group) => (
+                  <TabsContent key={group.source} value={group.source}>
+                    <div className="mb-2 flex items-center justify-between text-sm">
+                      <span className="font-medium">{group.source}</span>
+                      <span className="font-semibold">{formatCurrency(group.total)}</span>
+                    </div>
+                    <div className="max-h-60 overflow-y-auto rounded-lg border border-border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Month</TableHead>
+                            <TableHead className="text-right">Amount</TableHead>
+                            <TableHead className="w-10" />
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {group.entries.map((entry) => (
+                            <TableRow key={entry.id}>
+                              <TableCell>{entry.month.slice(0, 7)}</TableCell>
+                              <TableCell className="text-right">{formatCurrency(entry.amount)}</TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  onClick={() => handleDelete(entry.id)}
+                                  disabled={deletingId === entry.id}
+                                >
+                                  <Trash2 className="size-4 text-danger" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </TabsContent>
+                ))}
+              </Tabs>
+            )}
+          </TabsContent>
+        </Tabs>
 
         <DialogFooter>
           <DialogClose render={<Button variant="outline" />}>Close</DialogClose>

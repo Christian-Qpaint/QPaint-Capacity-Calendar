@@ -375,7 +375,7 @@ export function MarketingDashboard() {
 
           <section className="space-y-3 break-inside-avoid">
             <h2 className="text-sm font-medium text-muted-foreground">Marketing Analysis</h2>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
               <KpiCard
                 label="Cost Per Lead"
                 value={formatCurrency(summary.cpl)}
@@ -396,6 +396,13 @@ export function MarketingDashboard() {
                 icon={Target}
                 color={KPI_COLORS.cost}
                 info="Total Ad Spend ÷ Jobs Won — what one won job costs in ad spend, on average."
+              />
+              <KpiCard
+                label="Sum Cost"
+                value={formatCurrency(summary.totalAdSpend)}
+                icon={DollarSign}
+                color={KPI_COLORS.cost}
+                info="Total Ad Spend across every source for this filter."
               />
               <KpiCard
                 label="Avg Quote Value"

@@ -662,12 +662,12 @@ export function CrmBoard() {
 
         {/* Same "count + total value" concept Pipedrive shows in its per-pipeline popup — compact,
             beside the pipeline picker, not a full-width strip with dead space in the middle. */}
-        <Card className="ml-auto flex shrink-0 items-center gap-4 border-none bg-info-bg px-4 py-2 text-info">
+        <Card className="ml-auto flex flex-row shrink-0 items-center gap-4 border-none bg-info-bg px-4 py-2 text-info">
           <div className="text-center">
             <p className="text-[10px] font-medium tracking-wide uppercase opacity-80">Deals</p>
             <p className="text-base leading-tight font-semibold">{pipelineSummary.count.toLocaleString()}</p>
           </div>
-          <div className="h-7 w-px bg-info/25" />
+          <div className="h-px w-6 bg-info/25" />
           <div className="text-center">
             <p className="text-[10px] font-medium tracking-wide uppercase opacity-80">Total Value</p>
             <p className="text-base leading-tight font-semibold">
