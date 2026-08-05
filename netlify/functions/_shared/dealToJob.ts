@@ -136,3 +136,33 @@ export async function syncJobStageDisplay(db: ReturnType<typeof getDb>, jobId: s
   if (pipedriveStageId == null) return
   await db.update(jobs).set({ pipedriveStageId }).where(eq(jobs.id, jobId))
 }
+
+/** Keeps a Job's title/value/category/address/targetHours in step with its linked CRM deal after
+ * promotion — same idea as syncJobStageDisplay, extended to every field a Job inherits from its
+ * deal at creation time. Safe for the same reason: none of these fields have an edit UI on the
+ * Jobs page (only actualHoursOverride/productionPercentOverride do, and this never touches those),
+ * so there's no manual edit to overwrite. Each field is only written when the deal actually has a
+ * usable value — a blank/unmapped one is left alone rather than blanking out (or, for targetHours,
+ * violating the not-null column with) whatever the Job already has. */
+export async function syncJobFieldsFromDeal(
+  db: ReturnType<typeof getDb>,
+  jobId: string,
+  deal: { title: string; value: number; fields: unknown },
+): Promise<void> {
+  const fields = (deal.fields ?? {}) as Record<string, unknown>
+  const patch: Record<string, unknown> = {
+    pipedriveDealTitle: deal.title,
+    totalValue: deal.value,
+  }
+
+  const rawTargetHours = fields[FIELD_TARGET_HOURS]
+  if (typeof rawTargetHours === 'number') patch.targetHours = rawTargetHours
+
+  const mappedCategory = CATEGORY_OPTION_MAP[String(fields[FIELD_CATEGORY] ?? '')]
+  if (mappedCategory) patch.category = mappedCategory
+
+  const address = (fields[FIELD_ADDRESS] as string | undefined) || undefined
+  if (address) patch.address = address
+
+  await db.update(jobs).set(patch).where(eq(jobs.id, jobId))
+}

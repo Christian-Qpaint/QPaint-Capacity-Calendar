@@ -4,7 +4,7 @@ import { requireCrmAccess, canAccessCrm, withErrorHandling, HttpError } from '..
 import { parseJsonBody } from '../_shared/http.js'
 import { stripNulls } from '../_shared/rows.js'
 import { crmDeals, crmStages, crmFieldDefinitions, crmDealStageHistory } from '../../../db/schema.js'
-import { attemptPromotion, syncJobStageDisplay } from '../_shared/dealToJob.js'
+import { attemptPromotion, syncJobStageDisplay, syncJobFieldsFromDeal } from '../_shared/dealToJob.js'
 import { recordStageEntry } from '../_shared/stageHistory.js'
 
 async function fetchStageHistory(db: ReturnType<typeof getDb>, dealId: string) {
@@ -163,6 +163,11 @@ export default withErrorHandling(async (req: Request) => {
         if (targetStage) await syncJobStageDisplay(db, updated.jobId, targetStage.pipedriveStageId)
       }
     }
+    // Same "keep the linked Job current" idea as the stage sync above, extended to every other
+    // field a Job inherits from its deal — title/value/category/address/target hours. Applies
+    // regardless of which pipeline the deal is in (Sales included): once a deal has a jobId, any
+    // further edit to it here should keep flowing through to the Job it already produced.
+    if (updated.jobId) await syncJobFieldsFromDeal(db, updated.jobId, updated)
     return Response.json(stripNulls(updated))
   }
 
