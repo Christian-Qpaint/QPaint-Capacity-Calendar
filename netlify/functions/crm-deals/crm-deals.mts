@@ -99,6 +99,20 @@ export default withErrorHandling(async (req: Request) => {
     return Response.json({ ...stripNulls({ ...updated, jobId: jobId ?? updated.jobId }), promoted, promotionSkippedReason: skippedReason })
   }
 
+  // Manual escape hatch for deals stuck Won-with-no-Job because Target Hours wasn't set at the
+  // moment promotion would normally fire (webhook/drag/sync) — those paths never retry once
+  // status is already 'won'. Fill in Target Hours in the Details section, save, then call this to
+  // retry with the same attemptPromotion every other path uses.
+  if (req.method === 'PATCH' && action === 'create-job') {
+    const [current] = await db.select().from(crmDeals).where(eq(crmDeals.id, id)).limit(1)
+    if (!current) throw new HttpError(404, 'Deal not found')
+    if (current.jobId) throw new HttpError(400, 'This deal already has a linked Job')
+
+    const { promoted, jobId, skippedReason } = await attemptPromotion(db, current)
+    if (!jobId) throw new HttpError(400, skippedReason ?? 'Could not create a Job from this deal yet')
+    return Response.json({ ...stripNulls({ ...current, jobId }), promoted, promotionSkippedReason: skippedReason })
+  }
+
   if (req.method === 'PATCH' && action === 'mark-lost') {
     const body = await parseJsonBody(req)
     const [updated] = await db

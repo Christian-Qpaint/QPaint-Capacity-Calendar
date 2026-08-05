@@ -119,6 +119,18 @@ function StatusBadge({ status }: { status: CrmDeal['status'] }) {
   )
 }
 
+// Won but never promoted to a Job — usually Target Hours wasn't set at the moment promotion would
+// normally fire, and nothing ever retries it automatically once status is already 'won'. Flagged
+// here so it's visible on the board itself, not just discoverable by opening every deal.
+function NoJobBadge({ deal }: { deal: CrmDeal }) {
+  if (deal.status !== 'won' || deal.jobId) return null
+  return (
+    <span className="inline-flex items-center rounded-md bg-warning-bg px-2 py-0.5 text-xs font-medium text-warning" title="Won, but no Job created yet">
+      No Job
+    </span>
+  )
+}
+
 function SortableHead({
   label,
   sortKey,
@@ -172,6 +184,7 @@ function DraggableDealCard({ deal, stage, onClick, disabled }: { deal: CrmDeal; 
         <div className="flex items-center gap-1">
           <RotBadge deal={deal} stage={stage} />
           <StatusBadge status={deal.status} />
+          <NoJobBadge deal={deal} />
         </div>
       </div>
     </Card>
@@ -790,6 +803,7 @@ export function CrmBoard() {
                         <div className="flex flex-wrap items-center gap-1">
                           <StatusBadge status={deal.status} />
                           <RotBadge deal={deal} stage={stageById.get(deal.stageId)} />
+                          <NoJobBadge deal={deal} />
                         </div>
                       </TableCell>
                       <TableCell className="text-muted-foreground">{formatDate(deal.createdAt)}</TableCell>

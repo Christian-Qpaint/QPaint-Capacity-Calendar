@@ -68,6 +68,9 @@ interface CrmDataContextValue {
   moveDealStage: (id: string, stageId: string) => Promise<{ promoted: boolean; promotionSkippedReason?: string; deal: CrmDeal }>
   markDealWon: (id: string) => Promise<CrmDeal & { promoted: boolean; promotionSkippedReason?: string }>
   markDealLost: (id: string, lostReason?: string) => Promise<CrmDeal>
+  /** Manual retry for a Won deal stuck with no linked Job (Target Hours wasn't set when it would
+   * normally have been promoted) — throws with the skip reason if it still can't be created. */
+  createJobFromDeal: (id: string) => Promise<CrmDeal & { promoted: boolean; promotionSkippedReason?: string }>
   deleteDeal: (id: string) => Promise<void>
 
   addPipeline: (payload: { name: string; order?: number }) => Promise<CrmPipeline>
@@ -160,6 +163,10 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
     return api.patch<CrmDeal>(`/api/crm-deals?id=${id}&action=mark-lost`, { lostReason })
   }
 
+  async function createJobFromDeal(id: string) {
+    return api.patch<CrmDeal & { promoted: boolean; promotionSkippedReason?: string }>(`/api/crm-deals?id=${id}&action=create-job`, {})
+  }
+
   async function deleteDeal(id: string) {
     await api.delete(`/api/crm-deals?id=${id}`)
   }
@@ -229,6 +236,7 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
         moveDealStage,
         markDealWon,
         markDealLost,
+        createJobFromDeal,
         deleteDeal,
         addPipeline,
         updatePipeline,

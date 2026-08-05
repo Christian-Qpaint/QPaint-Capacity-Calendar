@@ -69,7 +69,7 @@ export function DealDrawer({
   onDealUpdated?: (deal: CrmDeal) => void
   onDealDeleted?: (id: string) => void
 }) {
-  const { stages, fieldDefinitions, updateDeal, moveDealStage, markDealWon, markDealLost, deleteDeal } = useCrmData()
+  const { stages, fieldDefinitions, updateDeal, moveDealStage, markDealWon, markDealLost, createJobFromDeal, deleteDeal } = useCrmData()
   const { hasPermission } = usePermissions()
   const canManage = hasPermission('crm.manage')
 
@@ -84,6 +84,7 @@ export function DealDrawer({
   const [stageId, setStageId] = useState('')
   const [fields, setFields] = useState<Record<string, unknown>>({})
   const [saving, setSaving] = useState(false)
+  const [creatingJob, setCreatingJob] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [lostReasonPrompt, setLostReasonPrompt] = useState(false)
   const [lostReason, setLostReason] = useState('')
@@ -161,6 +162,21 @@ export function DealDrawer({
     }
   }
 
+  async function handleCreateJob() {
+    if (!currentDeal) return
+    setCreatingJob(true)
+    try {
+      const updated = await createJobFromDeal(currentDeal.id)
+      setCurrentDeal(updated)
+      onDealUpdated?.(updated)
+      toast.success('Job created')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to create a Job — check Target Hours is set below')
+    } finally {
+      setCreatingJob(false)
+    }
+  }
+
   async function handleDelete() {
     if (!currentDeal) return
     try {
@@ -195,6 +211,9 @@ export function DealDrawer({
                 <Button size="xs" variant="outline" onClick={handleMarkWon}>Mark Won</Button>
                 <Button size="xs" variant="outline" onClick={() => setLostReasonPrompt(true)}>Mark Lost</Button>
               </>
+            )}
+            {currentDeal.status === 'won' && !currentDeal.jobId && (
+              <span className="text-xs text-warning">No Job yet — set Target Hours below, then Copy to Jobs</span>
             )}
           </div>
 
@@ -275,10 +294,17 @@ export function DealDrawer({
             <span />
           )}
           <div className="flex items-center gap-2">
-            {currentDeal.jobId && (
+            {currentDeal.jobId ? (
               <Button variant="outline" size="sm" render={<Link to={`/jobs/${currentDeal.jobId}`} />}>
                 View Job <ArrowUpRight />
               </Button>
+            ) : (
+              currentDeal.status === 'won' &&
+              canManage && (
+                <Button variant="outline" size="sm" onClick={handleCreateJob} disabled={creatingJob}>
+                  {creatingJob ? 'Creating…' : 'Copy to Jobs'}
+                </Button>
+              )
             )}
             {canManage && (
               <Button onClick={handleSave} disabled={saving || !title.trim()}>
