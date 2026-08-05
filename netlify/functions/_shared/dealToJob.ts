@@ -121,3 +121,18 @@ export async function attemptPromotion(
   await db.update(crmDeals).set({ jobId: result.jobId }).where(eq(crmDeals.id, deal.id))
   return { promoted: result.status === 'created', jobId: result.jobId }
 }
+
+/** Keeps a Job's `pipedriveStageId` (the Jobs page's read-only "Stage" pill) live as its linked
+ * CRM deal keeps moving through the Jobs Pipeline board after promotion. Otherwise that column
+ * freezes at whatever stage the deal was in at the moment it became a Job — the deal itself keeps
+ * moving (Admin -> Booked -> ...) but the Job's snapshot never catches up, so the two pages
+ * silently disagree about where the job actually is. Safe to call unconditionally: nothing in the
+ * UI ever writes to this field directly, so refreshing it here can never overwrite a user's own
+ * edit — there isn't one to overwrite. `null` (a local-only stage with no Pipedrive equivalent) is
+ * skipped rather than written, since jobs.pipedriveStageId === null hides the job entirely on the
+ * Jobs page (see JobsList.tsx's visibleJobs filter) — losing the stage label is preferable to a
+ * job vanishing from view. */
+export async function syncJobStageDisplay(db: ReturnType<typeof getDb>, jobId: string, pipedriveStageId: number | null): Promise<void> {
+  if (pipedriveStageId == null) return
+  await db.update(jobs).set({ pipedriveStageId }).where(eq(jobs.id, jobId))
+}

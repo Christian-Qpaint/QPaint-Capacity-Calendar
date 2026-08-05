@@ -4,7 +4,7 @@ import { requireCrmAccess, canAccessCrm, withErrorHandling, HttpError } from '..
 import { parseJsonBody } from '../_shared/http.js'
 import { stripNulls } from '../_shared/rows.js'
 import { crmDeals, crmStages, crmFieldDefinitions, crmDealStageHistory } from '../../../db/schema.js'
-import { attemptPromotion } from '../_shared/dealToJob.js'
+import { attemptPromotion, syncJobStageDisplay } from '../_shared/dealToJob.js'
 import { recordStageEntry } from '../_shared/stageHistory.js'
 
 async function fetchStageHistory(db: ReturnType<typeof getDb>, dealId: string) {
@@ -82,6 +82,11 @@ export default withErrorHandling(async (req: Request) => {
     if (!updated) throw new HttpError(404, 'Deal not found')
     await recordStageEntry(db, updated.id, stageId, stageEnteredAtValue)
 
+    // Keep an already-linked Job's stage display live as the deal keeps moving on the board —
+    // this is a pure display field (nothing in the UI ever writes to it directly), so refreshing
+    // it here can never clobber anything a user entered on the Jobs page.
+    if (updated.jobId) await syncJobStageDisplay(db, updated.jobId, targetStage.pipedriveStageId)
+
     if (!targetStage.isWonStage) return Response.json({ ...stripNulls(updated), promoted: false })
     const { promoted, jobId, skippedReason } = await attemptPromotion(db, updated)
     return Response.json({ ...stripNulls({ ...updated, jobId: jobId ?? updated.jobId }), promoted, promotionSkippedReason: skippedReason })
@@ -151,7 +156,13 @@ export default withErrorHandling(async (req: Request) => {
     }
     const [updated] = await db.update(crmDeals).set(patch).where(eq(crmDeals.id, id)).returning()
     if (!updated) throw new HttpError(404, 'Deal not found')
-    if (stageChangedTo) await recordStageEntry(db, updated.id, stageChangedTo, updated.stageEnteredAt)
+    if (stageChangedTo) {
+      await recordStageEntry(db, updated.id, stageChangedTo, updated.stageEnteredAt)
+      if (updated.jobId) {
+        const [targetStage] = await db.select({ pipedriveStageId: crmStages.pipedriveStageId }).from(crmStages).where(eq(crmStages.id, stageChangedTo)).limit(1)
+        if (targetStage) await syncJobStageDisplay(db, updated.jobId, targetStage.pipedriveStageId)
+      }
+    }
     return Response.json(stripNulls(updated))
   }
 
