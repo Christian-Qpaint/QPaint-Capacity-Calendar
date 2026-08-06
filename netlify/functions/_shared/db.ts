@@ -15,6 +15,13 @@ import { Pool } from 'pg'
 type Db = ReturnType<typeof drizzleNodePostgres>
 
 export function getDb(): Db {
-  const connectionString = process.env.DATABASE_URL || getConnectionString()
-  return drizzleNodePostgres({ client: new Pool({ connectionString }) })
+  const supabaseUrl = process.env.DATABASE_URL
+  if (supabaseUrl) {
+    // Supabase requires SSL; node-postgres does not negotiate it by default from a bare
+    // connection string the way some other clients do. rejectUnauthorized: false matches how
+    // this same connection was already verified working during the migration scripts.
+    return drizzleNodePostgres({ client: new Pool({ connectionString: supabaseUrl, ssl: { rejectUnauthorized: false } }) })
+  }
+  // Local dev's Netlify DB branch is a plain local Postgres process with no SSL at all.
+  return drizzleNodePostgres({ client: new Pool({ connectionString: getConnectionString() }) })
 }
