@@ -297,7 +297,7 @@ export default withErrorHandling(async (req: Request) => {
 
     const [dealRows, countRows, summaryRows, avgDwellRows] = await Promise.all([
       db.select(JOB_LIST_COLUMNS).from(jobs).leftJoin(clients, eq(clients.id, jobs.clientId)).where(where).orderBy(orderBy).limit(limit).offset(offset),
-      db.select({ count: sql<number>`count(*)::int` }).from(jobs).where(where),
+      db.select({ count: sql<number>`count(*)::int` }).from(jobs).leftJoin(clients, eq(clients.id, jobs.clientId)).where(where),
       db
         .select({
           stageId: jobs.stageId,
@@ -305,6 +305,7 @@ export default withErrorHandling(async (req: Request) => {
           totalValue: sql<string>`coalesce(sum(${jobs.totalValue}), 0)`,
         })
         .from(jobs)
+        .leftJoin(clients, eq(clients.id, jobs.clientId))
         .where(summaryWhere)
         .groupBy(jobs.stageId),
       pipelineStageIds.length > 0
