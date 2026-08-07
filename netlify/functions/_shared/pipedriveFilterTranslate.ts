@@ -71,6 +71,38 @@ const ID_RESOLVING_SYSTEM_FIELDS: Record<string, keyof Pick<TranslateContext, 's
 
 export class UnsupportedFilterError extends Error {}
 
+// Pipedrive's deal status includes "deleted" (and others); crm_deals.status is a Postgres enum
+// with only these three values — comparing it to anything else at query time would make Postgres
+// reject the whole query outright ("invalid input value for enum crm_deal_status"), not just
+// silently not-match. A real filter in this account ("Deals in Quote Pipeline from Jan 2025") does
+// exactly this: open AND != lost AND != won AND != deleted. Since no row here can ever equal a
+// status outside this set, a not-equal/not-in check against one is vacuously true and safe to
+// prune; an equals/in check against one can never be true, which isn't safely representable as a
+// no-op condition, so that stays unsupported instead of guessed at.
+const KNOWN_STATUS_VALUES = new Set(['open', 'won', 'lost'])
+
+interface StatusLeafResult {
+  omit: boolean
+  value: string | string[] | null
+}
+
+function normalizeStatusLeaf(operator: SavedFilterOperator, value: string | string[] | null): StatusLeafResult {
+  if (operator === 'neq' && typeof value === 'string' && !KNOWN_STATUS_VALUES.has(value)) return { omit: true, value: null }
+  if (operator === 'not_in' && Array.isArray(value)) {
+    const known = value.filter((v) => KNOWN_STATUS_VALUES.has(v))
+    return known.length === 0 ? { omit: true, value: null } : { omit: false, value: known }
+  }
+  if (operator === 'eq' && typeof value === 'string' && !KNOWN_STATUS_VALUES.has(value)) {
+    throw new UnsupportedFilterError(`compares Status to "${value}", which this app doesn't track`)
+  }
+  if (operator === 'in' && Array.isArray(value)) {
+    const known = value.filter((v) => KNOWN_STATUS_VALUES.has(v))
+    if (known.length === 0) throw new UnsupportedFilterError("compares Status to values this app doesn't track")
+    return { omit: false, value: known }
+  }
+  return { omit: false, value }
+}
+
 interface TranslateContext {
   fieldIdToKey: Map<string, { key: string; name: string }>
   stagePipedriveIdToLocalId: Map<number, string>
@@ -101,7 +133,7 @@ export async function buildTranslateContext(
   }
 }
 
-function translateLeaf(leaf: RawPipedriveFilterNode, ctx: TranslateContext): SavedFilterNode {
+function translateLeaf(leaf: RawPipedriveFilterNode, ctx: TranslateContext): SavedFilterNode | null {
   const fieldId = leaf.field_id != null ? String(leaf.field_id) : undefined
   if (!fieldId) throw new UnsupportedFilterError('a condition is missing its field')
   const fieldMeta = ctx.fieldIdToKey.get(fieldId)
@@ -121,6 +153,11 @@ function translateLeaf(leaf: RawPipedriveFilterNode, ctx: TranslateContext): Sav
       const localId = ctx[idMapKey].get(Number(value))
       if (!localId) throw new UnsupportedFilterError(`references a Pipedrive ${fieldMeta.name} (id ${value}) that isn't mirrored locally yet`)
       value = localId
+    }
+    if (systemKey === 'status') {
+      const normalized = normalizeStatusLeaf(operator, value)
+      if (normalized.omit) return null
+      value = normalized.value
     }
     return { field: systemKey, isCustom: false, operator, value }
   }
@@ -147,7 +184,10 @@ function translateNode(node: RawPipedriveFilterNode, ctx: TranslateContext): Sav
       conditions: node.conditions.map((c) => translateNode(c, ctx)),
     }
   }
-  return translateLeaf(node, ctx)
+  // A pruned leaf (vacuously true — see normalizeStatusLeaf) becomes an empty group, which
+  // buildSavedFilterSql already treats as "no constraint" and drops from its parent, same as it
+  // does for Pipedrive's own genuinely-empty "or" groups.
+  return translateLeaf(node, ctx) ?? { glue: 'and', conditions: [] }
 }
 
 export interface TranslateResult {
