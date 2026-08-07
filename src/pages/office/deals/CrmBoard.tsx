@@ -75,6 +75,7 @@ function daysInStage(deal: CrmDeal): number {
  * deals are hidden from the default view anyway (see crm-data.mts), so this only shows up there
  * if someone explicitly toggles Show Won/Lost on. */
 function rotTier(deal: CrmDeal, stage: CrmStage | undefined): RotTier {
+  if (stage?.rotDisabled) return 'none'
   const days = daysInStage(deal)
   const hasOwnThresholds = !!stage && (stage.rotYellowDays != null || stage.rotOrangeDays != null || stage.rotRedDays != null)
   const { yellow, orange, red } = hasOwnThresholds

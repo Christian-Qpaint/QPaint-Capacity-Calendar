@@ -13,15 +13,17 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { CategoryPill } from '@/components/StatusBadges'
 import { ClientTypeIcon } from '@/components/ClientTypeIcon'
 import { TeamColorDot } from '@/components/TeamColorDot'
+import { StagePill } from '@/components/StagePill'
 import { TargetConfigDialog } from '@/components/TargetConfigDialog'
+import { MultiSelectFilter } from '@/components/MultiSelectFilter'
 import { formatCurrency, weeklyFromMonthly } from '@/lib/formulas'
-import { JOB_CATEGORIES } from '@/lib/jobFilters'
 import {
+  addDays,
+  addMonths,
   formatDateRange,
   formatMonthLabel,
   monthEnd,
@@ -31,6 +33,8 @@ import {
 } from '@/lib/schedule'
 import {
   CalendarCheck,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   History,
   LayoutGrid,
@@ -47,7 +51,7 @@ import {
   X,
 } from 'lucide-react'
 import type { JobProgress } from '@/lib/dataAccess'
-import type { Job, JobCategory, Team } from '@/types'
+import type { CrmStage, Job, Team } from '@/types'
 
 /** Shared Production % inline-edit behavior — used by both the card and table row views so they
  * stay in perfect sync rather than duplicating the save/resync logic twice. Actual/Target Hours
@@ -105,11 +109,13 @@ function JobProgressCard({
   job,
   progress,
   teams,
+  stage,
   canEditProgress,
 }: {
   job: Job
   progress: JobProgress
   teams: Team[]
+  stage: CrmStage | undefined
   /** Any office/admin role can log what's actually done — this isn't gated to Owner/Ops Manager
    * like Configure Targets, since it's someone checking the job and typing what they found. */
   canEditProgress: boolean
@@ -148,6 +154,7 @@ function JobProgressCard({
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <CategoryPill category={job.category} />
+          {stage && <StagePill stage={stage} />}
           {teams.map((t) => (
             <span key={t.id} className="flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
               <TeamColorDot team={t} />
@@ -256,11 +263,13 @@ function JobProgressTableRow({
   job,
   progress,
   teams,
+  stage,
   canEditProgress,
 }: {
   job: Job
   progress: JobProgress
   teams: Team[]
+  stage: CrmStage | undefined
   canEditProgress: boolean
 }) {
   const { clients } = useData()
@@ -294,6 +303,7 @@ function JobProgressTableRow({
       <TableCell>
         <CategoryPill category={job.category} />
       </TableCell>
+      <TableCell>{stage ? <StagePill stage={stage} /> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>
       <TableCell>
         <div className="flex flex-wrap items-center gap-1.5">
           {teams.length === 0 && <span className="text-xs text-muted-foreground">—</span>}
@@ -366,22 +376,49 @@ function JobProgressTableRow({
 }
 
 export function CapacityBoard() {
-  const { jobs, clients, teams, scheduleBlocks, monthlyTargets } = useData()
+  const { jobs, clients, teams, scheduleBlocks, monthlyTargets, jobStages } = useData()
   const currentUser = useCurrentUser()
   const da = useDataAccess()
   const [isMonthly, setIsMonthly] = usePersistedState('qpaint:capacity:isMonthly', false)
-  const [anchor] = useState(() => new Date())
+  // Persisted (not just useState(() => new Date())) so History-browsing survives a refresh, same
+  // as ResourceCalendar's own anchor — previously this was frozen at "today" with no way to look
+  // at a past week/month at all.
+  const [anchor, setAnchor] = usePersistedState<Date>('qpaint:capacity:anchor', new Date(), {
+    serialize: (d) => d.toISOString(),
+    deserialize: (s) => new Date(s),
+  })
   const [targetDialogOpen, setTargetDialogOpen] = useState(false)
   const [jobSearch, setJobSearch] = usePersistedState('qpaint:capacity:jobSearch', '')
-  const [categoryFilter, setCategoryFilter] = usePersistedState<'all' | JobCategory>('qpaint:capacity:categoryFilter', 'all')
+  const [teamFilter, setTeamFilter] = usePersistedState<string[]>('qpaint:capacity:teamFilter', [])
+  const [stageFilter, setStageFilter] = usePersistedState<string[]>('qpaint:capacity:stageFilter', [])
   const [overBudgetOnly, setOverBudgetOnly] = usePersistedState('qpaint:capacity:overBudgetOnly', false)
   const [jobsView, setJobsView] = usePersistedState<'cards' | 'table'>('qpaint:capacity:jobsView', 'cards')
 
   const windowStart = isMonthly ? monthStart(anchor) : weekStart(anchor)
   const windowEnd = isMonthly ? monthEnd(anchor) : weekEnd(weekStart(anchor))
 
+  // Never allow browsing into a period that hasn't happened yet — there's no actual production
+  // data for the future, so "next" stops dead at the current week/month.
+  const currentPeriodStart = isMonthly ? monthStart(new Date()) : weekStart(new Date())
+  const atCurrentOrFuturePeriod = windowStart.getTime() >= currentPeriodStart.getTime()
+
+  function goPrev() {
+    setAnchor((a) => (isMonthly ? addMonths(a, -1) : addDays(a, -7)))
+  }
+  function goNext() {
+    if (atCurrentOrFuturePeriod) return
+    setAnchor((a) => (isMonthly ? addMonths(a, 1) : addDays(a, 7)))
+  }
+  function goToday() {
+    setAnchor(new Date())
+  }
+
   const scheduledTotal = da.getScheduledDollarsInWindow(windowStart, windowEnd)
 
+  const stageById = useMemo(() => new Map(jobStages.map((s) => [s.id, s])), [jobStages])
+
+  // Only jobs already booked onto the Calendar ever appear here — scoping to scheduleBlocks, not
+  // just "every job", is what keeps quoted-but-unscheduled work off the Production page.
   const activeJobs = useMemo(
     () => jobs.filter((j) => scheduleBlocks.some((b) => b.jobId === j.id)),
     [jobs, scheduleBlocks],
@@ -399,28 +436,42 @@ export function CapacityBoard() {
     [activeJobs, scheduleBlocks, teams],
   )
 
+  // Options are scoped to teams/stages actually present among booked jobs — same "only offer what's
+  // actually in use" convention as JobsList.tsx's own stage filter — not the full teams/jobStages
+  // lists, which would offer choices that can never match anything here.
+  const teamOptions = useMemo(() => Array.from(new Set(jobRows.flatMap((r) => r.teams.map((t) => t.name)))).sort(), [jobRows])
+  const stageOptions = useMemo(
+    () =>
+      Array.from(new Set(jobRows.map((r) => (r.job.stageId ? stageById.get(r.job.stageId)?.name : undefined)).filter((n): n is string => !!n))).sort(),
+    [jobRows, stageById],
+  )
+
   const filteredJobRows = useMemo(() => {
     const q = jobSearch.trim().toLowerCase()
-    return jobRows.filter(({ job, progress }) => {
-      if (categoryFilter !== 'all' && job.category !== categoryFilter) return false
+    return jobRows.filter(({ job, progress, teams: jobTeams }) => {
+      if (teamFilter.length > 0 && !jobTeams.some((t) => teamFilter.includes(t.name))) return false
+      if (stageFilter.length > 0) {
+        const stageName = job.stageId ? stageById.get(job.stageId)?.name : undefined
+        if (!stageName || !stageFilter.includes(stageName)) return false
+      }
       if (overBudgetOnly && !progress.isOverBudget) return false
       if (!q) return true
       const client = clients.find((c) => c.id === job.clientId)
       return jobDisplayName(job).toLowerCase().includes(q) || (client?.name ?? '').toLowerCase().includes(q)
     })
-  }, [jobRows, jobSearch, categoryFilter, overBudgetOnly, clients])
+  }, [jobRows, jobSearch, teamFilter, stageFilter, overBudgetOnly, clients, stageById])
 
-  const jobsFiltered = jobSearch.trim() !== '' || categoryFilter !== 'all' || overBudgetOnly
+  const jobsFiltered = jobSearch.trim() !== '' || teamFilter.length > 0 || stageFilter.length > 0 || overBudgetOnly
 
   const monthlyTargetRow = monthlyTargets.find((t) => t.year === anchor.getFullYear() && t.month === anchor.getMonth() + 1)
   const monthlyTargetDollars = monthlyTargetRow?.targetDollars ?? 0
   const targetTotal = isMonthly ? monthlyTargetDollars : weeklyFromMonthly(monthlyTargetDollars)
   const gap = scheduledTotal - targetTotal
 
-  // Formula: Actual $ = Production% x Deal Value per job (see getJobProgress), summed across every
-  // active job — not scoped to the Weekly/Monthly toggle, since Production % tracks a job's overall
-  // completion to date rather than work done in a particular window.
-  const actualTotal = jobRows.reduce((sum, { progress }) => sum + progress.actualDollars, 0)
+  // Same window-scoped formula ResourceCalendar's own Actual card uses (getActualDollarsInWindow) —
+  // previously this summed each job's whole cumulative Actual $ regardless of window, which is why
+  // toggling Weekly/Monthly never changed the number here even though it does on the Scheduler.
+  const actualTotal = da.getActualDollarsInWindow(windowStart, windowEnd)
 
   const canManage = canManageTargets(currentUser.role)
   const canEditProgress = isOfficeRole(currentUser.role)
@@ -428,9 +479,28 @@ export function CapacityBoard() {
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-lg font-medium">
-          {isMonthly ? formatMonthLabel(windowStart) : `Week of ${formatDateRange(windowStart, windowEnd)}`}
-        </h1>
+        <div className="flex items-center gap-1">
+          <Button size="icon-sm" variant="ghost" onClick={goPrev} aria-label={isMonthly ? 'Previous month' : 'Previous week'}>
+            <ChevronLeft />
+          </Button>
+          <h1 className="text-lg font-medium">
+            {isMonthly ? formatMonthLabel(windowStart) : `Week of ${formatDateRange(windowStart, windowEnd)}`}
+          </h1>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            onClick={goNext}
+            disabled={atCurrentOrFuturePeriod}
+            aria-label={isMonthly ? 'Next month' : 'Next week'}
+          >
+            <ChevronRight />
+          </Button>
+          {!atCurrentOrFuturePeriod && (
+            <Button size="sm" variant="ghost" onClick={goToday}>
+              Today
+            </Button>
+          )}
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex gap-1.5 rounded-md border border-border bg-card p-1">
             <Button size="sm" variant={!isMonthly ? 'secondary' : 'ghost'} onClick={() => setIsMonthly(false)}>
@@ -481,7 +551,7 @@ export function CapacityBoard() {
             <p className="text-xs text-muted-foreground">Actual</p>
           </div>
           <p className="text-2xl font-semibold tracking-tight">{formatCurrency(actualTotal)}</p>
-          <p className="text-xs text-muted-foreground">Production % × deal value, across active jobs</p>
+          <p className="text-xs text-muted-foreground">Production % × deal value, jobs scheduled this {isMonthly ? 'month' : 'week'}</p>
         </Card>
         <Card className={cn('gap-2 p-4 transition hover:shadow-md', gap < 0 ? 'bg-warning-bg' : 'bg-success-bg')}>
           <div className="flex items-center gap-2">
@@ -534,15 +604,8 @@ export function CapacityBoard() {
               className="pl-8"
             />
           </div>
-          <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter((v as 'all' | JobCategory) ?? 'all')}>
-            <SelectTrigger size="sm" className="w-40"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All categories</SelectItem>
-              {JOB_CATEGORIES.map((c) => (
-                <SelectItem key={c} value={c}>{c}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <MultiSelectFilter label="Teams" options={teamOptions} selected={teamFilter} onChange={setTeamFilter} />
+          <MultiSelectFilter label="Stage" options={stageOptions} selected={stageFilter} onChange={setStageFilter} />
           <button
             type="button"
             onClick={() => setOverBudgetOnly((v) => !v)}
@@ -559,7 +622,8 @@ export function CapacityBoard() {
               size="sm"
               onClick={() => {
                 setJobSearch('')
-                setCategoryFilter('all')
+                setTeamFilter([])
+                setStageFilter([])
                 setOverBudgetOnly(false)
               }}
             >
@@ -578,7 +642,14 @@ export function CapacityBoard() {
               </p>
             )}
             {filteredJobRows.map(({ job, progress, teams: jobTeams }) => (
-              <JobProgressCard key={job.id} job={job} progress={progress} teams={jobTeams} canEditProgress={canEditProgress} />
+              <JobProgressCard
+                key={job.id}
+                job={job}
+                progress={progress}
+                teams={jobTeams}
+                stage={job.stageId ? stageById.get(job.stageId) : undefined}
+                canEditProgress={canEditProgress}
+              />
             ))}
           </div>
         ) : (
@@ -589,6 +660,7 @@ export function CapacityBoard() {
                   <TableHead>Job</TableHead>
                   <TableHead>Client</TableHead>
                   <TableHead>Category</TableHead>
+                  <TableHead>Stage</TableHead>
                   <TableHead>Crews</TableHead>
                   <TableHead>Production</TableHead>
                   <TableHead>Hours</TableHead>
@@ -598,7 +670,7 @@ export function CapacityBoard() {
               <TableBody>
                 {filteredJobRows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                    <TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
                       {jobRows.length === 0
                         ? "No active jobs scheduled yet — jobs appear here once they're on the Calendar."
                         : 'No jobs match your search / filter.'}
@@ -606,7 +678,14 @@ export function CapacityBoard() {
                   </TableRow>
                 )}
                 {filteredJobRows.map(({ job, progress, teams: jobTeams }) => (
-                  <JobProgressTableRow key={job.id} job={job} progress={progress} teams={jobTeams} canEditProgress={canEditProgress} />
+                  <JobProgressTableRow
+                    key={job.id}
+                    job={job}
+                    progress={progress}
+                    teams={jobTeams}
+                    stage={job.stageId ? stageById.get(job.stageId) : undefined}
+                    canEditProgress={canEditProgress}
+                  />
                 ))}
               </TableBody>
             </Table>

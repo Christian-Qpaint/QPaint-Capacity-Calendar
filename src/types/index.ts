@@ -310,6 +310,9 @@ export interface CrmStage {
   rotYellowDays: number | null
   rotOrangeDays: number | null
   rotRedDays: number | null
+  // Opts this stage out of rot coloring entirely — distinct from all-null thresholds above, which
+  // instead falls back to the generic 7/14/21 default.
+  rotDisabled: boolean
   // Once a deal's been sitting here longer than this, it's hidden from the board's default view.
   autoHideAfterDays: number | null
 }

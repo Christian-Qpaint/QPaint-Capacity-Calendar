@@ -448,6 +448,13 @@ export const crmStages = pgTable('crm_stages', {
   rotYellowDays: integer('rot_yellow_days'),
   rotOrangeDays: integer('rot_orange_days'),
   rotRedDays: integer('rot_red_days'),
+  // Opts a stage out of rot coloring entirely, distinct from leaving the three columns above null
+  // (which instead falls back to the generic 7/14/21 default) — needed for stages where staleness
+  // just isn't a useful signal, e.g. Jobs Pipeline's Booked/In Progress/Completed/On Hold/All Done
+  // & Paid: those jobs are already committed and being worked, so tinting them red for sitting
+  // there a while would be noise, not a signal (unlike Admin/Ready to Schedule, where it's an
+  // unbooked job going stale).
+  rotDisabled: boolean('rot_disabled').notNull().default(false),
   // Once a deal has sat in this stage longer than this, it's hidden from the board's default view
   // (still counted everywhere else, never deleted) — e.g. Jobs Pipeline's "All Done & Paid" stage
   // auto-archives after 6 months so the board doesn't accumulate every job ever finished.

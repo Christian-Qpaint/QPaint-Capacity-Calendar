@@ -41,7 +41,7 @@ import { colorForIndex, colorForReferralSource, KPI_COLORS } from '@/lib/marketi
 import { formatCurrency, formatPercent } from '@/lib/formulas'
 import { cn } from '@/lib/utils'
 import { AdSpendDialog } from './AdSpendDialog'
-import { MultiSelectFilter } from './MultiSelectFilter'
+import { MultiSelectFilter } from '@/components/MultiSelectFilter'
 import { PeriodComparisonCard } from './PeriodComparisonCard'
 
 function KpiCard({

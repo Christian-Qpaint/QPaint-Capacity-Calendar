@@ -21,7 +21,7 @@ import {
 } from '@/lib/marketingDataAccess'
 import { colorForIndex } from '@/lib/marketingColors'
 import { formatCurrency } from '@/lib/formulas'
-import { MultiSelectFilter } from './MultiSelectFilter'
+import { MultiSelectFilter } from '@/components/MultiSelectFilter'
 import type { AdSpendEntry, MarketingDeal } from '@/types'
 
 const METRIC_OPTIONS: ComparisonMetric[] = ['leads', 'quotes', 'jobsWon', 'quoteValue', 'jobsWonValue']
