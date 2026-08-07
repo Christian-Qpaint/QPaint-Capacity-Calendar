@@ -26,7 +26,7 @@ import { asc, desc, eq, and, or, not, ilike, ne, notInArray, inArray, isNotNull,
 import { getDb } from '../_shared/db.js'
 import { requireCrmAccess, canAccessCrm, withErrorHandling, HttpError } from '../_shared/authz.js'
 import { stripNullsAll } from '../_shared/rows.js'
-import { buildSavedFilterSql, savedFilterReferencesField, type SavedFilterNode } from '../_shared/savedFilterSql.js'
+import { buildSavedFilterSql, savedFilterReferencesField, CRM_DEALS_SAVED_FILTER_TARGET, JOBS_SAVED_FILTER_TARGET, type SavedFilterNode } from '../_shared/savedFilterSql.js'
 import { crmPipelines, crmStages, crmFieldDefinitions, crmDeals, crmSavedFilters, crmDealStageHistory, jobs, clients } from '../../../db/schema.js'
 
 // Jobs/Jobs-Pipeline merge: a job IS its Jobs Pipeline board card now — this pipeline's "deals"
@@ -209,15 +209,17 @@ export default withErrorHandling(async (req: Request) => {
   // backs off instead of AND-ing against it and silently returning zero rows.
   const adHocReferencesStatus = rawConditions.some((c) => c.field === 'status')
 
-  let savedFilterSql: SQL | undefined
+  // Compiled to SQL per-branch below (buildSavedFilterSql(savedFilterTree, target)), not once here —
+  // the same condition tree needs different real columns depending on whether the active pipeline
+  // reads from crm_deals or jobs (see savedFilterSql.ts's two SavedFilterTarget constants).
+  let savedFilterTree: SavedFilterNode | undefined
   let savedFilterReferencesStatus = false
   if (savedFilterId) {
     const [savedFilter] = await db.select().from(crmSavedFilters).where(eq(crmSavedFilters.id, savedFilterId)).limit(1)
     if (!savedFilter) throw new HttpError(404, 'Saved filter not found')
     if (!savedFilter.supported) throw new HttpError(400, `This filter can't run here — ${savedFilter.unsupportedReason ?? 'unsupported'}`)
-    const tree = savedFilter.conditions as SavedFilterNode
-    savedFilterSql = buildSavedFilterSql(tree)
-    savedFilterReferencesStatus = savedFilterReferencesField(tree, 'status')
+    savedFilterTree = savedFilter.conditions as SavedFilterNode
+    savedFilterReferencesStatus = savedFilterReferencesField(savedFilterTree, 'status')
   }
 
   interface BoardDealRow {
@@ -265,6 +267,10 @@ export default withErrorHandling(async (req: Request) => {
       const like = `%${search}%`
       const searchOr = or(ilike(jobs.pipedriveDealTitle, like), ilike(jobs.address, like), ilike(clients.name, like))
       if (searchOr) baseConditions.push(searchOr)
+    }
+    if (savedFilterTree) {
+      const savedFilterSql = buildSavedFilterSql(savedFilterTree, JOBS_SAVED_FILTER_TARGET)
+      if (savedFilterSql) baseConditions.push(savedFilterSql)
     }
 
     const where = stageId ? and(...baseConditions, eq(jobs.stageId, stageId)) : and(...baseConditions)
@@ -351,7 +357,10 @@ export default withErrorHandling(async (req: Request) => {
       if (searchOr) baseConditions.push(searchOr)
     }
     baseConditions.push(...buildFilterConditions(rawConditions, matchMode))
-    if (savedFilterSql) baseConditions.push(savedFilterSql)
+    if (savedFilterTree) {
+      const savedFilterSql = buildSavedFilterSql(savedFilterTree, CRM_DEALS_SAVED_FILTER_TARGET)
+      if (savedFilterSql) baseConditions.push(savedFilterSql)
+    }
 
     const where = stageId ? and(...baseConditions, eq(crmDeals.stageId, stageId)) : and(...baseConditions)
     const summaryWhere = and(...baseConditions)

@@ -1,15 +1,21 @@
 // Turns a translated Pipedrive saved-filter condition tree (see crm-saved-filters-import script's
-// header comment for the translation rules) into a real SQL predicate against crm_deals — entirely
-// server-side, no live call back to Pipedrive. System fields (status, stage, value, title, dates,
-// org/person name, lost reason) compare against their real typed column; everything else is
-// assumed to be a crm_field_definitions.key and compared as text against the `fields` jsonb blob
-// via `->>` — correct for the option-id/enum/date-string shapes Pipedrive's own custom fields
-// actually store (ISO date strings sort lexicographically the same as chronologically), though a
-// hypothetical custom NUMBER field compared with < / > would sort as text, not a numeric value —
-// no filter in the initial 47-filter import needs that, so it's left as a known limitation rather
-// than solved speculatively.
+// header comment for the translation rules) into a real SQL predicate — entirely server-side, no
+// live call back to Pipedrive. System fields (status, stage, value, title, dates, org/person name,
+// lost reason) compare against their real typed column; everything else is assumed to be a
+// crm_field_definitions.key and compared as text against a `fields` jsonb blob via `->>` — correct
+// for the option-id/enum/date-string shapes Pipedrive's own custom fields actually store (ISO date
+// strings sort lexicographically the same as chronologically), though a hypothetical custom NUMBER
+// field compared with < / > would sort as text, not a numeric value — no filter in the initial
+// 47-filter import needs that, so it's left as a known limitation rather than solved speculatively.
+//
+// Parameterized by a SavedFilterTarget rather than hardcoded to crm_deals, because Jobs Pipeline
+// rows (post Jobs/Jobs-Pipeline merge) live in `jobs`, a different table/shape — same filter tree,
+// different columns underneath. A job has no real `status` column (it's implicitly always "won",
+// which is the only way a deal ever becomes a job) — CRM_DEALS_SAVED_FILTER_TARGET's `status` is a
+// real column; JOBS_SAVED_FILTER_TARGET's `constantFields.status` instead makes a `status` leaf
+// evaluate as a compile-time true/false against the literal 'won', no column involved.
 import { and, or, eq, ne, lt, lte, gt, gte, ilike, isNull, isNotNull, inArray, notInArray, sql, type SQL, type AnyColumn } from 'drizzle-orm'
-import { crmDeals } from '../../../db/schema.js'
+import { crmDeals, jobs } from '../../../db/schema.js'
 
 export type SavedFilterOperator = 'eq' | 'neq' | 'lt' | 'lte' | 'gt' | 'gte' | 'is_null' | 'is_not_null' | 'contains' | 'in' | 'not_in'
 
@@ -36,26 +42,62 @@ function isGroup(node: SavedFilterNode): node is SavedFilterGroup {
   return 'glue' in node
 }
 
-export const SYSTEM_COLUMNS: Record<string, AnyColumn> = {
-  status: crmDeals.status,
-  stageId: crmDeals.stageId,
-  pipelineId: crmDeals.pipelineId,
-  value: crmDeals.value,
-  title: crmDeals.title,
-  currency: crmDeals.currency,
-  orgName: crmDeals.orgName,
-  personName: crmDeals.personName,
-  lostReason: crmDeals.lostReason,
-  createdAt: crmDeals.createdAt,
-  wonAt: crmDeals.wonAt,
-  lostAt: crmDeals.lostAt,
-  pipedriveUpdateTime: crmDeals.pipedriveUpdateTime,
-  nextActivityDate: crmDeals.nextActivityDate,
-  activitiesCount: crmDeals.activitiesCount,
-  stageChangeTime: crmDeals.stageChangeTime,
-  expectedCloseDate: crmDeals.expectedCloseDate,
+export interface SavedFilterTarget {
+  /** Real, comparable system columns available on this target's table. */
+  columns: Record<string, AnyColumn>
+  /** jsonb column holding raw Pipedrive custom-field values (compared via ->> ), e.g. crm_deals.fields
+   * or jobs.fields. */
+  customFieldsColumn: AnyColumn
+  numericFields: Set<string>
+  /** Fields with no real column on this target — the leaf instead evaluates as a compile-time
+   * true/false against this literal value, e.g. a job's implicit status is always 'won'. */
+  constantFields?: Record<string, string>
 }
-const NUMERIC_SYSTEM_FIELDS = new Set(['value', 'activitiesCount'])
+
+export const CRM_DEALS_SAVED_FILTER_TARGET: SavedFilterTarget = {
+  columns: {
+    status: crmDeals.status,
+    stageId: crmDeals.stageId,
+    pipelineId: crmDeals.pipelineId,
+    value: crmDeals.value,
+    title: crmDeals.title,
+    currency: crmDeals.currency,
+    orgName: crmDeals.orgName,
+    personName: crmDeals.personName,
+    lostReason: crmDeals.lostReason,
+    createdAt: crmDeals.createdAt,
+    wonAt: crmDeals.wonAt,
+    lostAt: crmDeals.lostAt,
+    pipedriveUpdateTime: crmDeals.pipedriveUpdateTime,
+    nextActivityDate: crmDeals.nextActivityDate,
+    activitiesCount: crmDeals.activitiesCount,
+    stageChangeTime: crmDeals.stageChangeTime,
+    expectedCloseDate: crmDeals.expectedCloseDate,
+  },
+  customFieldsColumn: crmDeals.fields,
+  numericFields: new Set(['value', 'activitiesCount']),
+}
+
+// Jobs Pipeline rows (post Jobs/Jobs-Pipeline merge) live in `jobs`, not crm_deals — a much smaller
+// set of real system columns maps cleanly. Custom fields still work identically: `fields` is
+// migrated 1:1 from the deal onto its job at promotion time (see dealToJob.ts), same keys, same
+// shapes. Anything not listed here (currency, orgName/personName, lostReason, most of the
+// deal-activity timestamps) has no equivalent on a job and is left unsupported rather than guessed
+// at — a leaf referencing one just drops out of the filter (see buildSavedFilterSql), same
+// graceful-degradation behavior as an unrecognized field always had.
+export const JOBS_SAVED_FILTER_TARGET: SavedFilterTarget = {
+  columns: {
+    stageId: jobs.stageId,
+    value: jobs.totalValue,
+    title: jobs.pipedriveDealTitle,
+    wonAt: jobs.dateWon,
+  },
+  customFieldsColumn: jobs.fields,
+  numericFields: new Set(['value']),
+  // A job only ever exists because its deal was Won and promoted — there's no open/lost job, so
+  // `status` isn't a real column here, just always 'won'.
+  constantFields: { status: 'won' },
+}
 
 function toIsoDate(d: Date): string {
   return d.toISOString().slice(0, 10)
@@ -124,14 +166,41 @@ function resolveLeafValue(value: string, isRelativeDate?: boolean): string {
   return resolveRelativeDateToken(value) ?? value
 }
 
-function customFieldExpr(key: string) {
-  return sql`(${crmDeals.fields} ->> ${key})`
+function customFieldExpr(target: SavedFilterTarget, key: string) {
+  return sql`(${target.customFieldsColumn} ->> ${key})`
 }
 
-function leafToSql(leaf: SavedFilterLeaf): SQL | undefined {
-  const col = leaf.isCustom ? undefined : SYSTEM_COLUMNS[leaf.field]
+/** Evaluates a leaf against a compile-time constant (e.g. Jobs Pipeline's always-'won' status) in
+ * plain JS rather than SQL — there's no column to compare against, just a fixed string every row
+ * shares. Same operator semantics as the real-column path below, minus the ones that only make
+ * sense against an actual column (lt/lte/gt/gte/contains/is_null/is_not_null all collapse to a
+ * fixed true/false here since a non-null constant is never null and ordering/substring comparisons
+ * against a single-word status aren't a real Pipedrive filter shape). */
+function evalConstantLeaf(constant: string, leaf: SavedFilterLeaf): SQL {
+  const literal = (b: boolean) => (b ? sql`true` : sql`false`)
+  if (leaf.operator === 'is_null') return literal(false)
+  if (leaf.operator === 'is_not_null') return literal(true)
+  if (leaf.operator === 'in' || leaf.operator === 'not_in') {
+    const raw = Array.isArray(leaf.value) ? leaf.value : [leaf.value ?? '']
+    const values = raw.map((v) => resolveLeafValue(v, leaf.isRelativeDate))
+    const isIn = values.includes(constant)
+    return literal(leaf.operator === 'in' ? isIn : !isIn)
+  }
+  const rawValue = Array.isArray(leaf.value) ? (leaf.value[0] ?? '') : (leaf.value ?? '')
+  const value = resolveLeafValue(rawValue, leaf.isRelativeDate)
+  if (leaf.operator === 'eq') return literal(constant === value)
+  if (leaf.operator === 'neq') return literal(constant !== value)
+  return literal(false)
+}
+
+function leafToSql(leaf: SavedFilterLeaf, target: SavedFilterTarget): SQL | undefined {
+  if (!leaf.isCustom && target.constantFields?.[leaf.field] != null) {
+    return evalConstantLeaf(target.constantFields[leaf.field], leaf)
+  }
+
+  const col = leaf.isCustom ? undefined : target.columns[leaf.field]
   if (!leaf.isCustom && !col) return undefined
-  const expr = leaf.isCustom ? customFieldExpr(leaf.field) : undefined
+  const expr = leaf.isCustom ? customFieldExpr(target, leaf.field) : undefined
 
   if (leaf.operator === 'is_null') return leaf.isCustom ? sql`${expr} IS NULL` : isNull(col!)
   if (leaf.operator === 'is_not_null') return leaf.isCustom ? sql`${expr} IS NOT NULL` : isNotNull(col!)
@@ -146,7 +215,7 @@ function leafToSql(leaf: SavedFilterLeaf): SQL | undefined {
       )
       return leaf.operator === 'in' ? sql`${expr} IN (${list})` : sql`${expr} NOT IN (${list})`
     }
-    const typed = NUMERIC_SYSTEM_FIELDS.has(leaf.field) ? values.map(Number) : values
+    const typed = target.numericFields.has(leaf.field) ? values.map(Number) : values
     return leaf.operator === 'in' ? inArray(col!, typed) : notInArray(col!, typed)
   }
 
@@ -166,7 +235,7 @@ function leafToSql(leaf: SavedFilterLeaf): SQL | undefined {
     }
   }
 
-  const typedValue = NUMERIC_SYSTEM_FIELDS.has(leaf.field) ? Number(value) : value
+  const typedValue = target.numericFields.has(leaf.field) ? Number(value) : value
   switch (leaf.operator) {
     case 'eq': return eq(col!, typedValue)
     case 'neq': return ne(col!, typedValue)
@@ -179,14 +248,14 @@ function leafToSql(leaf: SavedFilterLeaf): SQL | undefined {
   }
 }
 
-export function buildSavedFilterSql(node: SavedFilterNode): SQL | undefined {
+export function buildSavedFilterSql(node: SavedFilterNode, target: SavedFilterTarget = CRM_DEALS_SAVED_FILTER_TARGET): SQL | undefined {
   if (isGroup(node)) {
-    const parts = node.conditions.map(buildSavedFilterSql).filter((x): x is SQL => !!x)
+    const parts = node.conditions.map((c) => buildSavedFilterSql(c, target)).filter((x): x is SQL => !!x)
     if (parts.length === 0) return undefined
     if (parts.length === 1) return parts[0]
     return node.glue === 'or' ? or(...parts) : and(...parts)
   }
-  return leafToSql(node)
+  return leafToSql(node, target)
 }
 
 /** Whether this filter tree already constrains the given system field anywhere in it — used by
