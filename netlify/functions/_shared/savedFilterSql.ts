@@ -39,6 +39,7 @@ function isGroup(node: SavedFilterNode): node is SavedFilterGroup {
 export const SYSTEM_COLUMNS: Record<string, AnyColumn> = {
   status: crmDeals.status,
   stageId: crmDeals.stageId,
+  pipelineId: crmDeals.pipelineId,
   value: crmDeals.value,
   title: crmDeals.title,
   currency: crmDeals.currency,
@@ -48,8 +49,13 @@ export const SYSTEM_COLUMNS: Record<string, AnyColumn> = {
   createdAt: crmDeals.createdAt,
   wonAt: crmDeals.wonAt,
   lostAt: crmDeals.lostAt,
+  pipedriveUpdateTime: crmDeals.pipedriveUpdateTime,
+  nextActivityDate: crmDeals.nextActivityDate,
+  activitiesCount: crmDeals.activitiesCount,
+  stageChangeTime: crmDeals.stageChangeTime,
+  expectedCloseDate: crmDeals.expectedCloseDate,
 }
-const NUMERIC_SYSTEM_FIELDS = new Set(['value'])
+const NUMERIC_SYSTEM_FIELDS = new Set(['value', 'activitiesCount'])
 
 function toIsoDate(d: Date): string {
   return d.toISOString().slice(0, 10)

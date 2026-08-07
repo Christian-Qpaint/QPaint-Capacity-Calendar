@@ -507,6 +507,16 @@ export const crmDeals = pgTable(
     stageEnteredAt: timestamp('stage_entered_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+    // Mirrors of Pipedrive's own deal-activity system fields — standard fields on every v1 deal
+    // payload already fetched for every sync path, just never captured as columns before. Exist
+    // specifically so saved filters referencing them (staleness/follow-up filters like "Rotten
+    // deals", "Old Deals...", "Open deals without updates...") can translate instead of being
+    // permanently unsupported — see pipedriveFilterTranslate.ts's SYSTEM_FIELD_KEY_MAP.
+    pipedriveUpdateTime: timestamp('pipedrive_update_time', { withTimezone: true, mode: 'string' }),
+    nextActivityDate: date('next_activity_date'),
+    activitiesCount: integer('activities_count'),
+    stageChangeTime: timestamp('stage_change_time', { withTimezone: true, mode: 'string' }),
+    expectedCloseDate: date('expected_close_date'),
   },
   (table) => [
     index('crm_deals_pipeline_stage_idx').on(table.pipelineId, table.stageId),

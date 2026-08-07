@@ -76,6 +76,11 @@ export default async (req: Request): Promise<Response> => {
         lostReason: deal.lost_reason ?? null,
         wonAt: status === 'won' ? (deal.won_time ?? existing.wonAt ?? new Date().toISOString()) : existing.wonAt,
         lostAt: status === 'lost' ? (deal.lost_time ?? existing.lostAt ?? new Date().toISOString()) : existing.lostAt,
+        pipedriveUpdateTime: deal.update_time ?? null,
+        nextActivityDate: deal.next_activity_date ?? null,
+        activitiesCount: deal.activities_count ?? null,
+        stageChangeTime: deal.stage_change_time ?? null,
+        expectedCloseDate: deal.expected_close_date ?? null,
         fields,
         updatedAt: new Date().toISOString(),
       })

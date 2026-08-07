@@ -20,6 +20,11 @@ export interface PipedriveDealPayload {
   won_time?: string | null
   lost_time?: string | null
   add_time?: string | null
+  update_time?: string | null
+  next_activity_date?: string | null
+  activities_count?: number | null
+  stage_change_time?: string | null
+  expected_close_date?: string | null
   [key: string]: unknown
 }
 

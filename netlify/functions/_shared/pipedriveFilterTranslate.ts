@@ -12,7 +12,7 @@
 // savedFilterSql.ts's own documented limitations. A custom field (40-char hex key) is only usable
 // if it's already mirrored in crm_field_definitions.
 import type { getDb } from './db.js'
-import { crmStages, crmFieldDefinitions } from '../../../db/schema.js'
+import { crmStages, crmPipelines, crmFieldDefinitions } from '../../../db/schema.js'
 import type { SavedFilterNode, SavedFilterOperator } from './savedFilterSql.js'
 
 export interface RawPipedriveFilterNode {
@@ -29,6 +29,7 @@ export interface RawPipedriveFilterNode {
 const OPERATOR_MAP: Record<string, SavedFilterOperator> = {
   '=': 'eq',
   '<>': 'neq',
+  '!=': 'neq',
   '<': 'lt',
   '<=': 'lte',
   '>': 'gt',
@@ -45,6 +46,7 @@ const OPERATOR_MAP: Record<string, SavedFilterOperator> = {
 const SYSTEM_FIELD_KEY_MAP: Record<string, string> = {
   status: 'status',
   stage_id: 'stageId',
+  pipeline: 'pipelineId',
   value: 'value',
   title: 'title',
   currency: 'currency',
@@ -52,6 +54,19 @@ const SYSTEM_FIELD_KEY_MAP: Record<string, string> = {
   add_time: 'createdAt',
   won_time: 'wonAt',
   lost_time: 'lostAt',
+  update_time: 'pipedriveUpdateTime',
+  next_activity_date: 'nextActivityDate',
+  activities_count: 'activitiesCount',
+  stage_change_time: 'stageChangeTime',
+  expected_close_date: 'expectedCloseDate',
+}
+
+// System fields whose Pipedrive filter value is a *numeric Pipedrive id* that needs resolving to
+// our own local uuid before it means anything as a real column comparison — same idea for both,
+// just against different lookup tables.
+const ID_RESOLVING_SYSTEM_FIELDS: Record<string, keyof Pick<TranslateContext, 'stagePipedriveIdToLocalId' | 'pipelinePipedriveIdToLocalId'>> = {
+  stageId: 'stagePipedriveIdToLocalId',
+  pipelineId: 'pipelinePipedriveIdToLocalId',
 }
 
 export class UnsupportedFilterError extends Error {}
@@ -59,6 +74,7 @@ export class UnsupportedFilterError extends Error {}
 interface TranslateContext {
   fieldIdToKey: Map<string, { key: string; name: string }>
   stagePipedriveIdToLocalId: Map<number, string>
+  pipelinePipedriveIdToLocalId: Map<number, string>
   localCustomFieldKeys: Set<string>
 }
 
@@ -66,14 +82,20 @@ export async function buildTranslateContext(
   db: ReturnType<typeof getDb>,
   fieldIdToKey: Map<string, { key: string; name: string }>,
 ): Promise<TranslateContext> {
-  const [stageRows, fieldDefRows] = await Promise.all([
+  const [stageRows, pipelineRows, fieldDefRows] = await Promise.all([
     db.select({ id: crmStages.id, pipedriveStageId: crmStages.pipedriveStageId }).from(crmStages),
+    db.select({ id: crmPipelines.id, pipedrivePipelineId: crmPipelines.pipedrivePipelineId }).from(crmPipelines),
     db.select({ key: crmFieldDefinitions.key }).from(crmFieldDefinitions),
   ])
   return {
     fieldIdToKey,
     stagePipedriveIdToLocalId: new Map(
       stageRows.filter((s): s is typeof s & { pipedriveStageId: number } => s.pipedriveStageId != null).map((s) => [s.pipedriveStageId, s.id]),
+    ),
+    pipelinePipedriveIdToLocalId: new Map(
+      pipelineRows
+        .filter((p): p is typeof p & { pipedrivePipelineId: number } => p.pipedrivePipelineId != null)
+        .map((p) => [p.pipedrivePipelineId, p.id]),
     ),
     localCustomFieldKeys: new Set(fieldDefRows.map((f) => f.key)),
   }
@@ -94,9 +116,10 @@ function translateLeaf(leaf: RawPipedriveFilterNode, ctx: TranslateContext): Sav
   const systemKey = SYSTEM_FIELD_KEY_MAP[fieldMeta.key]
   if (systemKey) {
     let value = leaf.value ?? null
-    if (systemKey === 'stageId' && typeof value === 'string') {
-      const localId = ctx.stagePipedriveIdToLocalId.get(Number(value))
-      if (!localId) throw new UnsupportedFilterError(`references a Pipedrive stage (id ${value}) that isn't mirrored locally yet`)
+    const idMapKey = ID_RESOLVING_SYSTEM_FIELDS[systemKey]
+    if (idMapKey && typeof value === 'string') {
+      const localId = ctx[idMapKey].get(Number(value))
+      if (!localId) throw new UnsupportedFilterError(`references a Pipedrive ${fieldMeta.name} (id ${value}) that isn't mirrored locally yet`)
       value = localId
     }
     return { field: systemKey, isCustom: false, operator, value }

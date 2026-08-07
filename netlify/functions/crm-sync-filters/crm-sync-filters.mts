@@ -4,7 +4,7 @@
 // can only ever be triggered manually. Exists because Pipedrive users (Tas especially) edit these
 // filters directly in Pipedrive from time to time, and those edits would otherwise never reach the
 // copy the Deals board actually runs against.
-import { eq } from 'drizzle-orm'
+import { and, eq, isNotNull, notInArray } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { requireOwnerRole, withErrorHandling, HttpError } from '../_shared/authz.js'
 import { crmSavedFilters } from '../../../db/schema.js'
@@ -53,9 +53,15 @@ export default withErrorHandling(async (req: Request) => {
   for (const [index, filterSummary] of filters.entries()) {
     const detailRes = await fetch(`https://api.pipedrive.com/v1/filters/${filterSummary.id}?api_token=${token}`)
     const detailJson = (await detailRes.json()) as PipedriveApiResponse<{ conditions: RawPipedriveFilterNode }>
-    if (!detailJson.success || !detailJson.data?.conditions) continue
 
-    const translated = translatePipedriveFilter(detailJson.data.conditions, ctx)
+    // The list endpoint can still report a filter that its own detail endpoint 404s on (seen for
+    // a couple of filters in this account — a soft-delete or visibility-group quirk on Pipedrive's
+    // side). Upsert it as unsupported with a clear reason rather than silently skipping it, which
+    // used to leave whatever stale reason text an earlier import happened to write frozen forever.
+    const translated =
+      detailJson.success && detailJson.data?.conditions
+        ? translatePipedriveFilter(detailJson.data.conditions, ctx)
+        : { supported: false, conditions: { glue: 'and' as const, conditions: [] }, reason: "Pipedrive can no longer return this filter's details (deleted or inaccessible)" }
     if (!translated.supported) unsupported++
 
     const values = {
@@ -83,7 +89,32 @@ export default withErrorHandling(async (req: Request) => {
     }
   }
 
-  return Response.json({ total: filters.length, created, updated, unsupported })
+  // A filter can vanish from Pipedrive entirely (not just fail its detail fetch — see above) and
+  // this account has a couple of exactly that: rows left over from before this sync existed, whose
+  // pipedriveFilterId no longer appears in the list at all, so the loop above never touches them —
+  // without this they'd keep showing whatever ancient reason text an early one-off import wrote,
+  // forever. Mark them clearly instead.
+  const currentIds = filters.map((f) => f.id)
+  const orphaned = await db
+    .select({ id: crmSavedFilters.id })
+    .from(crmSavedFilters)
+    .where(
+      currentIds.length > 0
+        ? and(isNotNull(crmSavedFilters.pipedriveFilterId), notInArray(crmSavedFilters.pipedriveFilterId, currentIds))
+        : isNotNull(crmSavedFilters.pipedriveFilterId),
+    )
+  for (const row of orphaned) {
+    await db
+      .update(crmSavedFilters)
+      .set({
+        supported: false,
+        unsupportedReason: 'This filter no longer exists in Pipedrive',
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(crmSavedFilters.id, row.id))
+  }
+
+  return Response.json({ total: filters.length, created, updated, unsupported, orphaned: orphaned.length })
 })
 
 export const config = {
