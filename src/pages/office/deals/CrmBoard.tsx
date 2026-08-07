@@ -278,7 +278,7 @@ function KanbanColumn({
 }
 
 export function CrmBoard() {
-  const { pipelines, stages, savedFilters, fieldDefinitions, loading, error, queryDeals, loadDealDetail, moveDealStage } = useCrmData()
+  const { pipelines, stages, savedFilters, fieldDefinitions, loading, error, queryDeals, loadDealDetail, moveDealStage, syncSavedFilters } = useCrmData()
   const { hasPermission } = usePermissions()
   const canManage = hasPermission('crm.manage')
   const canManageConfig = hasPermission('crm.manage_config')
@@ -492,6 +492,26 @@ export function CrmBoard() {
     else for (const stage of pipelineStages) fetchStagePage(stage.id, 0, false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job])
+
+  // ---- "Sync filters" — re-pulls every saved deal filter from Pipedrive on demand. There's no
+  // webhook for filter changes (Pipedrive rejects registering one), so this is the only way an
+  // edit made directly in Pipedrive (Tas especially) ever reaches the dropdown below. ----
+  const [syncingFilters, setSyncingFilters] = useState(false)
+
+  async function handleSyncFilters() {
+    setSyncingFilters(true)
+    try {
+      const result = await syncSavedFilters()
+      toast.success(
+        `Synced ${result.total} filters — ${result.created} new, ${result.updated} updated` +
+          (result.unsupported > 0 ? `, ${result.unsupported} unsupported` : ''),
+      )
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to sync filters from Pipedrive')
+    } finally {
+      setSyncingFilters(false)
+    }
+  }
 
   async function openDeal(deal: CrmDeal) {
     try {
@@ -735,6 +755,18 @@ export function CrmBoard() {
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search title, client…" className="pl-8" />
         </div>
         <SavedFilterDropdown filters={savedFilters} activeId={savedFilterId} onSelect={setSavedFilterId} />
+        {canManageConfig && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSyncFilters}
+            disabled={syncingFilters}
+            title="Pull the latest saved filters from Pipedrive — picks up anything added/edited there since the last sync"
+          >
+            <RefreshCw className={cn('size-3.5', syncingFilters && 'animate-spin')} />
+            {syncingFilters ? 'Syncing…' : 'Sync filters'}
+          </Button>
+        )}
         <Button variant="outline" size="sm" onClick={() => setFilterOpen(true)}>
           <ListFilter /> Advanced filter
           {conditions.length > 0 && <Badge variant="secondary">{conditions.length}</Badge>}
