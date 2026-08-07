@@ -13,7 +13,10 @@
 //     loop fetching all of them inside one function invocation reliably exceeded Netlify's function
 //     execution timeout, which serves an HTML error page instead of JSON on timeout (surfaced to
 //     users as "Unexpected token '<' ... is not valid JSON"). The client (crmSyncRunner.ts) drives
-//     the paging loop instead, same as it already drives the POST upsert chunking below.
+//     the paging loop instead, same as it already drives the POST upsert chunking below. For Jobs
+//     Pipeline specifically, fetchDealsPage below scans the whole account via the generic /v1/deals
+//     endpoint instead — its own dedicated /v1/pipelines/3/deals endpoint is confirmed broken on
+//     this account (returns success with zero results, not an error).
 //   POST { pipelineId, deals: RawDeal[] } — upserts one chunk of those raw deals: inserts anything
 //     not seen before, updates anything already present and still open/lost (same skip-once-Won
 //     rule as crm-deal-updated.mts), and leaves already-Won deals alone since Pipedrive stops being
@@ -45,16 +48,32 @@ interface PipedriveListResponse {
   additional_data?: { pagination?: { more_items_in_collection?: boolean; next_start?: number } }
 }
 
+// `status=all_not_deleted` is required on both endpoints below — they default to open deals only,
+// same as Pipedrive's own kanban board view. Without it, every Won/Lost deal in the pipeline is
+// silently missing from the sync (confirmed against production: a Sales Pipeline sync came back
+// with only 1 Lost deal locally against Pipedrive's real ~9,247).
+
+// This account's Jobs Pipeline specifically has a confirmed visibility-group restriction on
+// /v1/pipelines/{id}/deals — it returns `success: true` with zero results and no error (not a
+// permissions error, not empty-because-genuinely-empty; verified directly against the live API,
+// still true even with an Owner-level token), while the generic /v1/deals endpoint returns real
+// results fine. Every other pipeline uses the dedicated endpoint below as normal.
+const JOBS_PIPELINE_PIPEDRIVE_ID = 3
+
 // `pipeline_id` is NOT a recognized filter on the generic /v1/deals list endpoint — passing it
 // there is silently ignored and returns the WHOLE account's deals (confirmed against production:
-// a Business Development sync, ~7 real deals, came back with 11,864 — essentially everything).
-// /v1/pipelines/{id}/deals is the actual dedicated, correctly-scoped endpoint for this.
-//
-// `status=all_not_deleted` is required — this endpoint defaults to open deals only, same as
-// Pipedrive's own kanban board view. Without it, every Won/Lost deal in the pipeline is silently
-// missing from the sync (confirmed against production: a Sales Pipeline sync came back with only
-// 1 Lost deal locally against Pipedrive's real ~9,247).
+// a Business Development sync, ~7 real deals, came back with 11,864 — essentially everything), so
+// it's only used (with client-side filtering below) as a workaround for Jobs Pipeline's dedicated-
+// endpoint restriction above — every other pipeline uses the dedicated, correctly-scoped
+// /v1/pipelines/{id}/deals endpoint, which doesn't have this problem.
 async function fetchDealsPage(pipedrivePipelineId: number, start: number, token: string): Promise<PipedriveListResponse> {
+  if (pipedrivePipelineId === JOBS_PIPELINE_PIPEDRIVE_ID) {
+    const res = await fetch(`https://api.pipedrive.com/v1/deals?status=all_not_deleted&start=${start}&limit=500&api_token=${token}`)
+    const json = (await res.json()) as PipedriveListResponse
+    if (!json.success) throw new HttpError(502, json.error ?? 'Pipedrive API error while fetching deals')
+    return { ...json, data: (json.data ?? []).filter((d) => d.pipeline_id === pipedrivePipelineId) }
+  }
+
   const res = await fetch(
     `https://api.pipedrive.com/v1/pipelines/${pipedrivePipelineId}/deals?status=all_not_deleted&start=${start}&limit=500&api_token=${token}`,
   )

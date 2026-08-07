@@ -7,7 +7,13 @@ import { usePermissions } from '@/context/PermissionsContext'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import { useInfiniteScrollSentinel } from '@/hooks/useInfiniteScrollSentinel'
 import { useImportProgress } from '@/context/ImportProgressContext'
-import { fetchPipelineDealsFromPipedrive, chunkedSyncPipelineDeals, reconcileDeletedPipelineDeals } from '@/lib/crmSyncRunner'
+import {
+  fetchPipelineDealsFromPipedrive,
+  chunkedSyncPipelineDeals,
+  reconcileDeletedPipelineDeals,
+  chunkedSyncJobsFromPipedrive,
+  reconcileArchivedJobsPipelineDeals,
+} from '@/lib/crmSyncRunner'
 import { DealDrawer } from '@/components/crm/DealDrawer'
 import { AddDealDialog } from '@/components/crm/AddDealDialog'
 import { CrmAdvancedFilterDialog } from '@/components/crm/CrmAdvancedFilterDialog'
@@ -278,7 +284,7 @@ function KanbanColumn({
 }
 
 export function CrmBoard() {
-  const { pipelines, stages, savedFilters, fieldDefinitions, loading, error, queryDeals, loadDealDetail, moveDealStage, syncSavedFilters } = useCrmData()
+  const { pipelines, stages, savedFilters, fieldDefinitions, loading, error, queryDeals, loadDealDetail, moveDealStage } = useCrmData()
   const { hasPermission } = usePermissions()
   const canManage = hasPermission('crm.manage')
   const canManageConfig = hasPermission('crm.manage_config')
@@ -458,7 +464,7 @@ export function CrmBoard() {
   // (upserting each in chunks) runs via ImportProgressContext so it survives navigating away. ----
   const { job, runImport } = useImportProgress()
   const [syncFetching, setSyncFetching] = useState(false)
-  const lastSyncResultRef = useRef<{ created: number; updated: number; skipped: number; deleted: number } | null>(null)
+  const lastSyncResultRef = useRef<{ created: number; updated: number; skipped: number; deleted?: number; archived?: number } | null>(null)
   const handledSyncJobRef = useRef<string | null>(null)
 
   async function handleSyncPipeline() {
@@ -468,6 +474,15 @@ export function CrmBoard() {
       const { deals, total } = await fetchPipelineDealsFromPipedrive(activePipeline.id)
       const label = `Sync ${activePipeline.name} from Pipedrive`
       const started = runImport(label, total, async (onProgress) => {
+        // Jobs Pipeline writes to `jobs` (a Job IS its board card post-merge) and archives rather
+        // than deletes a Job whose Pipedrive deal disappeared — every other pipeline still writes
+        // to crm_deals and deletes outright. See jobs-sync-pipedrive.mts's header comment.
+        if (isJobsPipeline) {
+          const result = await chunkedSyncJobsFromPipedrive(activePipeline.id, deals, onProgress)
+          const { archived } = await reconcileArchivedJobsPipelineDeals(activePipeline.id, deals)
+          lastSyncResultRef.current = { ...result, archived }
+          return { imported: result.created + result.updated }
+        }
         const result = await chunkedSyncPipelineDeals(activePipeline.id, deals, onProgress)
         // Mirrors Pipedrive deletions too, using the exact set of deals just fetched above — not
         // just add/update. Runs after the upsert pass so a deal that moved pipelines mid-sync isn't
@@ -491,35 +506,13 @@ export function CrmBoard() {
     if (!job || job.status !== 'done' || !job.label.startsWith('Sync ') || handledSyncJobRef.current === job.id) return
     handledSyncJobRef.current = job.id
     const result = lastSyncResultRef.current
-    toast.success(
-      result
-        ? `Sync complete — ${result.created} new, ${result.updated} updated, ${result.skipped} skipped, ${result.deleted} removed (deleted in Pipedrive)`
-        : 'Sync complete',
-    )
+    const removalText =
+      result?.archived != null ? `${result.archived} archived (deleted in Pipedrive)` : `${result?.deleted ?? 0} removed (deleted in Pipedrive)`
+    toast.success(result ? `Sync complete — ${result.created} new, ${result.updated} updated, ${result.skipped} skipped, ${removalText}` : 'Sync complete')
     if (viewMode === 'table') fetchTablePage(0, false)
     else for (const stage of pipelineStages) fetchStagePage(stage.id, 0, false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job])
-
-  // ---- "Sync filters" — re-pulls every saved deal filter from Pipedrive on demand. There's no
-  // webhook for filter changes (Pipedrive rejects registering one), so this is the only way an
-  // edit made directly in Pipedrive (Tas especially) ever reaches the dropdown below. ----
-  const [syncingFilters, setSyncingFilters] = useState(false)
-
-  async function handleSyncFilters() {
-    setSyncingFilters(true)
-    try {
-      const result = await syncSavedFilters()
-      toast.success(
-        `Synced ${result.total} filters — ${result.created} new, ${result.updated} updated` +
-          (result.unsupported > 0 ? `, ${result.unsupported} unsupported` : ''),
-      )
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to sync filters from Pipedrive')
-    } finally {
-      setSyncingFilters(false)
-    }
-  }
 
   async function openDeal(deal: CrmDeal) {
     try {
@@ -763,18 +756,6 @@ export function CrmBoard() {
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search title, client…" className="pl-8" />
         </div>
         <SavedFilterDropdown filters={savedFilters} activeId={savedFilterId} onSelect={setSavedFilterId} />
-        {canManageConfig && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSyncFilters}
-            disabled={syncingFilters}
-            title="Pull the latest saved filters from Pipedrive — picks up anything added/edited there since the last sync"
-          >
-            <RefreshCw className={cn('size-3.5', syncingFilters && 'animate-spin')} />
-            {syncingFilters ? 'Syncing…' : 'Sync filters'}
-          </Button>
-        )}
         <Button variant="outline" size="sm" onClick={() => setFilterOpen(true)}>
           <ListFilter /> Advanced filter
           {conditions.length > 0 && <Badge variant="secondary">{conditions.length}</Badge>}
@@ -785,11 +766,12 @@ export function CrmBoard() {
           </Button>
         )}
         {/* Last button in the toolbar, deliberately — everything above narrows/reads the current
-            view; this is the one action that reaches out to Pipedrive. Not shown for Jobs
-            Pipeline — that pipeline is kept current by the one-way crm-job-updated webhook
-            instead, and this bulk sync was broken for it anyway (a Pipedrive visibility-group
-            restriction blocks bulk-listing deals, unlike a webhook's single-deal fetch). */}
-        {canManage && !isJobsPipeline && activePipeline?.pipedrivePipelineId && (
+            view; this is the one action that reaches out to Pipedrive. Available for every
+            pipeline including Jobs Pipeline (which is also kept current in real time by the
+            one-way crm-job-updated webhook — this is just an on-demand catch-up on top of that,
+            same as the other pipelines already had). handleSyncPipeline branches its write side
+            per pipeline: crm_deals for Sales/BizDev/Test, `jobs` for Jobs Pipeline. */}
+        {canManage && activePipeline?.pipedrivePipelineId && (
           <Button
             variant="outline"
             size="sm"

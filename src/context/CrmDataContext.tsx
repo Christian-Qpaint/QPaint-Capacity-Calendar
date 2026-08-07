@@ -94,7 +94,6 @@ interface CrmDataContextValue {
   /** Re-pulls every saved deal filter from Pipedrive and upserts crm_saved_filters — there's no
    * Pipedrive webhook for filter changes, so this is the only way edits made directly in Pipedrive
    * (Tas especially) ever reach the copy the Deals board runs against. Owner-only. */
-  syncSavedFilters: () => Promise<{ total: number; created: number; updated: number; unsupported: number }>
 }
 
 const CrmDataContext = createContext<CrmDataContextValue | null>(null)
@@ -245,12 +244,6 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
     setFieldDefinitions((prev) => prev.filter((f) => f.id !== id))
   }
 
-  async function syncSavedFilters() {
-    const result = await api.post<{ total: number; created: number; updated: number; unsupported: number }>('/api/crm-sync-filters', {})
-    await refetch()
-    return result
-  }
-
   return (
     <CrmDataContext.Provider
       value={{
@@ -281,7 +274,6 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
         addFieldDefinition,
         updateFieldDefinition,
         deleteFieldDefinition,
-        syncSavedFilters,
       }}
     >
       {children}
