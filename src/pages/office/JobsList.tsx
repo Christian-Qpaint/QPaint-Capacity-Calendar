@@ -262,7 +262,7 @@ export function JobsList() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-lg font-medium">Jobs List</h1>
+        <h1 className="text-lg font-medium">Won</h1>
         <div className="flex items-center gap-2">
           <div className="flex gap-1.5 rounded-md border border-border bg-card p-1">
             <Button size="sm" variant={viewMode === 'table' ? 'secondary' : 'ghost'} onClick={() => setViewMode('table')}>

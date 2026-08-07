@@ -120,7 +120,7 @@ export function JobsAdvancedFilterDialog({
 
           {draft.length === 0 && (
             <p className="rounded-md border border-dashed border-border py-6 text-center text-sm text-muted-foreground">
-              No conditions yet — add one to narrow down the Jobs List.
+              No conditions yet — add one to narrow down Won.
             </p>
           )}
 

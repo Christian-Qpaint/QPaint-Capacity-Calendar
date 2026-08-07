@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
-import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { colorForIndex } from '@/lib/marketingColors'
 import type { CrmFieldDefinition, CrmPipeline, CrmStage } from '@/types'
 
@@ -290,6 +290,91 @@ function FieldsTab() {
   )
 }
 
+function SavedFiltersTab() {
+  const { savedFilters, syncSavedFilters } = useCrmData()
+  const [syncing, setSyncing] = useState(false)
+
+  const sorted = [...savedFilters].sort((a, b) => a.order - b.order)
+  const unsupportedCount = sorted.filter((f) => !f.supported).length
+
+  async function handleSync() {
+    setSyncing(true)
+    try {
+      const result = await syncSavedFilters()
+      toast.success(
+        `Synced ${result.total} filters — ${result.created} new, ${result.updated} updated` +
+          (result.unsupported > 0 ? `, ${result.unsupported} unsupported` : ''),
+      )
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to sync filters from Pipedrive')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          Pipedrive has no live-update mechanism for filters, so edits made there (renaming, changing conditions) only
+          reach here when you sync.
+        </p>
+        <Button size="sm" onClick={handleSync} disabled={syncing}>
+          <RefreshCw className={syncing ? 'animate-spin' : undefined} /> {syncing ? 'Syncing…' : 'Sync from Pipedrive'}
+        </Button>
+      </div>
+
+      <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-xs text-muted-foreground">
+              <th className="p-3 font-medium">Name</th>
+              <th className="p-3 font-medium">Pipedrive filter</th>
+              <th className="p-3 font-medium">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((filter) => (
+              <tr key={filter.id} className="border-b border-border last:border-0">
+                <td className="p-3">{filter.name}</td>
+                <td className="p-3 text-muted-foreground">
+                  {filter.pipedriveFilterId != null ? `#${filter.pipedriveFilterId}` : 'Added locally'}
+                </td>
+                <td className="p-3">
+                  {filter.supported ? (
+                    <span className="rounded-md bg-success-bg px-2 py-0.5 text-xs font-medium text-success">Supported</span>
+                  ) : (
+                    <span
+                      className="rounded-md bg-warning-bg px-2 py-0.5 text-xs font-medium text-warning"
+                      title={filter.unsupportedReason ?? undefined}
+                    >
+                      Unsupported{filter.unsupportedReason ? ` — ${filter.unsupportedReason}` : ''}
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {sorted.length === 0 && (
+              <tr>
+                <td colSpan={3} className="p-8 text-center text-muted-foreground">
+                  No saved filters yet — click "Sync from Pipedrive" to pull them in.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {unsupportedCount > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {unsupportedCount} filter{unsupportedCount === 1 ? '' : 's'} reference something this app can't translate yet
+          (e.g. Pipeline/Owner/Organization conditions) — they still show up in the Deals board's filter dropdown, just
+          disabled with the reason.
+        </p>
+      )}
+    </div>
+  )
+}
+
 export function CrmConfig() {
   return (
     <div className="space-y-4">
@@ -298,12 +383,16 @@ export function CrmConfig() {
         <TabsList>
           <TabsTrigger value="pipelines">Pipelines & Stages</TabsTrigger>
           <TabsTrigger value="fields">Fields</TabsTrigger>
+          <TabsTrigger value="filters">Saved Filters</TabsTrigger>
         </TabsList>
         <TabsContent value="pipelines" className="pt-4">
           <PipelinesAndStagesTab />
         </TabsContent>
         <TabsContent value="fields" className="pt-4">
           <FieldsTab />
+        </TabsContent>
+        <TabsContent value="filters" className="pt-4">
+          <SavedFiltersTab />
         </TabsContent>
       </Tabs>
     </div>

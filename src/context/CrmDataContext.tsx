@@ -90,6 +90,11 @@ interface CrmDataContextValue {
   addFieldDefinition: (payload: { label: string; fieldType: CrmFieldDefinition['fieldType']; options?: { id: string; label: string }[] | null; order?: number }) => Promise<CrmFieldDefinition>
   updateFieldDefinition: (id: string, patch: { label: string; fieldType: CrmFieldDefinition['fieldType']; options?: { id: string; label: string }[] | null; order: number }) => Promise<void>
   deleteFieldDefinition: (id: string) => Promise<void>
+
+  /** Re-pulls every saved deal filter from Pipedrive and upserts crm_saved_filters — there's no
+   * Pipedrive webhook for filter changes, so this is the only way edits made directly in Pipedrive
+   * (Tas especially) ever reach the copy the Deals board runs against. Owner-only. */
+  syncSavedFilters: () => Promise<{ total: number; created: number; updated: number; unsupported: number }>
 }
 
 const CrmDataContext = createContext<CrmDataContextValue | null>(null)
@@ -240,6 +245,12 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
     setFieldDefinitions((prev) => prev.filter((f) => f.id !== id))
   }
 
+  async function syncSavedFilters() {
+    const result = await api.post<{ total: number; created: number; updated: number; unsupported: number }>('/api/crm-sync-filters', {})
+    await refetch()
+    return result
+  }
+
   return (
     <CrmDataContext.Provider
       value={{
@@ -270,6 +281,7 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
         addFieldDefinition,
         updateFieldDefinition,
         deleteFieldDefinition,
+        syncSavedFilters,
       }}
     >
       {children}

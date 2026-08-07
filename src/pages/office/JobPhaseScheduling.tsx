@@ -57,7 +57,7 @@ export function JobPhaseScheduling() {
     return (
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">Job not found.</p>
-        <Button variant="secondary" onClick={() => navigate('/jobs')}>Back to Jobs List</Button>
+        <Button variant="secondary" onClick={() => navigate('/jobs')}>Back to Won</Button>
       </div>
     )
   }
@@ -83,7 +83,7 @@ export function JobPhaseScheduling() {
   return (
     <div className="space-y-6">
       <Button variant="ghost" size="sm" onClick={() => navigate('/jobs')} className="-ml-2">
-        <ArrowLeft /> Back to Jobs List
+        <ArrowLeft /> Back to Won
       </Button>
 
       <Card className="gap-3 p-5">

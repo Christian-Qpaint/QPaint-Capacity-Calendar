@@ -23,14 +23,14 @@ export interface PermissionDef {
   defaultForRole: (role: Role) => boolean
 }
 
-export const PERMISSION_PAGES = ['Deals', 'Jobs', 'Scheduler', 'Sales', 'Production', 'Marketing', 'Settings', 'Field'] as const
+export const PERMISSION_PAGES = ['Deals', 'Won', 'Scheduler', 'Sales', 'Production', 'Marketing', 'Settings', 'Field'] as const
 
 export const PERMISSION_CATALOG: PermissionDef[] = [
-  // Jobs (view-only production tracking, at /jobs — job records themselves are now managed from
+  // Won (view-only production tracking, at /jobs — job records themselves are now managed from
   // the Deals CRM; this page still owns schedule-block/phase CRUD, which is unrelated)
-  { key: 'jobs.view', page: 'Jobs', label: 'View Jobs page', description: 'Open the Jobs list at all.', defaultForRole: isOfficeRole },
-  { key: 'jobs.manage', page: 'Jobs', label: 'Schedule phases', description: 'Add, edit, or delete schedule phases from the Jobs page.', defaultForRole: isOfficeRole },
-  { key: 'jobs.view_financials', page: 'Jobs', label: 'View job values ($)', description: 'See job dollar values rather than a masked/blank figure.', defaultForRole: hasFinancialAccess },
+  { key: 'jobs.view', page: 'Won', label: 'View Won page', description: 'Open the Won list at all.', defaultForRole: isOfficeRole },
+  { key: 'jobs.manage', page: 'Won', label: 'Schedule phases', description: 'Add, edit, or delete schedule phases from the Won page.', defaultForRole: isOfficeRole },
+  { key: 'jobs.view_financials', page: 'Won', label: 'View job values ($)', description: 'See job dollar values rather than a masked/blank figure.', defaultForRole: hasFinancialAccess },
 
   // Deals (the CRM pipeline board, at /deals) — the 'admin' role exists specifically for this: full
   // Deals access (view/manage/financials) with nothing else granted by default, for someone whose

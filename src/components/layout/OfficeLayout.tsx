@@ -7,7 +7,7 @@ import { usePermissions } from '@/context/PermissionsContext'
 
 const NAV_ITEMS: { to: string; label: string; permissionKey: string }[] = [
   { to: '/deals', label: 'Deals', permissionKey: 'crm.view' },
-  { to: '/jobs', label: 'Jobs', permissionKey: 'jobs.view' },
+  { to: '/jobs', label: 'Won', permissionKey: 'jobs.view' },
   { to: '/calendar', label: 'Scheduler', permissionKey: 'scheduler.view' },
   { to: '/sales', label: 'Sales', permissionKey: 'sales.view_availability' },
   { to: '/capacity', label: 'Production', permissionKey: 'production.view' },
