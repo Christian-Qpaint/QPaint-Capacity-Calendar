@@ -29,6 +29,11 @@ const PAGE_SIZE = 50
 // Matches crm-data.mts's own SALES_PIPELINE_PIPEDRIVE_ID — the "Show Won"/"Show Lost" toggles only
 // apply there, since that's the only pipeline whose Won/Lost deals are hidden by default.
 const SALES_PIPELINE_PIPEDRIVE_ID = 2
+// Matches crm-data.mts's own JOBS_PIPELINE_PIPEDRIVE_ID — this pipeline's rows are `jobs` shaped
+// as CrmDeal objects (see CrmDeal.isJob), not real crm_deals rows. "Add deal" and "Sync from
+// Pipedrive" don't apply here (superseded by the one-way crm-job-updated webhook); the deal
+// drawer branches its own actions per-row via `deal.isJob`.
+const JOBS_PIPELINE_PIPEDRIVE_ID = 3
 
 const STATUS_STYLES: Record<CrmDeal['status'], string> = {
   open: 'bg-info-bg text-info',
@@ -315,6 +320,7 @@ export function CrmBoard() {
   const activePipelineId = pipelineId && sortedPipelines.some((p) => p.id === pipelineId) ? pipelineId : (sortedPipelines[0]?.id ?? '')
   const activePipeline = sortedPipelines.find((p) => p.id === activePipelineId)
   const isSalesPipeline = activePipeline?.pipedrivePipelineId === SALES_PIPELINE_PIPEDRIVE_ID
+  const isJobsPipeline = activePipeline?.pipedrivePipelineId === JOBS_PIPELINE_PIPEDRIVE_ID
 
   const pipelineStages = useMemo(
     () => stages.filter((s) => s.pipelineId === activePipelineId).sort((a, b) => a.order - b.order),
@@ -489,7 +495,7 @@ export function CrmBoard() {
 
   async function openDeal(deal: CrmDeal) {
     try {
-      const full = await loadDealDetail(deal.id)
+      const full = await loadDealDetail(deal.id, deal.isJob)
       setSelectedDeal(full)
     } catch {
       setSelectedDeal(deal) // fall back to the light row rather than nothing
@@ -564,7 +570,7 @@ export function CrmBoard() {
     }
     if (!deal || !sourceStageId || sourceStageId === targetStageId) return
     try {
-      const { promoted, promotionSkippedReason, deal: updated } = await moveDealStage(dealId, targetStageId)
+      const { promoted, promotionSkippedReason, deal: updated } = await moveDealStage(dealId, targetStageId, deal.isJob)
       const value = updated.value ?? 0
       setColumnState((prev) => {
         const next = { ...prev }
@@ -656,7 +662,7 @@ export function CrmBoard() {
               <Settings2 /> Configure
             </Button>
           )}
-          {canManage && (
+          {canManage && !isJobsPipeline && (
             <Button size="sm" onClick={() => setAddDialogState({ open: true, stageId: pipelineStages[0]?.id })}>
               <Plus /> Add deal
             </Button>
@@ -739,8 +745,11 @@ export function CrmBoard() {
           </Button>
         )}
         {/* Last button in the toolbar, deliberately — everything above narrows/reads the current
-            view; this is the one action that reaches out to Pipedrive. */}
-        {canManage && activePipeline?.pipedrivePipelineId && (
+            view; this is the one action that reaches out to Pipedrive. Not shown for Jobs
+            Pipeline — that pipeline is kept current by the one-way crm-job-updated webhook
+            instead, and this bulk sync was broken for it anyway (a Pipedrive visibility-group
+            restriction blocks bulk-listing deals, unlike a webhook's single-deal fetch). */}
+        {canManage && !isJobsPipeline && activePipeline?.pipedrivePipelineId && (
           <Button
             variant="outline"
             size="sm"

@@ -130,6 +130,11 @@ export const clients = pgTable('clients', {
   name: text('name').notNull(),
   type: clientTypeEnum('type').notNull(),
   contactInfo: text('contact_info').notNull().default(''),
+  // Synced one-way from the Pipedrive deal's linked Person (primary phone/email) — see
+  // _shared/pipedriveApi.ts's extractPrimaryContact. Null until a deal with a linked contact has
+  // produced or updated this client.
+  phone: text('phone'),
+  email: text('email'),
 })
 
 export const contractors = pgTable('contractors', {
@@ -193,14 +198,27 @@ export const jobs = pgTable('jobs', {
   totalValue: numeric('total_value', { mode: 'number' }).notNull().default(0),
   targetHours: numeric('target_hours', { mode: 'number' }).notNull(),
   dateWon: date('date_won').notNull(),
-  pipedriveStageId: integer('pipedrive_stage_id'),
   pipedriveDealTitle: text('pipedrive_deal_title'),
-  actualHoursOverride: numeric('actual_hours_override', { mode: 'number' }),
-  actualHoursSource: text('actual_hours_source').notNull().default('computed'),
+  // Sourced directly from Pipedrive's "Actual Hours to Date" custom field — no manual override
+  // (unlike productionPercentOverride below). Null until Pipedrive has ever reported a value.
+  actualHours: numeric('actual_hours', { mode: 'number' }),
   productionPercentOverride: numeric('production_percent_override', { mode: 'number' }),
   productionPercentSource: text('production_percent_source').notNull().default('computed'),
+  // Jobs/Jobs-Pipeline merge: a job IS its Jobs Pipeline board card now, not a separate row linked
+  // via crm_deals.jobId. `stageId` is the live, single source of truth for where this job sits on
+  // that board (Admin -> ... -> All Done & Paid) — reuses the same crm_stages rows, including their
+  // rot-threshold/autoHideAfterDays config. Null only for jobs not yet placed on the board (rare,
+  // legacy backfill edge cases).
+  stageId: uuid('stage_id').references(() => crmStages.id, { onDelete: 'restrict' }),
+  stageEnteredAt: timestamp('stage_entered_at', { withTimezone: true, mode: 'string' }),
+  // Custom Pipedrive field values for this job's Jobs Pipeline deal, same shape/keys as
+  // crm_deals.fields — migrated across when a Jobs Pipeline deal is folded into its job.
+  fields: jsonb('fields').$type<Record<string, unknown>>().notNull().default({}),
+  // Manual "archive" for the Jobs Pipeline board — deliberately never a delete. Hidden from the
+  // board's default view (alongside the existing autoHideAfterDays age-based hiding) but never
+  // excluded from the Capacity Calendar, which must keep showing every job regardless of this.
+  archivedAt: timestamp('archived_at', { withTimezone: true, mode: 'string' }),
 }, (table) => [
-  check('jobs_actual_hours_source_check', sql`${table.actualHoursSource} in ('computed', 'manual')`),
   check('jobs_production_percent_source_check', sql`${table.productionPercentSource} in ('computed', 'manual')`),
 ])
 
@@ -469,6 +487,12 @@ export const crmDeals = pgTable(
     pipedriveDealId: text('pipedrive_deal_id').unique(),
     orgName: text('org_name'),
     personName: text('person_name'),
+    // Primary phone/email off the deal's linked Person (Pipedrive's person_id.phone/email arrays)
+    // — see _shared/pipedriveApi.ts's extractPrimaryContact. Carried onto the produced Job's
+    // client record at promotion time (createOrAdoptJobFromDeal) and kept live afterward
+    // (syncJobFieldsFromDeal), same as personName/orgName.
+    personPhone: text('person_phone'),
+    personEmail: text('person_email'),
     lostReason: text('lost_reason'),
     wonAt: timestamp('won_at', { withTimezone: true, mode: 'string' }),
     lostAt: timestamp('lost_at', { withTimezone: true, mode: 'string' }),
@@ -503,9 +527,12 @@ export const crmDealStageHistory = pgTable(
   'crm_deal_stage_history',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    dealId: uuid('deal_id')
-      .notNull()
-      .references(() => crmDeals.id, { onDelete: 'cascade' }),
+    // Exactly one of dealId/jobId is set (see the check constraint below) — this table now tracks
+    // stage stints for both pre-promotion crm_deals rows (Sales/Business Development) AND
+    // post-merge jobs rows (Jobs Pipeline, which no longer has its own separate deal row). Nullable
+    // specifically so a row can belong to either without a second parallel history table.
+    dealId: uuid('deal_id').references(() => crmDeals.id, { onDelete: 'cascade' }),
+    jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'cascade' }),
     stageId: uuid('stage_id')
       .notNull()
       .references(() => crmStages.id, { onDelete: 'cascade' }),
@@ -515,6 +542,11 @@ export const crmDealStageHistory = pgTable(
   (table) => [
     index('crm_deal_stage_history_deal_idx').on(table.dealId),
     index('crm_deal_stage_history_stage_idx').on(table.stageId),
+    index('crm_deal_stage_history_job_idx').on(table.jobId),
+    check(
+      'crm_deal_stage_history_exactly_one_owner',
+      sql`(${table.dealId} is not null and ${table.jobId} is null) or (${table.dealId} is null and ${table.jobId} is not null)`,
+    ),
   ],
 )
 

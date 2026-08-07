@@ -35,6 +35,11 @@ export interface Client {
   name: string
   type: ClientType
   contactInfo: string
+  /** Synced one-way from the Pipedrive deal's linked Person (primary phone/email) — see
+   * _shared/pipedriveApi.ts's extractPrimaryContact. Absent until a deal with a linked contact
+   * has produced or updated this client. */
+  phone?: string | null
+  email?: string | null
 }
 
 export type JobCategory = 'Residential' | 'Government' | 'Corporate' | 'Commercial' | 'QPaint' | 'Work Projects' | 'Other'
@@ -48,15 +53,28 @@ export interface Job {
   totalValue: number // [financial]
   targetHours: number // [operational] — locked at deal acceptance
   dateWon: string // ISO date
-  /** Current Pipedrive Jobs Pipeline stage id — the Jobs List filters on this; null for jobs never synced from Pipedrive. */
-  pipedriveStageId?: number
   /** The deal's own title from Pipedrive, e.g. "41466 - 11 Dawson Street, Yeerongpilly (Genivieve Place CTS27991)" — already Quote-ID-prefixed in Pipedrive's own naming convention. */
   pipedriveDealTitle?: string
-  /** Manual override for Actual/Logged Hours — set only when actualHoursSource is 'manual'. When
-   * 'computed', Actual Hours is the sum of real daily_hours_entries logged against this job's
-   * schedule blocks (see getJobActualHours in dataAccess.ts). */
-  actualHoursOverride?: number
-  actualHoursSource: 'computed' | 'manual'
+  /** The job's current stage — a real crm_stages row, same table the Deals board's Kanban columns
+   * use. Points at a Jobs Pipeline stage for a job that lives on that board, or at a Sales/Business
+   * Development stage for a job promoted from one of those pipelines (kept live by
+   * syncJobStageDisplay as that deal keeps moving). Absent (stripped, like every other nullable
+   * column here) until first assigned. */
+  stageId?: string | null
+  /** When the job last actually changed stage — CrmBoard-style auto-hide reads this the same way
+   * crm_deals.stageEnteredAt does. Absent alongside stageId. */
+  stageEnteredAt?: string | null
+  /** Manual archive flag — hides the job from the Jobs List's default view but never from the
+   * Capacity Calendar. Same column/semantics as CrmDeal.archivedAt (job-shaped deals). */
+  archivedAt?: string | null
+  /** Custom field values copied from the originating deal (Jobs Pipeline's own fields, or the
+   * Sales/BizDev deal's fields at promotion time) — keyed by CrmFieldDefinition.key. Always
+   * present (defaults to `{}`, so never stripped like the nullable columns above). */
+  fields: Record<string, unknown>
+  /** Actual hours worked to date — sourced directly from Pipedrive's "Actual Hours to Date"
+   * custom field (see FIELD_ACTUAL_HOURS in dealToJob.ts), never manually editable here. Absent
+   * until Pipedrive has ever reported a value for this job's deal. */
+  actualHours?: number | null
   /** Manual override for Production % — set only when productionPercentSource is 'manual'. When
    * 'computed', Production % is derived from each phase's Progress% weighted by that phase's $
    * value (see getJobProgress in dataAccess.ts). */
@@ -326,6 +344,13 @@ export interface CrmDeal {
   wonAt: string | null // ISO timestamp
   lostAt: string | null // ISO timestamp
   jobId: string | null // set once promoted to a real Job
+  // True for a row on the Jobs Pipeline board — these are `jobs` rows shaped to look like a
+  // CrmDeal (Jobs/Jobs-Pipeline merge), not a real crm_deals row. `id`/`jobId` are the same value
+  // for these; several deal-only actions (mark won/lost, retry promotion, real delete) don't apply.
+  isJob?: boolean
+  // Manual archive flag, job-shaped rows only — hides from the Pipeline board's default view but
+  // never from the Capacity Calendar. Undefined for real (non-job) deals.
+  archivedAt?: string | null
   // When the deal last actually changed stage — not the same as updatedAt, which also moves on
   // plain field edits. CrmBoard.tsx measures "days sitting in this stage" against this.
   stageEnteredAt: string // ISO timestamp

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useData } from '@/context/DataContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
 import { usePersistedState } from '@/hooks/usePersistedState'
-import { allKnownStageIds, stageColor, stageLabel } from '@/lib/pipedriveStages'
+import { stageColor, stageLabel } from '@/lib/pipedriveStages'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -33,6 +33,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Columns3,
+  Eye,
+  EyeOff,
   ListFilter,
   MapPin,
   Plus,
@@ -41,7 +43,7 @@ import {
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { ClientType } from '@/types'
+import type { ClientType, CrmStage, Job } from '@/types'
 
 const PAGE_SIZE_OPTIONS = [10, 50, 100] as const
 type PageSize = (typeof PAGE_SIZE_OPTIONS)[number] | 'all'
@@ -138,8 +140,20 @@ function JobKanbanCard({
   )
 }
 
+// Same "archive after N days sitting in a stage" rule crm-data.mts applies to the Deals board,
+// evaluated client-side here since every job is already loaded via DataContext. A job with no
+// stage yet (never assigned one) is never hidden by this — there's no signal to hide it on.
+function isHiddenByDefault(job: Job, stageById: Map<string, CrmStage>): boolean {
+  if (job.archivedAt) return true
+  if (!job.stageId || !job.stageEnteredAt) return false
+  const stage = stageById.get(job.stageId)
+  if (stage?.autoHideAfterDays == null) return false
+  const cutoff = Date.now() - stage.autoHideAfterDays * 86_400_000
+  return new Date(job.stageEnteredAt).getTime() < cutoff
+}
+
 export function JobsList() {
-  const { jobs, clients, scheduleBlocks } = useData()
+  const { jobs, clients, scheduleBlocks, jobStages } = useData()
   const da = useDataAccess()
   const navigate = useNavigate()
 
@@ -153,10 +167,18 @@ export function JobsList() {
   const [pageSize, setPageSize] = usePersistedState<PageSize>('qpaint:jobsList:pageSize', 10)
   const [page, setPage] = usePersistedState('qpaint:jobsList:page', 1)
   const [viewMode, setViewMode] = usePersistedState<ViewMode>('qpaint:jobsList:viewMode', 'table')
+  // Not persisted — same "temporary look-something-up need" reasoning as CrmBoard.tsx's own
+  // showArchived toggle, not a lasting view preference.
+  const [showArchived, setShowArchived] = useState(false)
 
-  // Every synced job shows up here, and can be scheduled onto the Calendar, regardless of its
-  // Pipedrive stage — so nothing is ever invisible or un-addable purely because of its stage.
-  const visibleJobs = jobs.filter((j) => j.pipedriveStageId != null)
+  const stageById = useMemo(() => new Map(jobStages.map((s) => [s.id, s])), [jobStages])
+  const hasArchivableStage = useMemo(() => jobStages.some((s) => s.autoHideAfterDays != null), [jobStages])
+
+  // Every job appears here and can be scheduled onto the Calendar regardless of this filter — the
+  // Capacity Calendar/booking modal read `jobs` straight from DataContext, completely unaffected.
+  // Archiving (manual, or auto after a stage's configured age) only hides a job from this page's
+  // default view.
+  const visibleJobs = showArchived ? jobs : jobs.filter((j) => !isHiddenByDefault(j, stageById))
 
   const rows: JobFilterContext[] = useMemo(
     () =>
@@ -186,35 +208,42 @@ export function JobsList() {
         r.jobName.toLowerCase().includes(q) ||
         r.job.category.toLowerCase().includes(q) ||
         r.status.toLowerCase().includes(q) ||
-        stageLabel(r.job.pipedriveStageId).toLowerCase().includes(q),
+        stageLabel(stageById.get(r.job.stageId ?? '')).toLowerCase().includes(q),
     )
-  }, [rows, search])
+  }, [rows, search, stageById])
 
   const filtered = useMemo(() => applyConditions(searched, conditions, matchMode), [searched, conditions, matchMode])
   const displayed = useMemo(() => sortRows(filtered, sort), [filtered, sort])
 
   // Kanban groups the same filtered/searched/sorted set the table uses — just re-bucketed by
-  // stage instead of paginated, so both views always agree on which jobs are in scope.
+  // stage instead of paginated, so both views always agree on which jobs are in scope. Grouped by
+  // stageId (uuid, '' for "no stage yet") rather than the old pipedriveStageId int.
   const kanbanColumns = useMemo(() => {
-    const byStage = new Map<number, JobFilterContext[]>()
+    const byStage = new Map<string, JobFilterContext[]>()
     for (const row of displayed) {
-      const id = row.job.pipedriveStageId ?? -1
+      const id = row.job.stageId ?? ''
       if (!byStage.has(id)) byStage.set(id, [])
       byStage.get(id)!.push(row)
     }
     return Array.from(byStage.entries())
-      .sort(([a], [b]) => a - b)
+      .sort(([a], [b]) => (stageById.get(a)?.order ?? Infinity) - (stageById.get(b)?.order ?? Infinity))
       .map(([stageId, columnRows]) => ({
         stageId,
+        stage: stageById.get(stageId),
         rows: columnRows,
         totalValue: columnRows.reduce((sum, r) => sum + r.job.totalValue, 0),
       }))
-  }, [displayed])
+  }, [displayed, stageById])
 
-  const stageOptions = useMemo(
-    () => allKnownStageIds(jobs).map((id) => ({ value: String(id), label: stageLabel(id) })),
-    [jobs],
-  )
+  // Every stage some currently-loaded job actually sits in — not the full jobStages list, so the
+  // filter dropdown doesn't offer Sales/BizDev stages no job has ever synced against.
+  const stageOptions = useMemo(() => {
+    const usedIds = new Set(jobs.map((j) => j.stageId).filter((id): id is string => !!id))
+    return jobStages
+      .filter((s) => usedIds.has(s.id))
+      .sort((a, b) => a.order - b.order)
+      .map((s) => ({ value: s.id, label: s.name, color: s.color }))
+  }, [jobs, jobStages])
 
   const totalPages = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(displayed.length / pageSize))
   const safePage = Math.min(page, totalPages)
@@ -252,6 +281,17 @@ export function JobsList() {
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
+        {hasArchivableStage && (
+          <Button
+            variant={showArchived ? 'secondary' : 'outline'}
+            size="sm"
+            onClick={() => setShowArchived((v) => !v)}
+            title="Archived jobs (manually, or auto after sitting long in a stage) are hidden by default — toggle to bring them back into view"
+          >
+            {showArchived ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+            {showArchived ? 'Showing Archived' : 'Show Archived'}
+          </Button>
+        )}
         <div className="relative w-full max-w-xs">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -333,7 +373,7 @@ export function JobsList() {
                     <CategoryPill category={job.category} />
                   </TableCell>
                   <TableCell>
-                    <StagePill stageId={job.pipedriveStageId} />
+                    <StagePill stage={stageById.get(job.stageId ?? '')} />
                   </TableCell>
                   <TableCell>{formatCurrency(job.totalValue)}</TableCell>
                   <TableCell>
@@ -428,17 +468,17 @@ export function JobsList() {
               {visibleJobs.length === 0 ? 'No jobs yet — they appear here automatically once a deal is won.' : 'No jobs match your search / filter.'}
             </p>
           )}
-          {kanbanColumns.map(({ stageId, rows: columnRows, totalValue }) => {
+          {kanbanColumns.map(({ stageId, stage, rows: columnRows, totalValue }) => {
             return (
               <div
-                key={stageId}
+                key={stageId || 'none'}
                 className="flex w-72 shrink-0 flex-col rounded-lg border border-border bg-muted/30 border-t-4"
-                style={{ borderTopColor: stageColor(stageId) }}
+                style={{ borderTopColor: stageColor(stage) }}
               >
                 <div className="space-y-0.5 border-b border-border p-3">
                   <p className="flex items-center gap-1.5 text-sm font-medium">
-                    <StageColorDot stageId={stageId} />
-                    <span className="truncate">{stageLabel(stageId)}</span>
+                    <StageColorDot stage={stage} />
+                    <span className="truncate">{stageLabel(stage)}</span>
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {columnRows.length} job{columnRows.length === 1 ? '' : 's'} · {formatCurrency(totalValue)}

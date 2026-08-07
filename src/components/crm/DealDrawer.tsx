@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { ArrowUpRight, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, ArrowUpRight, Trash2 } from 'lucide-react'
 import type { CrmDeal } from '@/types'
 
 const STATUS_STYLES: Record<CrmDeal['status'], string> = {
@@ -69,7 +69,8 @@ export function DealDrawer({
   onDealUpdated?: (deal: CrmDeal) => void
   onDealDeleted?: (id: string) => void
 }) {
-  const { stages, fieldDefinitions, updateDeal, moveDealStage, markDealWon, markDealLost, createJobFromDeal, deleteDeal } = useCrmData()
+  const { stages, fieldDefinitions, updateDeal, moveDealStage, markDealWon, markDealLost, createJobFromDeal, deleteDeal, archiveJob, unarchiveJob } =
+    useCrmData()
   const { hasPermission } = usePermissions()
   const canManage = hasPermission('crm.manage')
 
@@ -111,19 +112,23 @@ export function DealDrawer({
     try {
       let latest = currentDeal
       if (stageId !== currentDeal.stageId) {
-        const { promoted, promotionSkippedReason, deal: movedDeal } = await moveDealStage(currentDeal.id, stageId)
+        const { promoted, promotionSkippedReason, deal: movedDeal } = await moveDealStage(currentDeal.id, stageId, currentDeal.isJob)
         latest = movedDeal
         if (promoted) toast.success('Moved to a Won stage — a Job was created')
         else if (promotionSkippedReason) toast.warning(`Moved, but couldn't create a Job yet: ${promotionSkippedReason}`)
       }
-      latest = await updateDeal(currentDeal.id, {
-        title: title.trim(),
-        value: Number(value) || 0,
-        currency: 'AUD',
-        orgName: orgName.trim() || undefined,
-        personName: personName.trim() || undefined,
-        fields,
-      })
+      latest = await updateDeal(
+        currentDeal.id,
+        {
+          title: title.trim(),
+          value: Number(value) || 0,
+          currency: 'AUD',
+          orgName: orgName.trim() || undefined,
+          personName: personName.trim() || undefined,
+          fields,
+        },
+        currentDeal.isJob,
+      )
       setCurrentDeal(latest)
       onDealUpdated?.(latest)
       toast.success('Deal updated')
@@ -189,6 +194,22 @@ export function DealDrawer({
     }
   }
 
+  // Jobs are never deleted — archiving just hides them from the Jobs Pipeline board's default
+  // view (same "Show Archived" toggle that already exists for the auto-hide-after-days stages).
+  // The Capacity Calendar always shows every job regardless of this flag.
+  async function handleArchiveToggle() {
+    if (!currentDeal) return
+    try {
+      const updated = currentDeal.archivedAt ? await unarchiveJob(currentDeal.id) : await archiveJob(currentDeal.id)
+      setCurrentDeal(updated)
+      onDealUpdated?.(updated)
+      toast.success(currentDeal.archivedAt ? 'Job unarchived' : 'Job archived')
+      setConfirmDelete(false)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to update archive status')
+    }
+  }
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="p-0 sm:max-w-md">
@@ -206,14 +227,17 @@ export function DealDrawer({
             <span className={`inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLES[currentDeal.status]}`}>
               {currentDeal.status === 'open' ? 'Open' : currentDeal.status === 'won' ? 'Won' : 'Lost'}
             </span>
-            {currentDeal.status === 'open' && canManage && (
+            {!currentDeal.isJob && currentDeal.status === 'open' && canManage && (
               <>
                 <Button size="xs" variant="outline" onClick={handleMarkWon}>Mark Won</Button>
                 <Button size="xs" variant="outline" onClick={() => setLostReasonPrompt(true)}>Mark Lost</Button>
               </>
             )}
-            {currentDeal.status === 'won' && !currentDeal.jobId && (
+            {!currentDeal.isJob && currentDeal.status === 'won' && !currentDeal.jobId && (
               <span className="text-xs text-warning">No Job yet — set Target Hours below, then Copy to Jobs</span>
+            )}
+            {currentDeal.isJob && currentDeal.archivedAt && (
+              <span className="text-xs text-warning">Archived — hidden from the Jobs Pipeline board by default</span>
             )}
           </div>
 
@@ -286,12 +310,17 @@ export function DealDrawer({
         </div>
 
         <SheetFooter className="flex-row justify-between border-t border-border">
-          {canManage ? (
+          {!canManage ? (
+            <span />
+          ) : currentDeal.isJob ? (
+            <Button variant="outline" onClick={handleArchiveToggle}>
+              {currentDeal.archivedAt ? <ArchiveRestore /> : <Archive />}
+              {currentDeal.archivedAt ? 'Unarchive' : 'Archive'}
+            </Button>
+          ) : (
             <Button variant="ghost" className="text-danger hover:bg-danger-bg hover:text-danger" onClick={() => setConfirmDelete(true)}>
               <Trash2 /> Delete
             </Button>
-          ) : (
-            <span />
           )}
           <div className="flex items-center gap-2">
             {currentDeal.jobId ? (
@@ -299,6 +328,7 @@ export function DealDrawer({
                 View Job <ArrowUpRight />
               </Button>
             ) : (
+              !currentDeal.isJob &&
               currentDeal.status === 'won' &&
               canManage && (
                 <Button variant="outline" size="sm" onClick={handleCreateJob} disabled={creatingJob}>

@@ -22,9 +22,11 @@ import {
   CalendarRange,
   CheckCircle2,
   Clock,
+  Mail,
   MapPin,
   MoreHorizontal,
   Pencil,
+  Phone,
   Plus,
   RefreshCw,
   Trash2,
@@ -92,6 +94,20 @@ export function JobPhaseScheduling() {
               {jobDisplayName(job)}
             </p>
             <p className="text-sm text-muted-foreground">{client?.name ?? 'Unknown client'}</p>
+            {(client?.phone || client?.email) && (
+              <p className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                {client.phone && (
+                  <span className="flex items-center gap-1">
+                    <Phone className="size-3" /> {client.phone}
+                  </span>
+                )}
+                {client.email && (
+                  <span className="flex items-center gap-1">
+                    <Mail className="size-3" /> {client.email}
+                  </span>
+                )}
+              </p>
+            )}
           </div>
           <span className="rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">{job.category}</span>
         </div>

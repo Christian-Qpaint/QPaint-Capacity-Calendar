@@ -196,12 +196,11 @@ export function mapJob(r: any): Job {
     totalValue: r.total_value,
     targetHours: r.target_hours,
     dateWon: r.date_won,
-    pipedriveStageId: r.pipedrive_stage_id ?? undefined,
     pipedriveDealTitle: r.pipedrive_deal_title ?? undefined,
-    actualHoursOverride: r.actual_hours_override ?? undefined,
-    actualHoursSource: r.actual_hours_source ?? 'computed',
+    actualHours: r.actual_hours ?? undefined,
     productionPercentOverride: r.production_percent_override ?? undefined,
     productionPercentSource: r.production_percent_source ?? 'computed',
+    fields: r.fields ?? {},
   }
 }
 export function jobToRow(j: Omit<Job, 'id'>) {
@@ -213,12 +212,11 @@ export function jobToRow(j: Omit<Job, 'id'>) {
     total_value: j.totalValue,
     target_hours: j.targetHours,
     date_won: j.dateWon,
-    pipedrive_stage_id: j.pipedriveStageId ?? null,
     pipedrive_deal_title: j.pipedriveDealTitle ?? null,
-    actual_hours_override: j.actualHoursOverride ?? null,
-    actual_hours_source: j.actualHoursSource,
+    actual_hours: j.actualHours ?? null,
     production_percent_override: j.productionPercentOverride ?? null,
     production_percent_source: j.productionPercentSource,
+    fields: j.fields,
   }
 }
 

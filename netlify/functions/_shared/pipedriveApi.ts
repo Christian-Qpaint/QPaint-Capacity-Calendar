@@ -37,6 +37,26 @@ interface FieldDefLike {
   fieldType: string
 }
 
+interface PipedriveContactPoint {
+  value: string
+  primary: boolean
+}
+
+/** Pulls the primary phone/email off a deal's linked Person — Pipedrive's v1 deal response embeds
+ * `person_id` as a full object (name/email[]/phone[]/...) whenever a contact is linked, not just
+ * the bare id. Falls back to the first entry if none is flagged primary; returns nulls if there's
+ * no linked person at all (person_id absent, or still just a bare id number on a stale/unlinked
+ * deal). Shared by every Pipedrive sync path so "contact details" means the same thing everywhere:
+ * Jobs Pipeline's ongoing webhook, and Sales/Business Development's create/update/bulk-sync. */
+export function extractPrimaryContact(deal: PipedriveDealPayload): { phone: string | null; email: string | null } {
+  const person = deal.person_id
+  if (!person || typeof person !== 'object') return { phone: null, email: null }
+  const p = person as { phone?: PipedriveContactPoint[]; email?: PipedriveContactPoint[] }
+  const phone = p.phone?.find((c) => c.primary)?.value ?? p.phone?.[0]?.value ?? null
+  const email = p.email?.find((c) => c.primary)?.value ?? p.email?.[0]?.value ?? null
+  return { phone, email }
+}
+
 /** Extracts every crm_field_definitions-keyed value present on a v1-shaped deal payload — shared
  * by crm-deal-created.mts (initial copy-in) and crm-deal-updated.mts (re-sync), so a field once
  * populated in Pipedrive and later cleared there also gets cleared locally (absent from the

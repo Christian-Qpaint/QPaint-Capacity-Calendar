@@ -12,7 +12,7 @@
 // security boundary, same as it was in the old Supabase version.
 import { getDb } from '../_shared/db.js'
 import { isPipedriveWebhookAuthorized } from '../_shared/pipedriveAuth.js'
-import { createOrAdoptJobFromDeal, CATEGORY_OPTION_MAP, FIELD_TARGET_HOURS, FIELD_CATEGORY, FIELD_ADDRESS } from '../_shared/dealToJob.js'
+import { createOrAdoptJobFromDeal, CATEGORY_OPTION_MAP, FIELD_TARGET_HOURS, FIELD_ACTUAL_HOURS, FIELD_CATEGORY, FIELD_ADDRESS } from '../_shared/dealToJob.js'
 
 export default async (req: Request): Promise<Response> => {
   if (!isPipedriveWebhookAuthorized(req)) return Response.json({ error: 'Unauthorized' }, { status: 401 })
@@ -37,10 +37,15 @@ export default async (req: Request): Promise<Response> => {
       personName: (deal.person_name as string | undefined) ?? null,
       value: (deal.value as number | undefined) ?? 0,
       targetHours: deal[FIELD_TARGET_HOURS] as number | null | undefined,
+      actualHours: deal[FIELD_ACTUAL_HOURS] as number | null | undefined,
       category: CATEGORY_OPTION_MAP[categoryOptionId] ?? 'Commercial',
       address,
       dateWon,
-      pipedriveStageId: (deal.stage_id as number | undefined) ?? null,
+      // This legacy path isn't registered in Pipedrive (see crm-job-updated.mts's header comment)
+      // and only sees the raw, untyped webhook body — not worth wiring full contact extraction
+      // (extractPrimaryContact expects fetchFullDeal's typed v1 shape) for a dead code path.
+      personPhone: null,
+      personEmail: null,
     })
 
     if (result.status === 'skipped') return Response.json({ imported: false, dealId: deal.id, reason: result.reason })

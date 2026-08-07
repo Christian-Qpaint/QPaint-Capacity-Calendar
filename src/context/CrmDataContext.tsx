@@ -61,17 +61,23 @@ interface CrmDataContextValue {
   error: string | null
   refetch: () => Promise<void>
   queryDeals: (query: CrmDealsQuery) => Promise<CrmDealsQueryResult>
-  loadDealDetail: (id: string) => Promise<CrmDeal>
+  /** `isJob` routes to /api/jobs instead of /api/crm-deals — Jobs Pipeline rows are `jobs` rows
+   * shaped to look like a CrmDeal (see CrmDeal.isJob), not real crm_deals rows. */
+  loadDealDetail: (id: string, isJob?: boolean) => Promise<CrmDeal>
 
   addDeal: (payload: { pipelineId: string; stageId: string; title: string; value: number; currency?: string; orgName?: string; personName?: string }) => Promise<CrmDeal>
-  updateDeal: (id: string, patch: Partial<Pick<CrmDeal, 'title' | 'value' | 'currency' | 'orgName' | 'personName'>> & { fields?: Record<string, unknown> }) => Promise<CrmDeal>
-  moveDealStage: (id: string, stageId: string) => Promise<{ promoted: boolean; promotionSkippedReason?: string; deal: CrmDeal }>
+  updateDeal: (id: string, patch: Partial<Pick<CrmDeal, 'title' | 'value' | 'currency' | 'orgName' | 'personName'>> & { fields?: Record<string, unknown> }, isJob?: boolean) => Promise<CrmDeal>
+  moveDealStage: (id: string, stageId: string, isJob?: boolean) => Promise<{ promoted: boolean; promotionSkippedReason?: string; deal: CrmDeal }>
   markDealWon: (id: string) => Promise<CrmDeal & { promoted: boolean; promotionSkippedReason?: string }>
   markDealLost: (id: string, lostReason?: string) => Promise<CrmDeal>
   /** Manual retry for a Won deal stuck with no linked Job (Target Hours wasn't set when it would
    * normally have been promoted) — throws with the skip reason if it still can't be created. */
   createJobFromDeal: (id: string) => Promise<CrmDeal & { promoted: boolean; promotionSkippedReason?: string }>
   deleteDeal: (id: string) => Promise<void>
+  /** Jobs are never deleted — archive/unarchive hides/restores them on the Pipeline board's
+   * default view only; the Capacity Calendar always shows every job regardless. */
+  archiveJob: (id: string) => Promise<CrmDeal>
+  unarchiveJob: (id: string) => Promise<CrmDeal>
 
   addPipeline: (payload: { name: string; order?: number }) => Promise<CrmPipeline>
   updatePipeline: (id: string, patch: { name: string; order: number }) => Promise<void>
@@ -138,21 +144,28 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
     return api.get<CrmDealsQueryResult>(`/api/crm-data?${params.toString()}`)
   }, [])
 
-  async function loadDealDetail(id: string) {
-    return api.get<CrmDeal>(`/api/crm-deals?id=${id}`)
+  async function loadDealDetail(id: string, isJob?: boolean) {
+    return api.get<CrmDeal>(isJob ? `/api/jobs?id=${id}` : `/api/crm-deals?id=${id}`)
   }
 
   async function addDeal(payload: { pipelineId: string; stageId: string; title: string; value: number; currency?: string; orgName?: string; personName?: string }) {
     return api.post<CrmDeal>('/api/crm-deals', payload)
   }
 
-  async function updateDeal(id: string, patch: Partial<Pick<CrmDeal, 'title' | 'value' | 'currency' | 'orgName' | 'personName'>> & { fields?: Record<string, unknown> }) {
-    return api.patch<CrmDeal>(`/api/crm-deals?id=${id}`, patch)
+  async function updateDeal(
+    id: string,
+    patch: Partial<Pick<CrmDeal, 'title' | 'value' | 'currency' | 'orgName' | 'personName'>> & { fields?: Record<string, unknown> },
+    isJob?: boolean,
+  ) {
+    return api.patch<CrmDeal>(isJob ? `/api/jobs?id=${id}&action=update-fields` : `/api/crm-deals?id=${id}`, patch)
   }
 
-  async function moveDealStage(id: string, stageId: string) {
-    const updated = await api.patch<CrmDeal & { promoted: boolean; promotionSkippedReason?: string }>(`/api/crm-deals?id=${id}&action=stage`, { stageId })
-    return { promoted: updated.promoted, promotionSkippedReason: updated.promotionSkippedReason, deal: updated }
+  async function moveDealStage(id: string, stageId: string, isJob?: boolean) {
+    const updated = await api.patch<CrmDeal & { promoted?: boolean; promotionSkippedReason?: string }>(
+      isJob ? `/api/jobs?id=${id}&action=stage` : `/api/crm-deals?id=${id}&action=stage`,
+      { stageId },
+    )
+    return { promoted: updated.promoted ?? false, promotionSkippedReason: updated.promotionSkippedReason, deal: updated }
   }
 
   async function markDealWon(id: string) {
@@ -169,6 +182,14 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
 
   async function deleteDeal(id: string) {
     await api.delete(`/api/crm-deals?id=${id}`)
+  }
+
+  async function archiveJob(id: string) {
+    return api.patch<CrmDeal>(`/api/jobs?id=${id}&action=archive`, {})
+  }
+
+  async function unarchiveJob(id: string) {
+    return api.patch<CrmDeal>(`/api/jobs?id=${id}&action=unarchive`, {})
   }
 
   async function addPipeline(payload: { name: string; order?: number }) {
@@ -238,6 +259,8 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
         markDealLost,
         createJobFromDeal,
         deleteDeal,
+        archiveJob,
+        unarchiveJob,
         addPipeline,
         updatePipeline,
         deletePipeline,

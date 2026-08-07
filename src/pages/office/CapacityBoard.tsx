@@ -49,47 +49,14 @@ import {
 import type { JobProgress } from '@/lib/dataAccess'
 import type { Job, JobCategory, Team } from '@/types'
 
-/** Shared Production %/Actual Hours inline-edit behavior — used by both the card and table row
- * views so they stay in perfect sync rather than duplicating the save/resync logic twice. */
+/** Shared Production % inline-edit behavior — used by both the card and table row views so they
+ * stay in perfect sync rather than duplicating the save/resync logic twice. Actual/Target Hours
+ * have no editing here at all — both are sourced directly from Pipedrive. */
 function useJobProgressEditing(job: Job, progress: JobProgress) {
-  const { updateJobActualHours, updateJobProduction } = useData()
-  const [editing, setEditing] = useState(false)
-  const [value, setValue] = useState('')
-  const [saving, setSaving] = useState(false)
+  const { updateJobProduction } = useData()
   const [editingProduction, setEditingProduction] = useState(false)
   const [productionValue, setProductionValue] = useState(0)
   const [savingProduction, setSavingProduction] = useState(false)
-
-  function openEdit() {
-    setValue(String(Math.round(progress.actualHours)))
-    setEditing(true)
-  }
-
-  async function handleSave() {
-    setSaving(true)
-    try {
-      await updateJobActualHours(job.id, Number(value) || 0)
-      toast.success('Actual hours updated')
-      setEditing(false)
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to update actual hours')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function handleResync() {
-    setSaving(true)
-    try {
-      await updateJobActualHours(job.id, null)
-      toast.success(`Resynced to logged hours (${Math.round(progress.loggedHours)} hrs)`)
-      setEditing(false)
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to resync')
-    } finally {
-      setSaving(false)
-    }
-  }
 
   function openEditProduction() {
     setProductionValue(Math.round(Math.min(100, Math.max(0, progress.productionPercent))))
@@ -123,14 +90,6 @@ function useJobProgressEditing(job: Job, progress: JobProgress) {
   }
 
   return {
-    editing,
-    value,
-    setValue,
-    saving,
-    openEdit,
-    handleSave,
-    handleResync,
-    cancelEdit: () => setEditing(false),
     editingProduction,
     productionValue,
     setProductionValue,
@@ -158,14 +117,6 @@ function JobProgressCard({
   const { clients } = useData()
   const client = clients.find((c) => c.id === job.clientId)
   const {
-    editing,
-    value,
-    setValue,
-    saving,
-    openEdit,
-    handleSave,
-    handleResync,
-    cancelEdit,
     editingProduction,
     productionValue,
     setProductionValue,
@@ -273,65 +224,27 @@ function JobProgressCard({
           <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             <Clock className="size-3.5" /> Hours
           </p>
-          <div className="flex items-center gap-1.5">
-            {progress.isOverBudget && (
-              <span className="flex items-center gap-1 rounded-md bg-danger-bg px-1.5 py-0.5 text-xs font-medium text-danger animate-pulse">
-                <TriangleAlert className="size-3" /> Over budget
-              </span>
-            )}
-            {!editing && (
-              <>
-                <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">
-                  {job.actualHoursSource === 'manual' ? 'Manual' : 'Logged'}
-                </Badge>
-                {canEditProgress && (
-                  <button
-                    onClick={openEdit}
-                    aria-label="Edit actual hours"
-                    className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  >
-                    <Pencil className="size-3.5" />
-                  </button>
-                )}
-              </>
-            )}
-          </div>
+          {progress.isOverBudget && (
+            <span className="flex items-center gap-1 rounded-md bg-danger-bg px-1.5 py-0.5 text-xs font-medium text-danger animate-pulse">
+              <TriangleAlert className="size-3" /> Over budget
+            </span>
+          )}
         </div>
 
-        {editing ? (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Input
-              type="number"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              className="h-7 w-24"
-              autoFocus
+        <div className="flex items-center gap-3">
+          <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
+            <div
+              className={cn('h-full rounded-full transition-[width]', progress.isOverBudget ? 'bg-danger-fill' : 'bg-info-fill')}
+              style={{ width: `${Math.min(100, Math.max(0, hoursPercent))}%` }}
             />
-            <span className="text-xs text-muted-foreground">/ {progress.targetHours} hrs</span>
-            <Button size="sm" className="h-7" onClick={handleSave} disabled={saving}>Save</Button>
-            <Button size="sm" variant="ghost" className="h-7" onClick={cancelEdit} disabled={saving}>Cancel</Button>
-            {job.actualHoursSource === 'manual' && (
-              <Button size="sm" variant="outline" className="h-7" onClick={handleResync} disabled={saving}>Resync</Button>
-            )}
           </div>
-        ) : (
-          <>
-            <div className="flex items-center gap-3">
-              <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
-                <div
-                  className={cn('h-full rounded-full transition-[width]', progress.isOverBudget ? 'bg-danger-fill' : 'bg-info-fill')}
-                  style={{ width: `${Math.min(100, Math.max(0, hoursPercent))}%` }}
-                />
-              </div>
-              <span className={cn('w-12 shrink-0 text-right text-sm font-semibold', progress.isOverBudget && 'text-danger')}>
-                {Math.round(hoursPercent)}%
-              </span>
-            </div>
-            <p className={cn('text-xs', progress.isOverBudget ? 'font-medium text-danger' : 'text-muted-foreground')}>
-              {Math.round(progress.actualHours)} <span className={progress.isOverBudget ? '' : 'text-muted-foreground/60'}>of</span> {progress.targetHours} hrs
-            </p>
-          </>
-        )}
+          <span className={cn('w-12 shrink-0 text-right text-sm font-semibold', progress.isOverBudget && 'text-danger')}>
+            {Math.round(hoursPercent)}%
+          </span>
+        </div>
+        <p className={cn('text-xs', progress.isOverBudget ? 'font-medium text-danger' : 'text-muted-foreground')}>
+          {Math.round(progress.actualHours)} <span className={progress.isOverBudget ? '' : 'text-muted-foreground/60'}>of</span> {progress.targetHours} hrs
+        </p>
       </div>
     </Card>
   )
@@ -353,14 +266,6 @@ function JobProgressTableRow({
   const { clients } = useData()
   const client = clients.find((c) => c.id === job.clientId)
   const {
-    editing,
-    value,
-    setValue,
-    saving,
-    openEdit,
-    handleSave,
-    handleResync,
-    cancelEdit,
     editingProduction,
     productionValue,
     setProductionValue,
@@ -440,32 +345,12 @@ function JobProgressTableRow({
         )}
       </TableCell>
       <TableCell>
-        {editing ? (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Input type="number" value={value} onChange={(e) => setValue(e.target.value)} className="h-7 w-20" autoFocus />
-            <Button size="sm" className="h-7" onClick={handleSave} disabled={saving}>Save</Button>
-            <Button size="sm" variant="ghost" className="h-7" onClick={cancelEdit} disabled={saving}>Cancel</Button>
-            {job.actualHoursSource === 'manual' && (
-              <Button size="sm" variant="outline" className="h-7" onClick={handleResync} disabled={saving}>Resync</Button>
-            )}
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className={cn('text-sm font-medium', progress.isOverBudget && 'text-danger')}>
-              {Math.round(progress.actualHours)} / {progress.targetHours}
-            </span>
-            <span className="text-xs text-muted-foreground">({Math.round(hoursPercent)}%)</span>
-            {canEditProgress && (
-              <button
-                onClick={openEdit}
-                aria-label="Edit actual hours"
-                className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <Pencil className="size-3.5" />
-              </button>
-            )}
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <span className={cn('text-sm font-medium', progress.isOverBudget && 'text-danger')}>
+            {Math.round(progress.actualHours)} / {progress.targetHours}
+          </span>
+          <span className="text-xs text-muted-foreground">({Math.round(hoursPercent)}%)</span>
+        </div>
       </TableCell>
       <TableCell>
         {progress.isOverBudget ? (

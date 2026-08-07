@@ -22,12 +22,18 @@
 // does). `crm-deals.mts`'s GET ?id= fetches one deal's full record (fields included) on demand
 // when a card/row is actually opened. Custom fields are also deliberately NOT filterable/sortable
 // here for the same reason — see src/lib/crmDealFilters.ts's header comment.
-import { asc, desc, eq, and, or, not, ilike, ne, notInArray, inArray, isNotNull, lt, lte, gt, gte, sql, type SQL, type AnyColumn } from 'drizzle-orm'
+import { asc, desc, eq, and, or, not, ilike, ne, notInArray, inArray, isNotNull, isNull, lt, lte, gt, gte, sql, type SQL, type AnyColumn } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { requireCrmAccess, canAccessCrm, withErrorHandling, HttpError } from '../_shared/authz.js'
 import { stripNullsAll } from '../_shared/rows.js'
 import { buildSavedFilterSql, savedFilterReferencesField, type SavedFilterNode } from '../_shared/savedFilterSql.js'
-import { crmPipelines, crmStages, crmFieldDefinitions, crmDeals, crmSavedFilters, crmDealStageHistory } from '../../../db/schema.js'
+import { crmPipelines, crmStages, crmFieldDefinitions, crmDeals, crmSavedFilters, crmDealStageHistory, jobs, clients } from '../../../db/schema.js'
+
+// Jobs/Jobs-Pipeline merge: a job IS its Jobs Pipeline board card now — this pipeline's "deals"
+// are read from `jobs` (shaped to look like a CrmDeal, see JOB_LIST_COLUMNS) instead of crm_deals.
+// Sales Pipeline and Business Development are completely unaffected, still read from crm_deals
+// exactly as before.
+const JOBS_PIPELINE_PIPEDRIVE_ID = 3
 
 // Once a Sales Pipeline deal is Won or Lost it's a closed deal — Won moves on to become a real Job
 // (see crm-deal-updated.mts) and Pipedrive stops driving it, Lost is just dead weight on the
@@ -214,15 +220,113 @@ export default withErrorHandling(async (req: Request) => {
     savedFilterReferencesStatus = savedFilterReferencesField(tree, 'status')
   }
 
-  type DealListRow = { [K in keyof typeof DEAL_LIST_COLUMNS]: (typeof crmDeals.$inferSelect)[K] }
-  let deals: DealListRow[] = []
+  interface BoardDealRow {
+    id: string
+    pipelineId: string
+    stageId: string | null
+    title: string
+    value: number | null
+    currency: string
+    status: 'open' | 'won' | 'lost'
+    pipedriveDealId: string | null
+    orgName: string | null
+    personName: string | null
+    lostReason: string | null
+    wonAt: string | null
+    lostAt: string | null
+    jobId: string | null
+    stageEnteredAt: string | null
+    createdAt: string | null
+    updatedAt: string | null
+    isJob?: boolean
+    archivedAt?: string | null
+  }
+  let deals: BoardDealRow[] = []
   let total = 0
   let stageSummary: { stageId: string; count: number; totalValue: number }[] = []
   let stageAvgDwellDays: Record<string, number> = {}
 
-  if (pipelineId) {
+  const activePipelineRow = pipelineId ? pipelineRows.find((p) => p.id === pipelineId) : undefined
+  const isJobsPipeline = activePipelineRow?.pipedrivePipelineId === JOBS_PIPELINE_PIPEDRIVE_ID
+
+  if (pipelineId && isJobsPipeline) {
+    const pipelineStageIds = stageRows.filter((s) => s.pipelineId === pipelineId).map((s) => s.id)
+    const baseConditions: SQL[] = pipelineStageIds.length > 0 ? [inArray(jobs.stageId, pipelineStageIds)] : [sql`false`]
+
+    if (!includeAged) {
+      baseConditions.push(isNull(jobs.archivedAt))
+      for (const stage of stageRows) {
+        if (stage.autoHideAfterDays == null) continue
+        const cutoff = new Date(Date.now() - stage.autoHideAfterDays * 86_400_000).toISOString()
+        baseConditions.push(not(and(eq(jobs.stageId, stage.id), lt(jobs.stageEnteredAt, cutoff))!))
+      }
+    }
+    if (search) {
+      const like = `%${search}%`
+      const searchOr = or(ilike(jobs.pipedriveDealTitle, like), ilike(jobs.address, like), ilike(clients.name, like))
+      if (searchOr) baseConditions.push(searchOr)
+    }
+
+    const where = stageId ? and(...baseConditions, eq(jobs.stageId, stageId)) : and(...baseConditions)
+    const summaryWhere = and(...baseConditions)
+
+    const JOB_LIST_COLUMNS = {
+      id: jobs.id,
+      pipelineId: sql<string>`${pipelineId}`,
+      stageId: jobs.stageId,
+      title: jobs.pipedriveDealTitle,
+      value: jobs.totalValue,
+      currency: sql<string>`'AUD'`,
+      status: sql<'won'>`'won'`,
+      pipedriveDealId: jobs.pipedriveDealId,
+      orgName: clients.name,
+      personName: sql<string | null>`null`,
+      lostReason: sql<string | null>`null`,
+      wonAt: jobs.dateWon,
+      lostAt: sql<string | null>`null`,
+      jobId: jobs.id,
+      stageEnteredAt: jobs.stageEnteredAt,
+      createdAt: jobs.dateWon,
+      updatedAt: jobs.dateWon,
+      isJob: sql<boolean>`true`,
+      archivedAt: jobs.archivedAt,
+    }
+
+    const orderColumn = sortKey === 'value' ? jobs.totalValue : sortKey === 'title' ? jobs.pipedriveDealTitle : undefined
+    const orderBy = orderColumn ? (sortDir === 'desc' ? desc(orderColumn) : asc(orderColumn)) : desc(jobs.dateWon)
+
+    const [dealRows, countRows, summaryRows, avgDwellRows] = await Promise.all([
+      db.select(JOB_LIST_COLUMNS).from(jobs).leftJoin(clients, eq(clients.id, jobs.clientId)).where(where).orderBy(orderBy).limit(limit).offset(offset),
+      db.select({ count: sql<number>`count(*)::int` }).from(jobs).where(where),
+      db
+        .select({
+          stageId: jobs.stageId,
+          count: sql<number>`count(*)::int`,
+          totalValue: sql<string>`coalesce(sum(${jobs.totalValue}), 0)`,
+        })
+        .from(jobs)
+        .where(summaryWhere)
+        .groupBy(jobs.stageId),
+      pipelineStageIds.length > 0
+        ? db
+            .select({
+              stageId: crmDealStageHistory.stageId,
+              avgSeconds: sql<string>`avg(extract(epoch from (${crmDealStageHistory.exitedAt} - ${crmDealStageHistory.enteredAt})))`,
+            })
+            .from(crmDealStageHistory)
+            .where(and(inArray(crmDealStageHistory.stageId, pipelineStageIds), isNotNull(crmDealStageHistory.exitedAt)))
+            .groupBy(crmDealStageHistory.stageId)
+        : Promise.resolve([]),
+    ])
+
+    deals = dealRows.map((r) => ({ ...r, stageId: r.stageId ?? '' }))
+    total = countRows[0]?.count ?? 0
+    stageSummary = summaryRows
+      .filter((r): r is typeof r & { stageId: string } => r.stageId != null)
+      .map((r) => ({ stageId: r.stageId, count: r.count, totalValue: Number(r.totalValue) }))
+    stageAvgDwellDays = Object.fromEntries(avgDwellRows.map((r) => [r.stageId, Number(r.avgSeconds) / 86_400]))
+  } else if (pipelineId) {
     const baseConditions: SQL[] = [eq(crmDeals.pipelineId, pipelineId)]
-    const activePipelineRow = pipelineRows.find((p) => p.id === pipelineId)
     const statusAlreadyGoverned = adHocReferencesStatus || savedFilterReferencesStatus
     if (activePipelineRow?.pipedrivePipelineId === SALES_PIPELINE_PIPEDRIVE_ID && !statusAlreadyGoverned) {
       const excludedStatuses: ('won' | 'lost')[] = []

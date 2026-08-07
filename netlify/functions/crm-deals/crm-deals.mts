@@ -59,7 +59,7 @@ export default withErrorHandling(async (req: Request) => {
   if (req.method === 'POST') {
     const body = await parseJsonBody(req)
     const [created] = await db.insert(crmDeals).values(toValues(body)).returning()
-    await recordStageEntry(db, created.id, created.stageId, created.stageEnteredAt)
+    await recordStageEntry(db, { dealId: created.id }, created.stageId, created.stageEnteredAt)
     return Response.json(stripNulls(created))
   }
 
@@ -80,12 +80,12 @@ export default withErrorHandling(async (req: Request) => {
     }
     const [updated] = await db.update(crmDeals).set(patch).where(eq(crmDeals.id, id)).returning()
     if (!updated) throw new HttpError(404, 'Deal not found')
-    await recordStageEntry(db, updated.id, stageId, stageEnteredAtValue)
+    await recordStageEntry(db, { dealId: updated.id }, stageId, stageEnteredAtValue)
 
     // Keep an already-linked Job's stage display live as the deal keeps moving on the board —
     // this is a pure display field (nothing in the UI ever writes to it directly), so refreshing
     // it here can never clobber anything a user entered on the Jobs page.
-    if (updated.jobId) await syncJobStageDisplay(db, updated.jobId, targetStage.pipedriveStageId)
+    if (updated.jobId) await syncJobStageDisplay(db, updated.jobId, targetStage.id)
 
     if (!targetStage.isWonStage) return Response.json({ ...stripNulls(updated), promoted: false })
     const { promoted, jobId, skippedReason } = await attemptPromotion(db, updated)
@@ -157,11 +157,8 @@ export default withErrorHandling(async (req: Request) => {
     const [updated] = await db.update(crmDeals).set(patch).where(eq(crmDeals.id, id)).returning()
     if (!updated) throw new HttpError(404, 'Deal not found')
     if (stageChangedTo) {
-      await recordStageEntry(db, updated.id, stageChangedTo, updated.stageEnteredAt)
-      if (updated.jobId) {
-        const [targetStage] = await db.select({ pipedriveStageId: crmStages.pipedriveStageId }).from(crmStages).where(eq(crmStages.id, stageChangedTo)).limit(1)
-        if (targetStage) await syncJobStageDisplay(db, updated.jobId, targetStage.pipedriveStageId)
-      }
+      await recordStageEntry(db, { dealId: updated.id }, stageChangedTo, updated.stageEnteredAt)
+      if (updated.jobId) await syncJobStageDisplay(db, updated.jobId, stageChangedTo)
     }
     // Same "keep the linked Job current" idea as the stage sync above, extended to every other
     // field a Job inherits from its deal — title/value/category/address/target hours. Applies

@@ -5,6 +5,7 @@ import type {
   Client,
   Contractor,
   Credential,
+  CrmStage,
   DailyHoursEntry,
   Job,
   MonthlySnapshot,
@@ -29,6 +30,9 @@ interface DataState {
   weeklyActuals: WeeklyActual[]
   monthlyTargets: MonthlyTarget[]
   monthlySnapshots: MonthlySnapshot[]
+  /** Every crm_stages row — fetched here (not via CrmDataContext) so the Jobs List can resolve a
+   * job's stageId to a name/color without needing Deals CRM role access. See JobsList.tsx. */
+  jobStages: CrmStage[]
 }
 
 interface DataContextValue extends DataState {
@@ -57,9 +61,6 @@ interface DataContextValue extends DataState {
   deleteTeamMembership: (id: string) => Promise<void>
   upsertMonthlyTarget: (year: number, month: number, targetDollars: number) => Promise<MonthlyTarget>
   takeMonthlySnapshot: (year: number, month: number, actualDollars: number) => Promise<MonthlySnapshot>
-  /** Sets a manual Actual/Logged Hours override for a job, or pass `null` to resync (clear the
-   * override so Actual Hours goes back to the computed sum of real logged hours). */
-  updateJobActualHours: (jobId: string, override: number | null) => Promise<void>
   /** Sets a manual Production % override for a job, or pass `null` to resync (clear the override
    * so Production % goes back to the hours-weighted computed figure). */
   updateJobProduction: (jobId: string, override: number | null) => Promise<void>
@@ -80,6 +81,7 @@ const EMPTY_STATE: DataState = {
   weeklyActuals: [],
   monthlyTargets: [],
   monthlySnapshots: [],
+  jobStages: [],
 }
 
 export function DataProvider({ children }: { children: ReactNode }) {
@@ -248,15 +250,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
           monthlySnapshots: [...prev.monthlySnapshots.filter((s) => !(s.year === year && s.month === month)), saved],
         }))
         return saved
-      },
-      updateJobActualHours: async (jobId, override) => {
-        await api.patch(`/api/jobs?id=${jobId}&action=actual-hours`, { override })
-        setState((prev) => ({
-          ...prev,
-          jobs: prev.jobs.map((j) =>
-            j.id === jobId ? { ...j, actualHoursOverride: override ?? undefined, actualHoursSource: override === null ? 'computed' : 'manual' } : j,
-          ),
-        }))
       },
       updateJobProduction: async (jobId, override) => {
         await api.patch(`/api/jobs?id=${jobId}&action=production`, { override })

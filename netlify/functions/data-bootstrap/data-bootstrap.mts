@@ -23,6 +23,7 @@ import {
   weeklyActuals,
   monthlyTargets,
   monthlySnapshots,
+  crmStages,
 } from '../../../db/schema.js'
 import { eq } from 'drizzle-orm'
 
@@ -45,6 +46,7 @@ export default withErrorHandling(async (req: Request) => {
     weeklyActualRows,
     monthlyTargetRows,
     monthlySnapshotRows,
+    jobStageRows,
   ] = await Promise.all([
     db.select().from(clients),
     office ? db.select().from(contractors) : Promise.resolve([]),
@@ -60,6 +62,12 @@ export default withErrorHandling(async (req: Request) => {
     office ? db.select().from(weeklyActuals) : Promise.resolve([]),
     office ? db.select().from(monthlyTargets) : Promise.resolve([]),
     office ? db.select().from(monthlySnapshots) : Promise.resolve([]),
+    // Every crm_stages row (not just Jobs Pipeline's) — a job's stageId can point at a Sales/
+    // Business Development stage too (see _shared/dealToJob.ts's syncJobStageDisplay), so the
+    // Jobs List needs the full set to resolve a name/color for whichever stage a job is actually
+    // sitting in. Same table CrmDataContext reads, fetched here instead so the Jobs page doesn't
+    // need CRM-role access (crm-data.mts gates on canAccessCrm) just to show a stage pill.
+    db.select().from(crmStages),
   ])
 
   // Strip real nulls first, then apply the total_value mask on top — masked jobs must keep an
@@ -82,6 +90,7 @@ export default withErrorHandling(async (req: Request) => {
     weeklyActuals: stripNullsAll(weeklyActualRows),
     monthlyTargets: stripNullsAll(monthlyTargetRows),
     monthlySnapshots: stripNullsAll(monthlySnapshotRows),
+    jobStages: stripNullsAll(jobStageRows),
   })
 })
 

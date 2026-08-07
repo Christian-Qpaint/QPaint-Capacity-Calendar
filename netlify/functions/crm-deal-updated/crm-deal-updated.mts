@@ -15,7 +15,7 @@
 import { eq } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { isPipedriveWebhookAuthorized } from '../_shared/pipedriveAuth.js'
-import { fetchFullDeal, extractFieldsFromV1Deal, type PipedriveDealPayload } from '../_shared/pipedriveApi.js'
+import { fetchFullDeal, extractFieldsFromV1Deal, extractPrimaryContact, type PipedriveDealPayload } from '../_shared/pipedriveApi.js'
 import { attemptPromotion } from '../_shared/dealToJob.js'
 import { recordStageEntry } from '../_shared/stageHistory.js'
 import { crmStages, crmFieldDefinitions, crmDeals } from '../../../db/schema.js'
@@ -53,6 +53,7 @@ export default async (req: Request): Promise<Response> => {
 
     const fieldDefs = await db.select().from(crmFieldDefinitions)
     const fields = extractFieldsFromV1Deal(deal, fieldDefs)
+    const contact = extractPrimaryContact(deal)
     const status = deal.status === 'won' || deal.status === 'lost' ? deal.status : 'open'
     // existing.status is already guaranteed not 'won' by the guard above, so any 'won' here is new.
     const becameWon = status === 'won'
@@ -70,6 +71,8 @@ export default async (req: Request): Promise<Response> => {
         status,
         orgName: deal.org_name ?? null,
         personName: deal.person_name ?? null,
+        personPhone: contact.phone,
+        personEmail: contact.email,
         lostReason: deal.lost_reason ?? null,
         wonAt: status === 'won' ? (deal.won_time ?? existing.wonAt ?? new Date().toISOString()) : existing.wonAt,
         lostAt: status === 'lost' ? (deal.lost_time ?? existing.lostAt ?? new Date().toISOString()) : existing.lostAt,
@@ -79,7 +82,7 @@ export default async (req: Request): Promise<Response> => {
       .where(eq(crmDeals.id, existing.id))
       .returning()
 
-    if (stageChanged) await recordStageEntry(db, updated.id, stage.id, stageEnteredAtValue)
+    if (stageChanged) await recordStageEntry(db, { dealId: updated.id }, stage.id, stageEnteredAtValue)
 
     if (!becameWon) return Response.json({ updated: true, dealId: deal.id, crmDealId: updated.id })
 

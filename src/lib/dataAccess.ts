@@ -212,8 +212,8 @@ export function getJobPhaseHoursTotal(db: DB, jobId: string): number {
 }
 
 /** Real hours crews have logged against a job's phases (Log Hours screen), regardless of what was
- * originally allocated to those phases. This is the "computed" source for a job's Actual Hours —
- * there is no Pipedrive field for hours actually worked, Pipedrive is a sales CRM. */
+ * originally allocated to those phases — used for per-team share splitting (getMultiTeamShares),
+ * not for a job's Actual Hours figure (that's sourced directly from Pipedrive, see JobProgress). */
 export function getJobLoggedHours(db: DB, jobId: string): number {
   const blockIds = new Set(db.scheduleBlocks.filter((b) => b.jobId === jobId).map((b) => b.id))
   return db.dailyHoursEntries.filter((e) => blockIds.has(e.scheduleBlockId)).reduce((sum, e) => sum + e.hours, 0)
@@ -228,9 +228,8 @@ export interface JobProgress {
   actualDollars: number
   dealValue: number
   productionPercent: number
-  /** Real logged hours (daily_hours_entries) — the "computed" source, ignoring any manual override. */
-  loggedHours: number
-  /** loggedHours, or the manual override when the job's actualHoursSource is 'manual'. */
+  /** Pipedrive's "Actual Hours to Date" for this job's deal — never manually editable, 0 until
+   * Pipedrive has ever reported a value. */
   actualHours: number
   targetHours: number
   isOverBudget: boolean
@@ -244,15 +243,13 @@ export function getJobProgress(db: DB, job: Job): JobProgress {
   const useOverride = job.productionPercentSource === 'manual' && job.productionPercentOverride != null
   const productionPercent = useOverride ? job.productionPercentOverride! : computedProductionPercent
   const actualDollars = useOverride ? dealValue * (productionPercent / 100) : computedActualDollars
-  const loggedHours = getJobLoggedHours(db, job.id)
-  const actualHours = job.actualHoursSource === 'manual' && job.actualHoursOverride != null ? job.actualHoursOverride : loggedHours
+  const actualHours = job.actualHours ?? 0
   const targetHours = job.targetHours
   return {
     job,
     actualDollars,
     dealValue,
     productionPercent,
-    loggedHours,
     actualHours,
     targetHours,
     isOverBudget: actualHours > targetHours,

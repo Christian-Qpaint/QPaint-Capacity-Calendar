@@ -1,5 +1,4 @@
 import type { Job, JobCategory } from '@/types'
-import { PIPEDRIVE_STAGE_LABELS, PIPEDRIVE_TARGET_STAGE_IDS } from '@/lib/pipedriveStages'
 
 export const JOB_CATEGORIES: JobCategory[] = [
   'Residential',
@@ -42,7 +41,9 @@ export const FILTER_FIELDS: FilterFieldConfig[] = [
     key: 'pipelineStage',
     label: 'Pipeline stage',
     type: 'enum',
-    options: PIPEDRIVE_TARGET_STAGE_IDS.map((id) => ({ value: String(id), label: PIPEDRIVE_STAGE_LABELS[id] })),
+    // Always overridden with the live, job-derived stage list before rendering — see
+    // JobsAdvancedFilterDialog.tsx. Empty here since there's no static set of stage ids anymore.
+    options: [],
   },
   { key: 'status', label: 'Status', type: 'enum', options: JOB_STATUSES.map((s) => ({ value: s, label: s })) },
   { key: 'totalValue', label: 'Total value ($)', type: 'number' },
@@ -117,7 +118,7 @@ function getFieldValue(ctx: JobFilterContext, key: FilterFieldKey): string | num
     case 'category':
       return ctx.job.category
     case 'pipelineStage':
-      return ctx.job.pipedriveStageId ?? 0
+      return ctx.job.stageId ?? ''
     case 'status':
       return ctx.status
     case 'totalValue':

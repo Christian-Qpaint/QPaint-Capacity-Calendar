@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { StageColorDot } from '@/components/StagePill'
 import { Plus, X } from 'lucide-react'
 import {
   FILTER_FIELDS,
@@ -13,6 +12,11 @@ import {
   type FilterFieldKey,
   type MatchMode,
 } from '@/lib/jobFilters'
+
+function StageDot({ color }: { color?: string | null }) {
+  if (!color) return null
+  return <span className="inline-block size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+}
 
 function newCondition(id: string): FilterCondition {
   const first = FILTER_FIELDS[0]
@@ -32,9 +36,10 @@ export function JobsAdvancedFilterDialog({
   conditions: FilterCondition[]
   matchMode: MatchMode
   onApply: (conditions: FilterCondition[], matchMode: MatchMode) => void
-  /** All Pipeline stage options to offer, computed from live job data — overrides the static
-   * (schedulable-only) options baked into FILTER_FIELDS so every stage can be filtered on. */
-  stageOptions: { value: string; label: string }[]
+  /** All Pipeline stage options to offer, computed from live job data — overrides the empty
+   * static options baked into FILTER_FIELDS so every stage a job actually sits in can be filtered
+   * on, with its real name/color. */
+  stageOptions: { value: string; label: string; color?: string | null }[]
 }) {
   const [draft, setDraft] = useState<FilterCondition[]>(conditions)
   const [draftMode, setDraftMode] = useState<MatchMode>(matchMode)
@@ -152,7 +157,7 @@ export function JobsAdvancedFilterDialog({
                             if (!opt) return 'Select…'
                             return condition.field === 'pipelineStage' ? (
                               <span className="flex items-center gap-1.5">
-                                <StageColorDot stageId={Number(opt.value)} />
+                                <StageDot color={(opt as { color?: string | null }).color} />
                                 {opt.label}
                               </span>
                             ) : (
@@ -166,7 +171,7 @@ export function JobsAdvancedFilterDialog({
                           <SelectItem key={o.value} value={o.value}>
                             {condition.field === 'pipelineStage' ? (
                               <span className="flex items-center gap-1.5">
-                                <StageColorDot stageId={Number(o.value)} />
+                                <StageDot color={(o as { color?: string | null }).color} />
                                 {o.label}
                               </span>
                             ) : (

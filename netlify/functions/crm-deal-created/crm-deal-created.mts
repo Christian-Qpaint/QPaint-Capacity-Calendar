@@ -17,7 +17,7 @@
 import { eq } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { isPipedriveWebhookAuthorized } from '../_shared/pipedriveAuth.js'
-import { fetchFullDeal, extractFieldsFromV1Deal, type PipedriveDealPayload } from '../_shared/pipedriveApi.js'
+import { fetchFullDeal, extractFieldsFromV1Deal, extractPrimaryContact, type PipedriveDealPayload } from '../_shared/pipedriveApi.js'
 import { recordStageEntry } from '../_shared/stageHistory.js'
 import { crmPipelines, crmStages, crmFieldDefinitions, crmDeals } from '../../../db/schema.js'
 
@@ -54,6 +54,7 @@ export default async (req: Request): Promise<Response> => {
 
     const fieldDefs = await db.select().from(crmFieldDefinitions)
     const fields = extractFieldsFromV1Deal(deal, fieldDefs)
+    const contact = extractPrimaryContact(deal)
 
     const status = deal.status === 'won' || deal.status === 'lost' ? deal.status : 'open'
     const [created] = await db
@@ -68,6 +69,8 @@ export default async (req: Request): Promise<Response> => {
         pipedriveDealId,
         orgName: deal.org_name ?? null,
         personName: deal.person_name ?? null,
+        personPhone: contact.phone,
+        personEmail: contact.email,
         lostReason: deal.lost_reason ?? null,
         wonAt: status === 'won' ? (deal.won_time ?? new Date().toISOString()) : null,
         lostAt: status === 'lost' ? (deal.lost_time ?? new Date().toISOString()) : null,
@@ -77,7 +80,7 @@ export default async (req: Request): Promise<Response> => {
       })
       .returning({ id: crmDeals.id, stageEnteredAt: crmDeals.stageEnteredAt })
 
-    await recordStageEntry(db, created.id, stage.id, created.stageEnteredAt)
+    await recordStageEntry(db, { dealId: created.id }, stage.id, created.stageEnteredAt)
     return Response.json({ imported: true, dealId: deal.id, crmDealId: created.id })
   } catch (err) {
     return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })

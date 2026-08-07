@@ -20,7 +20,7 @@ import { eq } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { requireCrmAccess, withErrorHandling, HttpError } from '../_shared/authz.js'
 import { parseJsonBody } from '../_shared/http.js'
-import { extractFieldsFromV1Deal, type PipedriveDealPayload } from '../_shared/pipedriveApi.js'
+import { extractFieldsFromV1Deal, extractPrimaryContact, type PipedriveDealPayload } from '../_shared/pipedriveApi.js'
 import { attemptPromotion } from '../_shared/dealToJob.js'
 import { recordStageEntry } from '../_shared/stageHistory.js'
 import { crmPipelines, crmStages, crmFieldDefinitions, crmDeals } from '../../../db/schema.js'
@@ -115,6 +115,7 @@ export default withErrorHandling(async (req: Request) => {
       }
 
       const fields = extractFieldsFromV1Deal(deal, fieldDefs)
+      const contact = extractPrimaryContact(deal)
       const status = deal.status === 'won' || deal.status === 'lost' ? deal.status : 'open'
 
       if (existing) {
@@ -131,6 +132,8 @@ export default withErrorHandling(async (req: Request) => {
             status,
             orgName: deal.org_name ?? null,
             personName: deal.person_name ?? null,
+            personPhone: contact.phone,
+            personEmail: contact.email,
             lostReason: deal.lost_reason ?? null,
             wonAt: status === 'won' ? (deal.won_time ?? existing.wonAt ?? new Date().toISOString()) : existing.wonAt,
             lostAt: status === 'lost' ? (deal.lost_time ?? existing.lostAt ?? new Date().toISOString()) : existing.lostAt,
@@ -139,7 +142,7 @@ export default withErrorHandling(async (req: Request) => {
           })
           .where(eq(crmDeals.id, existing.id))
           .returning()
-        if (stageChanged) await recordStageEntry(db, row.id, stage.id, stageEnteredAtValue)
+        if (stageChanged) await recordStageEntry(db, { dealId: row.id }, stage.id, stageEnteredAtValue)
         // existing.status is already guaranteed not 'won' by the guard above, so any 'won' here is new.
         if (status === 'won') await attemptPromotion(db, row)
         updated++
@@ -156,6 +159,8 @@ export default withErrorHandling(async (req: Request) => {
             pipedriveDealId,
             orgName: deal.org_name ?? null,
             personName: deal.person_name ?? null,
+            personPhone: contact.phone,
+            personEmail: contact.email,
             lostReason: deal.lost_reason ?? null,
             wonAt: status === 'won' ? (deal.won_time ?? new Date().toISOString()) : null,
             lostAt: status === 'lost' ? (deal.lost_time ?? new Date().toISOString()) : null,
@@ -163,8 +168,14 @@ export default withErrorHandling(async (req: Request) => {
             createdAt: deal.add_time ?? undefined,
             stageEnteredAt: deal.add_time ?? undefined,
           })
-          .returning({ id: crmDeals.id, stageEnteredAt: crmDeals.stageEnteredAt })
-        await recordStageEntry(db, row.id, stage.id, row.stageEnteredAt)
+          .returning()
+        await recordStageEntry(db, { dealId: row.id }, stage.id, row.stageEnteredAt)
+        // Unlike the update branch above, a freshly-inserted deal has no prior local status to
+        // compare against — so this must check the deal's own status directly, not "did it just
+        // become won." A deal synced in for the first time as already-Won (e.g. Jobs Pipeline's
+        // historical backfill) previously never got promoted at all — this was the root cause of
+        // most Jobs Pipeline deals having no linked Job.
+        if (status === 'won') await attemptPromotion(db, row)
         created++
       }
     }
