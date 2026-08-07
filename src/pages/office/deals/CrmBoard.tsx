@@ -7,7 +7,7 @@ import { usePermissions } from '@/context/PermissionsContext'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import { useInfiniteScrollSentinel } from '@/hooks/useInfiniteScrollSentinel'
 import { useImportProgress } from '@/context/ImportProgressContext'
-import { fetchPipelineDealsFromPipedrive, chunkedSyncPipelineDeals } from '@/lib/crmSyncRunner'
+import { fetchPipelineDealsFromPipedrive, chunkedSyncPipelineDeals, reconcileDeletedPipelineDeals } from '@/lib/crmSyncRunner'
 import { DealDrawer } from '@/components/crm/DealDrawer'
 import { AddDealDialog } from '@/components/crm/AddDealDialog'
 import { CrmAdvancedFilterDialog } from '@/components/crm/CrmAdvancedFilterDialog'
@@ -458,7 +458,7 @@ export function CrmBoard() {
   // (upserting each in chunks) runs via ImportProgressContext so it survives navigating away. ----
   const { job, runImport } = useImportProgress()
   const [syncFetching, setSyncFetching] = useState(false)
-  const lastSyncResultRef = useRef<{ created: number; updated: number; skipped: number } | null>(null)
+  const lastSyncResultRef = useRef<{ created: number; updated: number; skipped: number; deleted: number } | null>(null)
   const handledSyncJobRef = useRef<string | null>(null)
 
   async function handleSyncPipeline() {
@@ -469,7 +469,11 @@ export function CrmBoard() {
       const label = `Sync ${activePipeline.name} from Pipedrive`
       const started = runImport(label, total, async (onProgress) => {
         const result = await chunkedSyncPipelineDeals(activePipeline.id, deals, onProgress)
-        lastSyncResultRef.current = result
+        // Mirrors Pipedrive deletions too, using the exact set of deals just fetched above — not
+        // just add/update. Runs after the upsert pass so a deal that moved pipelines mid-sync isn't
+        // mistaken for a deleted one.
+        const { deleted } = await reconcileDeletedPipelineDeals(activePipeline.id, deals)
+        lastSyncResultRef.current = { ...result, deleted }
         return { imported: result.created + result.updated }
       })
       if (!started) toast.error('A sync or import is already running — wait for it to finish first.')
@@ -487,7 +491,11 @@ export function CrmBoard() {
     if (!job || job.status !== 'done' || !job.label.startsWith('Sync ') || handledSyncJobRef.current === job.id) return
     handledSyncJobRef.current = job.id
     const result = lastSyncResultRef.current
-    toast.success(result ? `Sync complete — ${result.created} new, ${result.updated} updated, ${result.skipped} skipped` : 'Sync complete')
+    toast.success(
+      result
+        ? `Sync complete — ${result.created} new, ${result.updated} updated, ${result.skipped} skipped, ${result.deleted} removed (deleted in Pipedrive)`
+        : 'Sync complete',
+    )
     if (viewMode === 'table') fetchTablePage(0, false)
     else for (const stage of pipelineStages) fetchStagePage(stage.id, 0, false)
     // eslint-disable-next-line react-hooks/exhaustive-deps

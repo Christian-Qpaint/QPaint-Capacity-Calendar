@@ -26,7 +26,32 @@ export default async (req: Request): Promise<Response> => {
   if (!isPipedriveWebhookAuthorized(req)) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
-    const body = (await req.json().catch(() => null)) as { data?: PipedriveDealPayload; current?: PipedriveDealPayload } | null
+    const body = (await req.json().catch(() => null)) as {
+      data?: PipedriveDealPayload | null
+      current?: PipedriveDealPayload
+      previous?: PipedriveDealPayload
+      meta?: { action?: string }
+    } | null
+
+    // A deal deleted in Pipedrive fires this same webhook with `data` null and the deal's last
+    // known state under `previous` (v2 payload shape) — fetchFullDeal below would just 404 for it,
+    // since it's genuinely gone. Detected by the absence of `data` alongside a populated `previous`
+    // rather than trusting one exact meta.action string, since that value isn't confirmed against
+    // this account's actual webhook payloads. Deletes the local mirror row outright (not an
+    // archive) — unlike jobs, a Sales/Business Development crm_deals row is disposable pipeline-
+    // tracking data, not a production record; any Job it already produced stays untouched
+    // (crm_deals.jobId -> jobs.id is ON DELETE SET NULL, never cascades).
+    if (!body?.data && body?.previous?.id) {
+      const deleted = body.previous
+      if (deleted.pipeline_id !== SALES_PIPELINE_ID) {
+        return Response.json({ deleted: false, dealId: deleted.id, reason: `pipeline_id ${deleted.pipeline_id} is not the Sales Pipeline — ignored` })
+      }
+      const db = getDb()
+      const pipedriveDealId = String(deleted.id)
+      const [row] = await db.delete(crmDeals).where(eq(crmDeals.pipedriveDealId, pipedriveDealId)).returning({ id: crmDeals.id })
+      return Response.json({ deleted: !!row, dealId: deleted.id })
+    }
+
     const webhookDeal = body?.data ?? body?.current ?? null
     if (!webhookDeal?.id) return Response.json({ updated: false, reason: 'No deal payload in request — ignored, not an error' })
 
