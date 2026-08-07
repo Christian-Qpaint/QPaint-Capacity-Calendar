@@ -1,9 +1,13 @@
 import { api } from '@/lib/apiClient'
 
-// Smaller than marketingImportRunner's 300 — each row here does more server-side work (existing-row
-// lookup, stage lookup, custom-field extraction, an occasional Won->Job promotion), so a smaller
-// chunk keeps each request comfortably inside a normal Function timeout.
-const SYNC_CHUNK_SIZE = 100
+// Smaller than marketingImportRunner's 300 — each row here does more server-side work (stage
+// lookup, custom-field extraction, a write per deal, an occasional stage-history insert, an
+// occasional Won->Job promotion), so a smaller chunk keeps each request comfortably inside a
+// normal Function timeout. The existing-row lookup itself is now batched server-side (one query
+// per chunk, not one per deal), but a chunk's remaining per-deal writes are still sequential —
+// confirmed via production `netlify logs` that 100 was too large against real Supabase latency
+// (several live invocations clocked at 44-50s, right at the platform's timeout ceiling).
+const SYNC_CHUNK_SIZE = 40
 
 export interface RawPipedriveDeal {
   id: number

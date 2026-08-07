@@ -29,7 +29,7 @@
 //     (add/update AND remove), not just add/update. Never touches rows with a null pipedriveDealId
 //     (deals added manually here, never sourced from Pipedrive) or the Jobs Pipeline (which has no
 //     crm_deals rows left post-merge — see crm-job-updated.mts instead).
-import { eq, and, isNotNull, notInArray } from 'drizzle-orm'
+import { eq, and, inArray, isNotNull, notInArray } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { requireCrmAccess, withErrorHandling, HttpError } from '../_shared/authz.js'
 import { parseJsonBody } from '../_shared/http.js'
@@ -112,11 +112,21 @@ export default withErrorHandling(async (req: Request) => {
     const [pipeline] = await db.select().from(crmPipelines).where(eq(crmPipelines.id, pipelineId)).limit(1)
     if (!pipeline) throw new HttpError(404, 'Pipeline not found')
 
-    const [stageRows, fieldDefs] = await Promise.all([
+    const [stageRows, fieldDefs, existingRows] = await Promise.all([
       db.select().from(crmStages).where(eq(crmStages.pipelineId, pipelineId)),
       db.select().from(crmFieldDefinitions),
+      // Batched up front instead of one db.select() per deal in the loop below — that N+1 pattern
+      // (up to 100 sequential round trips just to check existence) was comfortably fast against
+      // local dev's near-instant Postgres, but against real production Supabase latency + a chunk
+      // full of writes on top, it was what actually blew the function timeout on live Sales
+      // Pipeline syncs (confirmed via `netlify logs`: several invocations at 44-50s, right at the
+      // platform ceiling) even after the GET side was already paginated per-page.
+      rawDeals.length > 0
+        ? db.select().from(crmDeals).where(inArray(crmDeals.pipedriveDealId, rawDeals.map((d) => String(d.id))))
+        : Promise.resolve([]),
     ])
     const stageByPipedriveId = new Map(stageRows.filter((s) => s.pipedriveStageId != null).map((s) => [s.pipedriveStageId as number, s]))
+    const existingByPipedriveId = new Map(existingRows.map((r) => [r.pipedriveDealId as string, r]))
 
     let created = 0
     let updated = 0
@@ -134,7 +144,7 @@ export default withErrorHandling(async (req: Request) => {
         continue
       }
 
-      const [existing] = await db.select().from(crmDeals).where(eq(crmDeals.pipedriveDealId, pipedriveDealId)).limit(1)
+      const existing = existingByPipedriveId.get(pipedriveDealId)
       if (existing?.status === 'won') {
         skipped++
         continue
