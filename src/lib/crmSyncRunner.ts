@@ -103,10 +103,13 @@ export async function chunkedSyncJobsFromPipedrive(
   return { created, updated, skipped }
 }
 
-/** Phase 3 (Jobs Pipeline) — archives (never deletes — a Job is a real production record) any Job
- * on this pipeline's board whose Pipedrive deal isn't in the just-fetched set. */
-export async function reconcileArchivedJobsPipelineDeals(pipelineId: string, currentDeals: RawPipedriveDeal[]): Promise<{ archived: number }> {
-  return api.post<{ archived: number }>('/api/jobs-sync-pipedrive', {
+/** Phase 3 (Jobs Pipeline) — deletes any Job on this pipeline's board whose Pipedrive deal isn't in
+ * the just-fetched set. Pipedrive is the single source of truth (explicit decision, matching
+ * crm-sync-deals.mts's reconcile for Sales/Business Development) — this cascades to that job's
+ * schedule_blocks (Capacity Calendar bookings) and weekly_actuals (logged hours), with no Pipedrive
+ * copy to recover them from. */
+export async function reconcileDeletedJobsPipelineDeals(pipelineId: string, currentDeals: RawPipedriveDeal[]): Promise<{ deleted: number }> {
+  return api.post<{ deleted: number }>('/api/jobs-sync-pipedrive', {
     action: 'reconcile',
     pipelineId,
     currentPipedriveDealIds: currentDeals.map((d) => String(d.id)),

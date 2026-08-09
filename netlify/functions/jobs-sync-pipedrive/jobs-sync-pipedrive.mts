@@ -15,13 +15,20 @@
 //     crm-sync-deals.mts was confirmed (via netlify logs) to blow the function timeout against real
 //     production data volume.
 //   POST { action: 'reconcile', pipelineId, currentPipedriveDealIds } — run once after a full
-//     fetch+upsert pass, using the exact set of Pipedrive deal ids just fetched. A Job is a real
-//     production record (schedule blocks, actual hours, capacity calendar), never hard-deleted per
-//     the standing rule from the Jobs/Jobs-Pipeline merge — so a Job whose Pipedrive deal vanished
-//     gets archived (archivedAt set) instead of removed, same as the real-time delete-webhook path.
-//     Only ever touches jobs currently placed on this pipeline's own stages — a job with no stageId
-//     (rare legacy backfill) or one sitting on a different pipeline's stage is never touched.
-import { eq, and, inArray, isNotNull, notInArray } from 'drizzle-orm'
+//     fetch+upsert pass, using the exact set of Pipedrive deal ids just fetched. Pipedrive is the
+//     single source of truth: a Job whose Pipedrive deal is gone gets deleted outright, same as
+//     crm-sync-deals.mts's reconcile for Sales/Business Development, and same as the real-time
+//     delete-webhook path (crm-job-updated.mts). This cascades to that job's schedule_blocks
+//     (Capacity Calendar bookings) and weekly_actuals (logged hours) — an explicit, confirmed
+//     tradeoff (see the commit this comment shipped in), not an oversight; there is no Pipedrive
+//     copy of that scheduling data to recover it from. Only ever touches jobs currently placed on
+//     this pipeline's own stages — a job with no stageId (rare legacy backfill) or one sitting on a
+//     different pipeline's stage is never touched. Also never touches a `MANUAL-`-prefixed
+//     pipedriveDealId (see dealToJob.ts) — a manually-added Sales/Business Development deal, once
+//     promoted to a Job, lands on this pipeline's first stage same as any other Job, but it never
+//     had a real Pipedrive Jobs Pipeline deal to begin with, so it can never appear in
+//     currentPipedriveDealIds and would otherwise get deleted on every single sync.
+import { eq, and, inArray, isNotNull, notInArray, notLike } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { requireCrmAccess, withErrorHandling, HttpError } from '../_shared/authz.js'
 import { parseJsonBody } from '../_shared/http.js'
@@ -45,19 +52,25 @@ export default withErrorHandling(async (req: Request) => {
   if (body.action === 'reconcile') {
     const currentIds = ((body.currentPipedriveDealIds as (string | number)[] | undefined) ?? []).map(String)
     // Same safety backstop as crm-sync-deals.mts's reconcile — refuse an empty id set rather than
-    // risk archiving every job on the board off a partial/failed fetch.
+    // risk deleting every job on the board off a partial/failed fetch.
     if (currentIds.length === 0) throw new HttpError(400, 'Refusing to reconcile against an empty deal id set')
 
     const pipelineStageIds = (await db.select({ id: crmStages.id }).from(crmStages).where(eq(crmStages.pipelineId, pipelineId))).map((s) => s.id)
-    if (pipelineStageIds.length === 0) return Response.json({ archived: 0 })
+    if (pipelineStageIds.length === 0) return Response.json({ deleted: 0 })
 
-    const archived = await db
-      .update(jobs)
-      .set({ archivedAt: new Date().toISOString() })
-      .where(and(inArray(jobs.stageId, pipelineStageIds), isNotNull(jobs.pipedriveDealId), notInArray(jobs.pipedriveDealId, currentIds)))
+    const deleted = await db
+      .delete(jobs)
+      .where(
+        and(
+          inArray(jobs.stageId, pipelineStageIds),
+          isNotNull(jobs.pipedriveDealId),
+          notLike(jobs.pipedriveDealId, 'MANUAL-%'),
+          notInArray(jobs.pipedriveDealId, currentIds),
+        ),
+      )
       .returning({ id: jobs.id })
 
-    return Response.json({ archived: archived.length })
+    return Response.json({ deleted: deleted.length })
   }
 
   const rawDeals = (body.deals as PipedriveDealPayload[] | undefined) ?? []

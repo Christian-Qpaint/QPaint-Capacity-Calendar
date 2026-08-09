@@ -39,24 +39,21 @@ export default async (req: Request): Promise<Response> => {
 
     // A deal deleted in Pipedrive fires this same webhook with `data` null and its last known state
     // under `previous` (v2 payload shape) — see crm-deal-updated.mts's identical check for why this
-    // detection doesn't rely on one exact meta.action string. Unlike that file, a Jobs Pipeline job
-    // is a real production record (schedule blocks, actual hours, capacity calendar) — the standing
-    // rule from the Jobs/Jobs-Pipeline merge is it's never hard-deleted, only archived, so this sets
-    // archivedAt instead of removing the row. The Capacity Calendar deliberately ignores archivedAt
-    // (reads jobs completely unfiltered), so this never affects scheduling.
+    // detection doesn't rely on one exact meta.action string. Pipedrive is the single source of
+    // truth (explicit decision, matching Sales/Business Development's crm-deal-updated.mts) — this
+    // deletes the job outright, which cascades to its schedule_blocks (Capacity Calendar bookings)
+    // and weekly_actuals (logged hours). There is no Pipedrive copy of that scheduling data, so this
+    // is a real, permanent loss if the deal's deletion was accidental on Pipedrive's side — not an
+    // oversight, a confirmed tradeoff.
     if (!body?.data && body?.previous?.id) {
       const deleted = body.previous
       if (deleted.pipeline_id !== JOBS_PIPELINE_ID) {
-        return Response.json({ archived: false, dealId: deleted.id, reason: `pipeline_id ${deleted.pipeline_id} is not the Jobs Pipeline — ignored` })
+        return Response.json({ deleted: false, dealId: deleted.id, reason: `pipeline_id ${deleted.pipeline_id} is not the Jobs Pipeline — ignored` })
       }
       const db = getDb()
       const pipedriveDealId = String(deleted.id)
-      const [row] = await db
-        .update(jobs)
-        .set({ archivedAt: new Date().toISOString() })
-        .where(eq(jobs.pipedriveDealId, pipedriveDealId))
-        .returning({ id: jobs.id })
-      return Response.json({ archived: !!row, dealId: deleted.id, jobId: row?.id ?? null })
+      const [row] = await db.delete(jobs).where(eq(jobs.pipedriveDealId, pipedriveDealId)).returning({ id: jobs.id })
+      return Response.json({ deleted: !!row, dealId: deleted.id, jobId: row?.id ?? null })
     }
 
     const webhookDeal = body?.data ?? body?.current ?? null

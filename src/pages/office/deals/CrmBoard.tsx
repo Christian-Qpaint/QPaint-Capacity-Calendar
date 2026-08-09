@@ -12,7 +12,7 @@ import {
   chunkedSyncPipelineDeals,
   reconcileDeletedPipelineDeals,
   chunkedSyncJobsFromPipedrive,
-  reconcileArchivedJobsPipelineDeals,
+  reconcileDeletedJobsPipelineDeals,
 } from '@/lib/crmSyncRunner'
 import { DealDrawer } from '@/components/crm/DealDrawer'
 import { AddDealDialog } from '@/components/crm/AddDealDialog'
@@ -465,7 +465,7 @@ export function CrmBoard() {
   // (upserting each in chunks) runs via ImportProgressContext so it survives navigating away. ----
   const { job, runImport } = useImportProgress()
   const [syncFetching, setSyncFetching] = useState(false)
-  const lastSyncResultRef = useRef<{ created: number; updated: number; skipped: number; deleted?: number; archived?: number } | null>(null)
+  const lastSyncResultRef = useRef<{ created: number; updated: number; skipped: number; deleted: number } | null>(null)
   const handledSyncJobRef = useRef<string | null>(null)
 
   async function handleSyncPipeline() {
@@ -475,13 +475,14 @@ export function CrmBoard() {
       const { deals, total } = await fetchPipelineDealsFromPipedrive(activePipeline.id)
       const label = `Sync ${activePipeline.name} from Pipedrive`
       const started = runImport(label, total, async (onProgress) => {
-        // Jobs Pipeline writes to `jobs` (a Job IS its board card post-merge) and archives rather
-        // than deletes a Job whose Pipedrive deal disappeared — every other pipeline still writes
-        // to crm_deals and deletes outright. See jobs-sync-pipedrive.mts's header comment.
+        // Pipedrive is the single source of truth for every pipeline, Jobs Pipeline included — a
+        // Job whose Pipedrive deal disappeared gets deleted outright, same as every other pipeline
+        // (this cascades to that job's schedule_blocks/weekly_actuals — see jobs-sync-pipedrive.mts's
+        // header comment for the explicit tradeoff this represents).
         if (isJobsPipeline) {
           const result = await chunkedSyncJobsFromPipedrive(activePipeline.id, deals, onProgress)
-          const { archived } = await reconcileArchivedJobsPipelineDeals(activePipeline.id, deals)
-          lastSyncResultRef.current = { ...result, archived }
+          const { deleted } = await reconcileDeletedJobsPipelineDeals(activePipeline.id, deals)
+          lastSyncResultRef.current = { ...result, deleted }
           return { imported: result.created + result.updated }
         }
         const result = await chunkedSyncPipelineDeals(activePipeline.id, deals, onProgress)
@@ -507,9 +508,11 @@ export function CrmBoard() {
     if (!job || job.status !== 'done' || !job.label.startsWith('Sync ') || handledSyncJobRef.current === job.id) return
     handledSyncJobRef.current = job.id
     const result = lastSyncResultRef.current
-    const removalText =
-      result?.archived != null ? `${result.archived} archived (deleted in Pipedrive)` : `${result?.deleted ?? 0} removed (deleted in Pipedrive)`
-    toast.success(result ? `Sync complete — ${result.created} new, ${result.updated} updated, ${result.skipped} skipped, ${removalText}` : 'Sync complete')
+    toast.success(
+      result
+        ? `Sync complete — ${result.created} new, ${result.updated} updated, ${result.skipped} skipped, ${result.deleted} removed (deleted in Pipedrive)`
+        : 'Sync complete',
+    )
     if (viewMode === 'table') fetchTablePage(0, false)
     else for (const stage of pipelineStages) fetchStagePage(stage.id, 0, false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
