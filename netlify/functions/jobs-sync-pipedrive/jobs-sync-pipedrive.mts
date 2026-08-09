@@ -8,12 +8,15 @@
 // every pipeline including this one. Only the write side (upsert + reconcile) differs enough to
 // warrant its own function, split the same way:
 //   POST { pipelineId, deals: RawDeal[] } — upserts one chunk: creates/adopts a Job for anything not
-//     seen before (via createOrAdoptJobFromDeal, same path the real-time webhook and every other
-//     promotion route uses — a deal can never produce two Jobs no matter which path reaches it
-//     first), or patches stage/fields/contact on an already-linked Job. The existing-job lookup is
-//     batched per chunk (one query, not one per deal) — the equivalent per-deal lookup in
-//     crm-sync-deals.mts was confirmed (via netlify logs) to blow the function timeout against real
-//     production data volume.
+//     seen before and still Won (via createOrAdoptJobFromDeal, same path the real-time webhook and
+//     every other promotion route uses — a deal can never produce two Jobs no matter which path
+//     reaches it first), or patches stage/fields/contact on an already-linked Job. A deal that
+//     isn't (or no longer is) status='won' has its Job deleted outright instead — this is what
+//     catches a deal reverted from Won back to Lost/Open in Pipedrive, which the reconcile action
+//     below alone can't (reconcile only catches a deal vanishing from Pipedrive entirely, not one
+//     still present but no longer Won). The existing-job lookup is batched per chunk (one query,
+//     not one per deal) — the equivalent per-deal lookup in crm-sync-deals.mts was confirmed (via
+//     netlify logs) to blow the function timeout against real production data volume.
 //   POST { action: 'reconcile', pipelineId, currentPipedriveDealIds } — run once after a full
 //     fetch+upsert pass, using the exact set of Pipedrive deal ids just fetched. Pipedrive is the
 //     single source of truth: a Job whose Pipedrive deal is gone gets deleted outright, same as
@@ -88,6 +91,7 @@ export default withErrorHandling(async (req: Request) => {
   let created = 0
   let updated = 0
   let skipped = 0
+  let deleted = 0
 
   for (const deal of rawDeals) {
     if (deal.pipeline_id !== pipeline.pipedrivePipelineId) {
@@ -95,6 +99,24 @@ export default withErrorHandling(async (req: Request) => {
       continue
     }
     const pipedriveDealId = String(deal.id)
+    const existingJob = existingByPipedriveId.get(pipedriveDealId)
+
+    // Pipedrive is the single source of truth for whether this deal should be a Job at all, not
+    // just for its fields — a deal that isn't (or is no longer) Won has no business staying a Job
+    // here. Without this check, a deal reverted from Won back to Lost/Open in Pipedrive left its
+    // Job behind forever, since the rest of this loop only ever refreshes an existing Job's fields
+    // and never reconsiders whether it should still exist (confirmed root cause of a Job showing
+    // "Won" locally days after its deal was manually marked Lost in Pipedrive).
+    if (deal.status !== 'won') {
+      if (existingJob) {
+        await db.delete(jobs).where(eq(jobs.id, existingJob.id))
+        deleted++
+      } else {
+        skipped++
+      }
+      continue
+    }
+
     const stage = deal.stage_id != null ? stageByPipedriveId.get(deal.stage_id) : undefined
     if (!stage) {
       skipped++
@@ -103,18 +125,23 @@ export default withErrorHandling(async (req: Request) => {
 
     const fields = extractFieldsFromV1Deal(deal, fieldDefs)
     const contact = extractPrimaryContact(deal)
-    const existingJob = existingByPipedriveId.get(pipedriveDealId)
 
     if (existingJob) {
       const stageChanged = stage.id !== existingJob.stageId
       const stageEnteredAtValue = new Date().toISOString()
-      const patch: Record<string, unknown> = { fields }
+      // fields/pipedriveDealTitle/totalValue always take Pipedrive's current value outright (not
+      // gated behind a truthy check) — a title/value Pipedrive now reports, even trivially changed
+      // (a fixed typo, a stray space), must win here, not just a "look nonempty" check that would
+      // let e.g. an intentionally-cleared title silently stay stale.
+      const patch: Record<string, unknown> = {
+        fields,
+        pipedriveDealTitle: deal.title ?? existingJob.pipedriveDealTitle,
+        totalValue: typeof deal.value === 'number' ? deal.value : existingJob.totalValue,
+      }
       if (stageChanged) {
         patch.stageId = stage.id
         patch.stageEnteredAt = stageEnteredAtValue
       }
-      if (deal.title) patch.pipedriveDealTitle = deal.title
-      if (typeof deal.value === 'number') patch.totalValue = deal.value
       const rawTargetHours = fields[FIELD_TARGET_HOURS]
       if (typeof rawTargetHours === 'number') patch.targetHours = rawTargetHours
       const rawActualHours = fields[FIELD_ACTUAL_HOURS]
@@ -126,8 +153,18 @@ export default withErrorHandling(async (req: Request) => {
 
       await db.update(jobs).set(patch).where(eq(jobs.id, existingJob.id))
       if (stageChanged) await recordStageEntry(db, { jobId: existingJob.id }, stage.id, stageEnteredAtValue)
+
+      // Client name kept current too, not just phone/email — an org renamed or a name typo fixed
+      // in Pipedrive should show up here, same as any other field.
+      const clientName = deal.org_name || deal.person_name
+      const clientPatch: Record<string, unknown> = {}
+      if (clientName) clientPatch.name = clientName
       if (contact.phone || contact.email) {
-        await db.update(clients).set({ phone: contact.phone, email: contact.email }).where(eq(clients.id, existingJob.clientId))
+        clientPatch.phone = contact.phone
+        clientPatch.email = contact.email
+      }
+      if (Object.keys(clientPatch).length > 0) {
+        await db.update(clients).set(clientPatch).where(eq(clients.id, existingJob.clientId))
       }
       updated++
       continue
@@ -162,7 +199,7 @@ export default withErrorHandling(async (req: Request) => {
     created++
   }
 
-  return Response.json({ created, updated, skipped, total: rawDeals.length })
+  return Response.json({ created, updated, skipped, deleted, total: rawDeals.length })
 })
 
 export const config = {

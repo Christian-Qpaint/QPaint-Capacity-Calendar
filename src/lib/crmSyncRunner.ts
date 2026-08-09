@@ -80,27 +80,31 @@ export async function chunkedSyncPipelineDeals(
 // `crm_deals` (see jobs-sync-pipedrive.mts's own header comment for why this pipeline needs its
 // own write-side endpoint while still sharing the generic GET fetch above). ----
 
-/** Phase 2 (Jobs Pipeline) — upserts the already-fetched deals into `jobs` in fixed-size chunks. */
+/** Phase 2 (Jobs Pipeline) — upserts the already-fetched deals into `jobs` in fixed-size chunks.
+ * `deleted` here counts Jobs removed because their deal is no longer Won (reverted to Lost/Open) —
+ * distinct from Phase 3's `deleted`, which counts Jobs whose deal vanished from Pipedrive entirely. */
 export async function chunkedSyncJobsFromPipedrive(
   pipelineId: string,
   deals: RawPipedriveDeal[],
   onProgress: (completed: number) => void,
-): Promise<{ created: number; updated: number; skipped: number }> {
+): Promise<{ created: number; updated: number; skipped: number; deleted: number }> {
   let created = 0
   let updated = 0
   let skipped = 0
+  let deleted = 0
   for (let i = 0; i < deals.length; i += SYNC_CHUNK_SIZE) {
     const chunk = deals.slice(i, i + SYNC_CHUNK_SIZE)
-    const result = await api.post<{ created: number; updated: number; skipped: number }>('/api/jobs-sync-pipedrive', {
+    const result = await api.post<{ created: number; updated: number; skipped: number; deleted: number }>('/api/jobs-sync-pipedrive', {
       pipelineId,
       deals: chunk,
     })
     created += result.created
     updated += result.updated
     skipped += result.skipped
+    deleted += result.deleted
     onProgress(Math.min(i + SYNC_CHUNK_SIZE, deals.length))
   }
-  return { created, updated, skipped }
+  return { created, updated, skipped, deleted }
 }
 
 /** Phase 3 (Jobs Pipeline) — deletes any Job on this pipeline's board whose Pipedrive deal isn't in

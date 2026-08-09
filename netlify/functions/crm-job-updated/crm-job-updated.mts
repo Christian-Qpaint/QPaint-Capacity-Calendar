@@ -16,6 +16,11 @@
 // stuck deals finally getting its Target Hours filled in. On success, any leftover crm_deals row
 // for that same deal is cleaned up the same way the one-time migration did (history re-pointed to
 // the job, then the stale deal row deleted) — never left as a duplicate.
+//
+// Also re-checks status on every update, not just on creation: a deal reverted from Won back to
+// Lost/Open in Pipedrive has its Job deleted outright (Pipedrive is the single source of truth for
+// whether this deal should be a Job at all, not just for its fields) — confirmed root cause of a
+// Job showing stale "Won" data days after its deal was manually marked Lost in Pipedrive.
 import { eq } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { isPipedriveWebhookAuthorized } from '../_shared/pipedriveAuth.js'
@@ -66,6 +71,16 @@ export default async (req: Request): Promise<Response> => {
 
     const db = getDb()
     const pipedriveDealId = String(deal.id)
+
+    // Pipedrive is the single source of truth for whether this deal should be a Job at all, not
+    // just for its fields — a deal reverted from Won back to Lost/Open has its Job deleted outright
+    // rather than left behind showing stale "Won" data forever (this is what jobs-sync-pipedrive.mts's
+    // bulk sync also checks on every run; this covers it in real time).
+    if (deal.status !== 'won') {
+      const [row] = await db.delete(jobs).where(eq(jobs.pipedriveDealId, pipedriveDealId)).returning({ id: jobs.id })
+      return Response.json({ updated: false, deleted: !!row, dealId: deal.id, reason: `status is "${deal.status}", not won — ignored or deleted if it had a Job` })
+    }
+
     const stageIdRaw = deal.stage_id ?? null
     const [stage] = stageIdRaw
       ? await db.select().from(crmStages).where(eq(crmStages.pipedriveStageId, stageIdRaw)).limit(1)
@@ -83,13 +98,18 @@ export default async (req: Request): Promise<Response> => {
     if (existingJob) {
       const stageChanged = stage.id !== existingJob.stageId
       const stageEnteredAtValue = new Date().toISOString()
-      const patch: Record<string, unknown> = { fields }
+      // fields/pipedriveDealTitle/totalValue always take Pipedrive's current value outright — a
+      // trivially changed title (a fixed typo, a stray space) must win here, not get skipped by a
+      // "looks nonempty" check.
+      const patch: Record<string, unknown> = {
+        fields,
+        pipedriveDealTitle: deal.title ?? existingJob.pipedriveDealTitle,
+        totalValue: typeof deal.value === 'number' ? deal.value : existingJob.totalValue,
+      }
       if (stageChanged) {
         patch.stageId = stage.id
         patch.stageEnteredAt = stageEnteredAtValue
       }
-      if (deal.title) patch.pipedriveDealTitle = deal.title
-      if (typeof deal.value === 'number') patch.totalValue = deal.value
       const rawTargetHours = fields[FIELD_TARGET_HOURS]
       if (typeof rawTargetHours === 'number') patch.targetHours = rawTargetHours
       const rawActualHours = fields[FIELD_ACTUAL_HOURS]
@@ -101,8 +121,17 @@ export default async (req: Request): Promise<Response> => {
 
       await db.update(jobs).set(patch).where(eq(jobs.id, existingJob.id))
       if (stageChanged) await recordStageEntry(db, { jobId: existingJob.id }, stage.id, stageEnteredAtValue)
+
+      // Client name kept current too, not just phone/email.
+      const clientName = deal.org_name || deal.person_name
+      const clientPatch: Record<string, unknown> = {}
+      if (clientName) clientPatch.name = clientName
       if (contact.phone || contact.email) {
-        await db.update(clients).set({ phone: contact.phone, email: contact.email }).where(eq(clients.id, existingJob.clientId))
+        clientPatch.phone = contact.phone
+        clientPatch.email = contact.email
+      }
+      if (Object.keys(clientPatch).length > 0) {
+        await db.update(clients).set(clientPatch).where(eq(clients.id, existingJob.clientId))
       }
       return Response.json({ updated: true, dealId: deal.id, jobId: existingJob.id })
     }

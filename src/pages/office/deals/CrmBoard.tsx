@@ -481,8 +481,11 @@ export function CrmBoard() {
         // header comment for the explicit tradeoff this represents).
         if (isJobsPipeline) {
           const result = await chunkedSyncJobsFromPipedrive(activePipeline.id, deals, onProgress)
-          const { deleted } = await reconcileDeletedJobsPipelineDeals(activePipeline.id, deals)
-          lastSyncResultRef.current = { ...result, deleted }
+          // Two distinct sources of deletion, summed into one count for the toast: result.deleted
+          // is deals reverted from Won back to Lost/Open (still in Pipedrive, just not Won anymore);
+          // reconcile's deleted is deals that vanished from Pipedrive entirely.
+          const { deleted: reconciledDeleted } = await reconcileDeletedJobsPipelineDeals(activePipeline.id, deals)
+          lastSyncResultRef.current = { ...result, deleted: result.deleted + reconciledDeleted }
           return { imported: result.created + result.updated }
         }
         const result = await chunkedSyncPipelineDeals(activePipeline.id, deals, onProgress)
