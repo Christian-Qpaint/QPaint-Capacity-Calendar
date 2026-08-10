@@ -1,9 +1,15 @@
-// Keeps an already-copied-in Sales Pipeline deal's stage/status/fields in sync with Pipedrive
+// Keeps an already-copied-in crm_deals row's pipeline/stage/status/fields in sync with Pipedrive
 // going forward — closes the gap crm-deal-created.mts deliberately leaves open (it only fires on
 // brand-new deals; once copied in, the local row used to stay frozen forever at whatever stage/
 // status it had at that moment, even as a rep kept working the deal in Pipedrive). Still strictly
-// one-way (Pipedrive -> CRM only, never pushed back) and still Sales-Pipeline-only, matching the
-// original automation scope.
+// one-way (Pipedrive -> CRM only, never pushed back).
+//
+// Pipeline-agnostic by design: covers every pipeline mirrored locally as a crm_deals row (Sales,
+// Business Development, any future one) except the Jobs Pipeline, which has its own dedicated
+// crm-job-updated.mts (a Jobs Pipeline deal is a `jobs` row, not a `crm_deals` row). Also re-resolves
+// `pipelineId`/`stageId` fresh from the deal's current pipeline_id/stage_id on every event, so a
+// deal actually moved between pipelines in Pipedrive (e.g. Sales -> Business Development) follows
+// it here too, not just an in-pipeline stage move.
 //
 // Deliberately stops applying once a deal is already 'won' locally: at that point it's been
 // promoted into a real Job and Pipedrive is no longer the thing driving what happens to it —
@@ -18,9 +24,9 @@ import { isPipedriveWebhookAuthorized } from '../_shared/pipedriveAuth.js'
 import { fetchFullDeal, extractFieldsFromV1Deal, extractPrimaryContact, type PipedriveDealPayload } from '../_shared/pipedriveApi.js'
 import { attemptPromotion } from '../_shared/dealToJob.js'
 import { recordStageEntry } from '../_shared/stageHistory.js'
-import { crmStages, crmFieldDefinitions, crmDeals } from '../../../db/schema.js'
+import { crmPipelines, crmStages, crmFieldDefinitions, crmDeals } from '../../../db/schema.js'
 
-const SALES_PIPELINE_ID = 2
+const JOBS_PIPELINE_PIPEDRIVE_ID = 3
 
 export default async (req: Request): Promise<Response> => {
   if (!isPipedriveWebhookAuthorized(req)) return Response.json({ error: 'Unauthorized' }, { status: 401 })
@@ -43,8 +49,8 @@ export default async (req: Request): Promise<Response> => {
     // (crm_deals.jobId -> jobs.id is ON DELETE SET NULL, never cascades).
     if (!body?.data && body?.previous?.id) {
       const deleted = body.previous
-      if (deleted.pipeline_id !== SALES_PIPELINE_ID) {
-        return Response.json({ deleted: false, dealId: deleted.id, reason: `pipeline_id ${deleted.pipeline_id} is not the Sales Pipeline — ignored` })
+      if (deleted.pipeline_id === JOBS_PIPELINE_PIPEDRIVE_ID) {
+        return Response.json({ deleted: false, dealId: deleted.id, reason: 'Jobs Pipeline deal — handled by crm-job-updated.mts instead' })
       }
       const db = getDb()
       const pipedriveDealId = String(deleted.id)
@@ -64,9 +70,13 @@ export default async (req: Request): Promise<Response> => {
     }
 
     const deal = (await fetchFullDeal(webhookDeal.id)) ?? webhookDeal
-    if (deal.pipeline_id !== SALES_PIPELINE_ID) {
-      return Response.json({ updated: false, dealId: deal.id, reason: `pipeline_id ${deal.pipeline_id} is not the Sales Pipeline — ignored` })
+    if (deal.pipeline_id === JOBS_PIPELINE_PIPEDRIVE_ID) {
+      return Response.json({ updated: false, dealId: deal.id, reason: 'Jobs Pipeline deal — handled by crm-job-updated.mts instead' })
     }
+
+    const [pipeline] = deal.pipeline_id != null
+      ? await db.select().from(crmPipelines).where(eq(crmPipelines.pipedrivePipelineId, deal.pipeline_id)).limit(1)
+      : []
 
     const stageId = deal.stage_id ?? null
     const [stage] = stageId
@@ -88,6 +98,7 @@ export default async (req: Request): Promise<Response> => {
     const [updated] = await db
       .update(crmDeals)
       .set({
+        pipelineId: pipeline?.id ?? existing.pipelineId,
         stageId: stage.id,
         ...(stageChanged ? { stageEnteredAt: stageEnteredAtValue } : {}),
         title: deal.title || existing.title,

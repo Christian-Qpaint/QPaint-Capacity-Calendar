@@ -1,11 +1,16 @@
-// One-way, creation-only automation: fires when a NEW deal is added in Pipedrive's Sales
-// Pipeline, copies it into the local CRM as a crm_deals row. Once copied in, the deal is managed
-// entirely locally from then on — Pipedrive's own later stage/field changes are never synced back
-// (matches what was explicitly asked for). Deliberately a distinct Function from the legacy
-// pipedrive-webhook.mts — that one fires on ANY deal event and only cares about status==='won';
-// this one only cares about brand-new deals, and only within the Sales Pipeline (pipeline_id 2 —
-// the other 2 mirrored pipelines get their existing deals from the one-time backfill and any new
-// ones added manually, not an ongoing feed, per the confirmed scope).
+// One-way, creation-only automation: fires when a NEW deal is added in ANY Pipedrive pipeline that
+// isn't the Jobs Pipeline (which has its own dedicated crm-job-updated.mts, since a Jobs Pipeline
+// deal is stored as a `jobs` row, not a `crm_deals` row), copies it into the local CRM as a
+// crm_deals row. Once copied in, the deal is managed entirely locally from then on — Pipedrive's
+// own later stage/field changes are never synced back (matches what was explicitly asked for).
+// Deliberately a distinct Function from the legacy pipedrive-webhook.mts — that one fires on ANY
+// deal event and only cares about status==='won'; this one only cares about brand-new deals.
+//
+// The pipeline is resolved dynamically against crm_pipelines (by the incoming deal's real
+// pipeline_id) rather than hardcoded to one pipeline id — this one webhook subscription covers
+// every pipeline mirrored locally today (Sales, Business Development) and any future one added
+// later without needing another code change. A deal in a pipeline that isn't mirrored locally yet
+// is ignored, same as before.
 //
 // The registered webhook subscription is Pipedrive's newer v2 format, whose payload only carries
 // scalar org_id/person_id and nests custom fields under data.custom_fields — not the flat
@@ -21,7 +26,7 @@ import { fetchFullDeal, extractFieldsFromV1Deal, extractPrimaryContact, type Pip
 import { recordStageEntry } from '../_shared/stageHistory.js'
 import { crmPipelines, crmStages, crmFieldDefinitions, crmDeals } from '../../../db/schema.js'
 
-const SALES_PIPELINE_ID = 2
+const JOBS_PIPELINE_PIPEDRIVE_ID = 3
 
 export default async (req: Request): Promise<Response> => {
   if (!isPipedriveWebhookAuthorized(req)) return Response.json({ error: 'Unauthorized' }, { status: 401 })
@@ -32,8 +37,8 @@ export default async (req: Request): Promise<Response> => {
     if (!webhookDeal?.id) return Response.json({ imported: false, reason: 'No deal payload in request — ignored, not an error' })
 
     const deal = (await fetchFullDeal(webhookDeal.id)) ?? webhookDeal
-    if (deal.pipeline_id !== SALES_PIPELINE_ID) {
-      return Response.json({ imported: false, dealId: deal.id, reason: `pipeline_id ${deal.pipeline_id} is not the Sales Pipeline — ignored` })
+    if (deal.pipeline_id === JOBS_PIPELINE_PIPEDRIVE_ID) {
+      return Response.json({ imported: false, dealId: deal.id, reason: 'Jobs Pipeline deal — handled by crm-job-updated.mts instead' })
     }
 
     const db = getDb()
@@ -41,8 +46,12 @@ export default async (req: Request): Promise<Response> => {
     const [existing] = await db.select({ id: crmDeals.id }).from(crmDeals).where(eq(crmDeals.pipedriveDealId, pipedriveDealId)).limit(1)
     if (existing) return Response.json({ imported: false, dealId: deal.id, reason: 'Already copied in previously — left untouched' })
 
-    const [pipeline] = await db.select().from(crmPipelines).where(eq(crmPipelines.pipedrivePipelineId, SALES_PIPELINE_ID)).limit(1)
-    if (!pipeline) return Response.json({ imported: false, dealId: deal.id, reason: 'Sales Pipeline is not mirrored locally yet' })
+    const [pipeline] = deal.pipeline_id != null
+      ? await db.select().from(crmPipelines).where(eq(crmPipelines.pipedrivePipelineId, deal.pipeline_id)).limit(1)
+      : []
+    if (!pipeline) {
+      return Response.json({ imported: false, dealId: deal.id, reason: `pipeline_id ${deal.pipeline_id} is not mirrored locally yet` })
+    }
 
     const stageId = deal.stage_id ?? null
     const [stage] = stageId
