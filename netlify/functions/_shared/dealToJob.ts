@@ -41,11 +41,15 @@ export interface DealForJobCreation {
   orgName: string | null
   personName: string | null
   value: number
-  /** null/undefined = not set yet — promotion is skipped, never guessed at, same refusal
-   * behavior the original pipedrive-webhook.mts already had. */
+  /** Deliberately never blocks promotion, even when null/undefined (no Target Hours set in
+   * Pipedrive yet) — Pipedrive is the single source of truth and a deal that's Won belongs in the
+   * system as-is, not silently withheld pending someone filling in a field. Defaults to 0 when
+   * absent, which shows up as a visible "0 target hours" flag for follow-up rather than the deal
+   * being invisible. (Previously refused promotion entirely here — confirmed as the cause of 15
+   * real Won deals never appearing as Jobs, some over a year after being Won.) */
   targetHours: number | null | undefined
-  /** Pipedrive's "Actual Hours to Date" — unlike targetHours, absence never blocks promotion
-   * (production just hasn't been logged there yet); null/undefined means not yet reported. */
+  /** Pipedrive's "Actual Hours to Date" — absence never blocks promotion either (production just
+   * hasn't been logged there yet); null/undefined means not yet reported. */
   actualHours: number | null | undefined
   category: JobCategoryValue
   address: string
@@ -54,6 +58,12 @@ export interface DealForJobCreation {
    * — carried onto the client record this job resolves to, null if no contact is linked yet. */
   personPhone: string | null
   personEmail: string | null
+  /** Stage to place a newly-created Job on directly, overriding the Jobs Pipeline's default first
+   * stage — used when the caller already knows the deal's real current stage (bulk sync, real-time
+   * webhook), so a deal already deep in the pipeline doesn't briefly show up under "Admin" until
+   * the next sync corrects it. Omitted by a Sales/Business Development promotion, which has no
+   * Jobs Pipeline stage of its own to hand over — falls back to the pipeline's first stage. */
+  initialStageId?: string
 }
 
 export type JobCreationResult = { status: 'created' | 'adopted'; jobId: string } | { status: 'skipped'; reason: string }
@@ -61,10 +71,6 @@ export type JobCreationResult = { status: 'created' | 'adopted'; jobId: string }
 import { crmDeals } from '../../../db/schema.js'
 
 export async function createOrAdoptJobFromDeal(db: ReturnType<typeof getDb>, input: DealForJobCreation): Promise<JobCreationResult> {
-  if (input.targetHours === null || input.targetHours === undefined) {
-    return { status: 'skipped', reason: 'No Target Hours custom field set on this deal yet' }
-  }
-
   if (input.pipedriveDealId) {
     const [existingJob] = await db.select({ id: jobs.id }).from(jobs).where(eq(jobs.pipedriveDealId, input.pipedriveDealId)).limit(1)
     if (existingJob) return { status: 'adopted', jobId: existingJob.id }
@@ -85,17 +91,23 @@ export async function createOrAdoptJobFromDeal(db: ReturnType<typeof getDb>, inp
     await db.update(clients).set({ phone: input.personPhone, email: input.personEmail }).where(eq(clients.id, clientId))
   }
 
-  // Place the new job directly onto the Jobs Pipeline's first stage — there's no separate Jobs
-  // Pipeline deal row left to do this via anymore post-merge. Missing entirely only if the Jobs
-  // Pipeline itself isn't mirrored locally yet (shouldn't happen in practice) — a job still gets
-  // created either way, just without a stage until someone sets one manually.
-  const [firstStage] = await db
-    .select({ id: crmStages.id })
-    .from(crmStages)
-    .innerJoin(crmPipelines, eq(crmPipelines.id, crmStages.pipelineId))
-    .where(eq(crmPipelines.pipedrivePipelineId, JOBS_PIPELINE_PIPEDRIVE_ID))
-    .orderBy(asc(crmStages.order))
-    .limit(1)
+  // Placed directly onto the deal's own real current stage when the caller knows it (bulk sync,
+  // real-time webhook) so it doesn't briefly show up under "Admin" until the next sync corrects
+  // it; otherwise falls back to the Jobs Pipeline's first stage — there's no separate Jobs Pipeline
+  // deal row left to do this via anymore post-merge. Missing entirely only if the Jobs Pipeline
+  // itself isn't mirrored locally yet (shouldn't happen in practice) — a job still gets created
+  // either way, just without a stage until someone sets one manually.
+  const firstStage = input.initialStageId
+    ? { id: input.initialStageId }
+    : (
+        await db
+          .select({ id: crmStages.id })
+          .from(crmStages)
+          .innerJoin(crmPipelines, eq(crmPipelines.id, crmStages.pipelineId))
+          .where(eq(crmPipelines.pipedrivePipelineId, JOBS_PIPELINE_PIPEDRIVE_ID))
+          .orderBy(asc(crmStages.order))
+          .limit(1)
+      )[0]
 
   const stageEnteredAt = new Date().toISOString()
   const [created] = await db
@@ -106,7 +118,7 @@ export async function createOrAdoptJobFromDeal(db: ReturnType<typeof getDb>, inp
       address: input.address,
       category: input.category,
       totalValue: input.value,
-      targetHours: input.targetHours,
+      targetHours: input.targetHours ?? 0,
       actualHours: input.actualHours ?? undefined,
       dateWon: input.dateWon,
       pipedriveDealTitle: input.title,
@@ -127,8 +139,9 @@ export async function createOrAdoptJobFromDeal(db: ReturnType<typeof getDb>, inp
  * stage, explicitly marked Won, or (via crm-deal-updated.mts) marked Won directly in Pipedrive
  * itself. A no-op (not an error) if the deal is already linked to a Job; routes through the same
  * createOrAdoptJobFromDeal every other promotion path uses, so none of them can ever double-create
- * a Job for one deal. Returns a reason (not an error/rejection) when promotion can't complete yet —
- * the stage move / Won status change itself always still succeeds. */
+ * a Job for one deal. Promotion is never blocked on a missing field (see createOrAdoptJobFromDeal),
+ * so skippedReason should no longer trigger in practice — kept in the return shape for callers that
+ * already handle it, not because it's expected to fire. */
 export async function attemptPromotion(
   db: ReturnType<typeof getDb>,
   deal: typeof crmDeals.$inferSelect,

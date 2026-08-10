@@ -10,12 +10,14 @@
 // to the job's client record (phone/email, off the deal's linked Person), unlike
 // crm-deal-updated.mts which still updates crm_deals for Sales/Business Development.
 //
-// If no Job exists yet for this deal (a "stuck" Jobs Pipeline deal — Won but never promoted,
-// usually because Target Hours wasn't set), this also retries promotion directly — covering both
-// a brand-new Jobs Pipeline deal reaching this app for the first time, and one of the pre-merge
-// stuck deals finally getting its Target Hours filled in. On success, any leftover crm_deals row
-// for that same deal is cleaned up the same way the one-time migration did (history re-pointed to
-// the job, then the stale deal row deleted) — never left as a duplicate.
+// If no Job exists yet for this deal, this also retries promotion directly — covers a brand-new
+// Jobs Pipeline deal reaching this app for the first time. Promotion is never blocked on missing
+// fields (e.g. no Target Hours set in Pipedrive) — Pipedrive is the single source of truth, so a
+// Won deal always becomes a Job as-is; a missing Target Hours just defaults to 0, a visible flag
+// for follow-up rather than the deal silently never appearing at all (confirmed cause of 15 real
+// Won deals invisible in this app, one over a year after being Won). On success, any leftover
+// crm_deals row for that same deal is cleaned up the same way the one-time migration did (history
+// re-pointed to the job, then the stale deal row deleted) — never left as a duplicate.
 //
 // Also re-checks status on every update, not just on creation: a deal reverted from Won back to
 // Lost/Open in Pipedrive has its Job deleted outright (Pipedrive is the single source of truth for
@@ -156,6 +158,7 @@ export default async (req: Request): Promise<Response> => {
       dateWon: (deal.won_time ?? deal.add_time ?? new Date().toISOString()).slice(0, 10),
       personPhone: contact.phone,
       personEmail: contact.email,
+      initialStageId: stage.id,
     })
 
     if (result.status === 'skipped') {

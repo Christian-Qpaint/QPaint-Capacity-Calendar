@@ -190,6 +190,7 @@ export default withErrorHandling(async (req: Request) => {
       dateWon: (deal.won_time ?? deal.add_time ?? new Date().toISOString()).slice(0, 10),
       personPhone: contact.phone,
       personEmail: contact.email,
+      initialStageId: stage.id,
     })
 
     if (result.status === 'skipped') {
