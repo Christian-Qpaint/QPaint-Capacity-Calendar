@@ -159,6 +159,7 @@ export default async (req: Request): Promise<Response> => {
       personPhone: contact.phone,
       personEmail: contact.email,
       initialStageId: stage.id,
+      fields,
     })
 
     if (result.status === 'skipped') {

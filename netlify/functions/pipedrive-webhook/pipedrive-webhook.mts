@@ -46,6 +46,9 @@ export default async (req: Request): Promise<Response> => {
       // (extractPrimaryContact expects fetchFullDeal's typed v1 shape) for a dead code path.
       personPhone: null,
       personEmail: null,
+      // Same rationale as personPhone/personEmail above — this dead path never registered in
+      // Pipedrive isn't worth wiring real extractFieldsFromV1Deal-style parsing for.
+      fields: {},
     })
 
     if (result.status === 'skipped') return Response.json({ imported: false, dealId: deal.id, reason: result.reason })

@@ -191,6 +191,7 @@ export default withErrorHandling(async (req: Request) => {
       personPhone: contact.phone,
       personEmail: contact.email,
       initialStageId: stage.id,
+      fields,
     })
 
     if (result.status === 'skipped') {

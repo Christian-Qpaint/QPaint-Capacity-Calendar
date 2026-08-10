@@ -58,6 +58,14 @@ export interface DealForJobCreation {
    * — carried onto the client record this job resolves to, null if no contact is linked yet. */
   personPhone: string | null
   personEmail: string | null
+  /** The deal's custom-field blob (Pipedrive's `fields`), copied onto the new job's own `fields`
+   * column at creation time. Previously omitted entirely here, leaving every newly-created job's
+   * `fields` at the schema default `{}` until the NEXT sync cycle's "existingJob" update branch
+   * (which always did set it) patched it in one cycle later — invisible for a single deal here or
+   * there, but confirmed as the cause of a saved filter referencing a custom field (e.g. "Won Date
+   * Additional") silently excluding a whole batch of simultaneously-created jobs from the board for
+   * a full cycle. */
+  fields: Record<string, unknown>
   /** Stage to place a newly-created Job on directly, overriding the Jobs Pipeline's default first
    * stage — used when the caller already knows the deal's real current stage (bulk sync, real-time
    * webhook), so a deal already deep in the pipeline doesn't briefly show up under "Admin" until
@@ -124,6 +132,7 @@ export async function createOrAdoptJobFromDeal(db: ReturnType<typeof getDb>, inp
       pipedriveDealTitle: input.title,
       stageId: firstStage?.id,
       stageEnteredAt: firstStage ? stageEnteredAt : undefined,
+      fields: input.fields,
     })
     .returning({ id: jobs.id })
 
@@ -169,6 +178,7 @@ export async function attemptPromotion(
     dateWon: (deal.wonAt ?? new Date().toISOString()).slice(0, 10),
     personPhone: deal.personPhone,
     personEmail: deal.personEmail,
+    fields,
   })
 
   if (result.status === 'skipped') return { promoted: false, jobId: null, skippedReason: result.reason }
