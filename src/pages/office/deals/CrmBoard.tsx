@@ -861,37 +861,34 @@ export function CrmBoard() {
       )}
 
       {viewMode === 'kanban' && (
-        // Breaks out of OfficeLayout's centered max-w-[1600px] container to use the full viewport
-        // width — every stage column gets flex-1 (see KanbanColumn) so they always divide up
-        // whatever width is available and every stage is visible without horizontal scrolling,
-        // regardless of how many stages a pipeline has.
-        <div className="relative left-1/2 w-screen -translate-x-1/2 px-6">
-          <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-            <div className="flex gap-3 pb-2">
-              {pipelineStages.length === 0 && (
-                <p className="w-full rounded-md border border-dashed border-border py-8 text-center text-sm text-muted-foreground">
-                  No stages configured for this pipeline yet.
-                </p>
-              )}
-              {pipelineStages.map((stage) => (
-                <KanbanColumn
-                  key={stage.id}
-                  stage={stage}
-                  color={stageColorById.get(stage.id) ?? '#94A3B8'}
-                  avgDwellDays={stageAvgDwellDays[stage.id]}
-                  state={columnState[stage.id] ?? EMPTY_COLUMN}
-                  summary={stageSummary[stage.id]}
-                  canManage={canManage}
-                  onOpenDeal={openDeal}
-                  onLoadMore={() => {
-                    const current = columnState[stage.id] ?? EMPTY_COLUMN
-                    fetchStagePage(stage.id, current.deals.length, true)
-                  }}
-                />
-              ))}
-            </div>
-          </DndContext>
-        </div>
+        // OfficeLayout itself is full-width now, so no breakout needed here — every stage column
+        // just gets flex-1 (see KanbanColumn) so they always divide up whatever width is available
+        // and every stage is visible without horizontal scrolling, regardless of stage count.
+        <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+          <div className="flex gap-3 pb-2">
+            {pipelineStages.length === 0 && (
+              <p className="w-full rounded-md border border-dashed border-border py-8 text-center text-sm text-muted-foreground">
+                No stages configured for this pipeline yet.
+              </p>
+            )}
+            {pipelineStages.map((stage) => (
+              <KanbanColumn
+                key={stage.id}
+                stage={stage}
+                color={stageColorById.get(stage.id) ?? '#94A3B8'}
+                avgDwellDays={stageAvgDwellDays[stage.id]}
+                state={columnState[stage.id] ?? EMPTY_COLUMN}
+                summary={stageSummary[stage.id]}
+                canManage={canManage}
+                onOpenDeal={openDeal}
+                onLoadMore={() => {
+                  const current = columnState[stage.id] ?? EMPTY_COLUMN
+                  fetchStagePage(stage.id, current.deals.length, true)
+                }}
+              />
+            ))}
+          </div>
+        </DndContext>
       )}
 
       <DealDrawer

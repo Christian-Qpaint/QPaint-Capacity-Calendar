@@ -22,7 +22,7 @@ export function OfficeLayout() {
   return (
     <div className="min-h-svh bg-background">
       <header className="border-b border-border bg-card print:hidden">
-        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-6 py-3">
+        <div className="flex items-center justify-between gap-4 px-6 py-3">
           <div className="flex items-center gap-6">
             <span className="text-sm font-semibold tracking-tight">QPaint OS</span>
             <nav className="flex items-center gap-1">
@@ -49,7 +49,7 @@ export function OfficeLayout() {
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-[1600px] px-6 py-8">
+      <main className="px-6 py-8">
         <Outlet />
       </main>
     </div>
