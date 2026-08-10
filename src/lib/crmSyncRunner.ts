@@ -9,6 +9,15 @@ import { api } from '@/lib/apiClient'
 // (several live invocations clocked at 44-50s, right at the platform's timeout ceiling).
 const SYNC_CHUNK_SIZE = 40
 
+// Jobs Pipeline specifically needs a smaller chunk than the above — creating a brand-new Job is
+// much heavier per-deal than crm_deals' plain upsert: client-by-name lookup, client insert/update,
+// job insert, and a stage-history insert, all sequential (a client-dedup race means these can't be
+// batched across deals in one chunk). Confirmed via production `netlify logs` that 40 was too large
+// once Job creation stopped being gated on Target Hours (more deals now take the heavier create
+// path instead of being skipped) — several live invocations clocked at 18-20s, right at the
+// platform's timeout ceiling.
+const JOBS_SYNC_CHUNK_SIZE = 15
+
 export interface RawPipedriveDeal {
   id: number
   [key: string]: unknown
@@ -92,8 +101,8 @@ export async function chunkedSyncJobsFromPipedrive(
   let updated = 0
   let skipped = 0
   let deleted = 0
-  for (let i = 0; i < deals.length; i += SYNC_CHUNK_SIZE) {
-    const chunk = deals.slice(i, i + SYNC_CHUNK_SIZE)
+  for (let i = 0; i < deals.length; i += JOBS_SYNC_CHUNK_SIZE) {
+    const chunk = deals.slice(i, i + JOBS_SYNC_CHUNK_SIZE)
     const result = await api.post<{ created: number; updated: number; skipped: number; deleted: number }>('/api/jobs-sync-pipedrive', {
       pipelineId,
       deals: chunk,
@@ -102,7 +111,7 @@ export async function chunkedSyncJobsFromPipedrive(
     updated += result.updated
     skipped += result.skipped
     deleted += result.deleted
-    onProgress(Math.min(i + SYNC_CHUNK_SIZE, deals.length))
+    onProgress(Math.min(i + JOBS_SYNC_CHUNK_SIZE, deals.length))
   }
   return { created, updated, skipped, deleted }
 }
