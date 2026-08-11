@@ -430,7 +430,12 @@ export function ResourceCalendar() {
   const colWidth = DAY_COL_WIDTH[viewMode]
 
   return (
-    <div className="space-y-4">
+    // h-full fills whatever height OfficeLayout's `main` gives this page (the remaining viewport
+    // below the app header) and flex-col + the calendar's own flex-1 below let it consume exactly
+    // whatever's left after the (now compact) header/toolbar/summary rows — the calendar's own
+    // internal grid stays the only thing that scrolls, instead of the whole page also scrolling
+    // underneath it.
+    <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-medium tracking-tight">Resource Schedule Calendar</h1>
         <div className="flex gap-1.5 rounded-lg border border-border bg-card p-1">
@@ -526,60 +531,71 @@ export function ResourceCalendar() {
 
       {/* Same 4 numbers as the Capacity Board dashboard, so switching tabs to check them isn't
           necessary — but scoped to whatever's currently in view here (Day/Week/Month/3 Months/
-          Quarter/Year) rather than Capacity Board's own separate Weekly/Monthly toggle. */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="gap-2 p-4 transition hover:shadow-md">
-          <div className="flex items-center gap-2">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-              <Target className="size-4" />
-            </span>
-            <p className="text-xs text-muted-foreground">{PERIOD_ADJECTIVE[viewMode]} target</p>
-          </div>
-          <p className="text-2xl font-semibold tracking-tight">{formatCurrency(targetInfo.total)}</p>
-          {targetInfo.missingMonths > 0 && (
-            <p className="text-xs text-muted-foreground">
-              {targetInfo.totalMonths === 1
+          Quarter/Year) rather than Capacity Board's own separate Weekly/Monthly toggle. Laid out
+          icon-beside-value (not icon-above-value) and shrunk overall, with the two conditional
+          explainer lines moved into a `title` tooltip — together these used to be tall enough,
+          stacked three lines deep on some cards, to be the main reason this page needed its own
+          page-level scroll on top of the calendar's already-scrollable grid below it. */}
+      <div className="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <Card
+          className="flex-row items-center gap-2.5 p-2.5 transition hover:shadow-md"
+          title={
+            targetInfo.missingMonths > 0
+              ? targetInfo.totalMonths === 1
                 ? 'No target set for this month'
-                : `No target set for ${targetInfo.missingMonths} of ${targetInfo.totalMonths} months`}
+                : `No target set for ${targetInfo.missingMonths} of ${targetInfo.totalMonths} months`
+              : undefined
+          }
+        >
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+            <Target className="size-3.5" />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-[11px] text-muted-foreground">{PERIOD_ADJECTIVE[viewMode]} target</p>
+            <p className="text-lg leading-tight font-semibold tracking-tight">{formatCurrency(targetInfo.total)}</p>
+          </div>
+          {targetInfo.missingMonths > 0 && <TriangleAlert className="ml-auto size-3.5 shrink-0 text-warning" />}
+        </Card>
+        <Card className="flex-row items-center gap-2.5 p-2.5 transition hover:shadow-md">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-info-bg text-info">
+            <CalendarCheck className="size-3.5" />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-[11px] text-muted-foreground">Scheduled {PERIOD_PHRASE[viewMode]}</p>
+            <p className="text-lg leading-tight font-semibold tracking-tight">{formatCurrency(scheduledTotal)}</p>
+          </div>
+        </Card>
+        <Card
+          className="flex-row items-center gap-2.5 p-2.5 transition hover:shadow-md"
+          title={`Production % × deal value, jobs scheduled ${PERIOD_PHRASE[viewMode]}`}
+        >
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-success-bg text-success">
+            <TrendingUp className="size-3.5" />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-[11px] text-muted-foreground">Actual</p>
+            <p className="text-lg leading-tight font-semibold tracking-tight">{formatCurrency(actualTotal)}</p>
+          </div>
+        </Card>
+        <Card className={cn('flex-row items-center gap-2.5 p-2.5 transition hover:shadow-md', gap < 0 ? 'bg-warning-bg' : 'bg-success-bg')}>
+          <span
+            className={cn(
+              'flex size-7 shrink-0 items-center justify-center rounded-full',
+              gap < 0 ? 'bg-warning/15 text-warning' : 'bg-success/15 text-success',
+            )}
+          >
+            {gap < 0 ? <TrendingDown className="size-3.5" /> : <TrendingUp className="size-3.5" />}
+          </span>
+          <div className="min-w-0">
+            <p className={cn('truncate text-[11px]', gap < 0 ? 'text-warning' : 'text-success')}>Gap to target</p>
+            <p className={cn('text-lg leading-tight font-semibold tracking-tight', gap < 0 ? 'text-warning' : 'text-success')}>
+              {formatCurrency(gap)}
             </p>
-          )}
-        </Card>
-        <Card className="gap-2 p-4 transition hover:shadow-md">
-          <div className="flex items-center gap-2">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-info-bg text-info">
-              <CalendarCheck className="size-4" />
-            </span>
-            <p className="text-xs text-muted-foreground">Scheduled {PERIOD_PHRASE[viewMode]}</p>
           </div>
-          <p className="text-2xl font-semibold tracking-tight">{formatCurrency(scheduledTotal)}</p>
-        </Card>
-        <Card className="gap-2 p-4 transition hover:shadow-md">
-          <div className="flex items-center gap-2">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-success-bg text-success">
-              <TrendingUp className="size-4" />
-            </span>
-            <p className="text-xs text-muted-foreground">Actual</p>
-          </div>
-          <p className="text-2xl font-semibold tracking-tight">{formatCurrency(actualTotal)}</p>
-          <p className="text-xs text-muted-foreground">Production % × deal value, jobs scheduled {PERIOD_PHRASE[viewMode]}</p>
-        </Card>
-        <Card className={cn('gap-2 p-4 transition hover:shadow-md', gap < 0 ? 'bg-warning-bg' : 'bg-success-bg')}>
-          <div className="flex items-center gap-2">
-            <span
-              className={cn(
-                'flex size-8 shrink-0 items-center justify-center rounded-full',
-                gap < 0 ? 'bg-warning/15 text-warning' : 'bg-success/15 text-success',
-              )}
-            >
-              {gap < 0 ? <TrendingDown className="size-4" /> : <TrendingUp className="size-4" />}
-            </span>
-            <p className={cn('text-xs', gap < 0 ? 'text-warning' : 'text-success')}>Gap to target</p>
-          </div>
-          <p className={cn('text-2xl font-semibold tracking-tight', gap < 0 ? 'text-warning' : 'text-success')}>{formatCurrency(gap)}</p>
         </Card>
       </div>
 
-      <div className="relative overflow-hidden rounded-xl border border-border bg-card shadow-sm" style={{ height: '70vh' }}>
+      <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         {/* corner — sits above both frozen panes */}
         <div
           style={{ width: LABEL_COL_WIDTH, height: HEADER_HEIGHT }}

@@ -20,8 +20,13 @@ export function OfficeLayout() {
   const visibleItems = NAV_ITEMS.filter((item) => hasPermission(item.permissionKey))
 
   return (
-    <div className="min-h-svh bg-background">
-      <header className="border-b border-border bg-card print:hidden">
+    // A fixed-to-viewport flex column with `main` as the one scrollable region (instead of the
+    // whole document scrolling) — behaviorally identical for every page that just needs to scroll
+    // normally, but lets a page like the Scheduler size its own content to exactly fill the
+    // remaining height (via h-full + flex-1, see ResourceCalendar.tsx) so its internal calendar
+    // grid is the only thing that ever scrolls, instead of both it and the page scrolling at once.
+    <div className="flex h-svh flex-col bg-background">
+      <header className="shrink-0 border-b border-border bg-card print:hidden">
         <div className="flex items-center justify-between gap-4 px-6 py-3">
           <div className="flex items-center gap-6">
             <span className="text-sm font-semibold tracking-tight">QPaint OS</span>
@@ -49,7 +54,7 @@ export function OfficeLayout() {
           </div>
         </div>
       </header>
-      <main className="px-6 py-8">
+      <main className="min-h-0 flex-1 overflow-y-auto px-6 py-8">
         <Outlet />
       </main>
     </div>
