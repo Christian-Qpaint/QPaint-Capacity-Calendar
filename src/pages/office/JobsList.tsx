@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '@/context/DataContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
 import { usePersistedState } from '@/hooks/usePersistedState'
+import { useInfiniteScrollSentinel } from '@/hooks/useInfiniteScrollSentinel'
 import { stageColor, stageLabel } from '@/lib/pipedriveStages'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Card } from '@/components/ui/card'
@@ -137,6 +138,80 @@ function JobKanbanCard({
         <span>{Math.round(productionPercent)}%</span>
       </div>
     </Card>
+  )
+}
+
+// How many cards a column reveals up front — every job is already in memory via DataContext (the
+// Calendar needs the whole unfiltered set regardless), so "loading more" here is instant, purely
+// about capping DOM node count rather than waiting on a network round trip. Confirmed as the real
+// cause of this page feeling slow: a stage with hundreds of Won jobs used to render every single
+// one of them at once with no windowing at all, unlike the Deals board's server-paginated columns.
+const KANBAN_REVEAL_STEP = 30
+
+function JobKanbanColumn({
+  stageId,
+  stage,
+  rows,
+  totalValue,
+  clients,
+  onNavigate,
+  onAddPhase,
+}: {
+  stageId: string
+  stage: CrmStage | undefined
+  rows: JobFilterContext[]
+  totalValue: number
+  clients: { id: string; type: ClientType }[]
+  onNavigate: (id: string) => void
+  onAddPhase: (id: string) => void
+}) {
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
+  const [visibleCount, setVisibleCount] = useState(KANBAN_REVEAL_STEP)
+  // Resets whenever this column's own row set changes identity (a filter/search/sort change, or
+  // the underlying jobs changing) — otherwise a narrowed filter could leave a stale higher count
+  // around, or a newly-widened one would stay capped at whatever was revealed before.
+  useEffect(() => setVisibleCount(KANBAN_REVEAL_STEP), [rows])
+  const visibleRows = rows.slice(0, visibleCount)
+  const hasMore = visibleRows.length < rows.length
+  const sentinelRef = useInfiniteScrollSentinel({
+    onLoadMore: () => setVisibleCount((n) => n + KANBAN_REVEAL_STEP),
+    hasMore,
+    loading: false,
+    root: scrollEl,
+  })
+
+  return (
+    <div
+      key={stageId || 'none'}
+      className="flex min-w-0 flex-1 flex-col rounded-lg border border-border bg-muted/30 border-t-4"
+      style={{ borderTopColor: stageColor(stage) }}
+    >
+      <div className="space-y-0.5 border-b border-border p-3">
+        <p className="flex items-center gap-1.5 text-sm font-medium">
+          <StageColorDot stage={stage} />
+          <span className="truncate">{stageLabel(stage)}</span>
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {rows.length} job{rows.length === 1 ? '' : 's'} · {formatCurrency(totalValue)}
+        </p>
+      </div>
+      <div ref={setScrollEl} className="max-h-[65vh] space-y-2 overflow-y-auto p-2">
+        {visibleRows.map((row) => (
+          <JobKanbanCard
+            key={row.job.id}
+            row={row}
+            clientType={clients.find((c) => c.id === row.job.clientId)?.type ?? 'Individual'}
+            onNavigate={() => onNavigate(row.job.id)}
+            onAddPhase={() => onAddPhase(row.job.id)}
+          />
+        ))}
+        {/* Always rendered so the IntersectionObserver has a stable node to attach to from the
+            first render — same reasoning as CrmBoard.tsx's matching sentinel. */}
+        <div ref={sentinelRef} className="py-2 text-center text-xs text-muted-foreground">
+          {hasMore ? 'Loading more…' : ''}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -462,45 +537,31 @@ export function JobsList() {
       )}
 
       {viewMode === 'kanban' && (
-        <div className="flex gap-3 overflow-x-auto pb-2">
+        // Every stage column gets flex-1 so they always divide up the full available width and
+        // stay visible without horizontal scrolling, regardless of stage count — matching the
+        // Deals board's own Kanban layout (was previously a fixed w-72 per column with the whole
+        // row scrolling horizontally instead).
+        <div className="flex gap-3 pb-2">
           {kanbanColumns.length === 0 && (
             <p className="rounded-md border border-dashed border-border py-8 text-center text-sm text-muted-foreground w-full">
               {visibleJobs.length === 0 ? 'No jobs yet — they appear here automatically once a deal is won.' : 'No jobs match your search / filter.'}
             </p>
           )}
-          {kanbanColumns.map(({ stageId, stage, rows: columnRows, totalValue }) => {
-            return (
-              <div
-                key={stageId || 'none'}
-                className="flex w-72 shrink-0 flex-col rounded-lg border border-border bg-muted/30 border-t-4"
-                style={{ borderTopColor: stageColor(stage) }}
-              >
-                <div className="space-y-0.5 border-b border-border p-3">
-                  <p className="flex items-center gap-1.5 text-sm font-medium">
-                    <StageColorDot stage={stage} />
-                    <span className="truncate">{stageLabel(stage)}</span>
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {columnRows.length} job{columnRows.length === 1 ? '' : 's'} · {formatCurrency(totalValue)}
-                  </p>
-                </div>
-                <div className="max-h-[65vh] space-y-2 overflow-y-auto p-2">
-                  {columnRows.map((row) => (
-                    <JobKanbanCard
-                      key={row.job.id}
-                      row={row}
-                      clientType={clients.find((c) => c.id === row.job.clientId)?.type ?? 'Individual'}
-                      onNavigate={() => navigate(`/jobs/${row.job.id}`)}
-                      onAddPhase={() => {
-                        setPhaseDialogJobId(row.job.id)
-                        setPhaseDialogState({ open: true, block: null })
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-            )
-          })}
+          {kanbanColumns.map(({ stageId, stage, rows: columnRows, totalValue }) => (
+            <JobKanbanColumn
+              key={stageId || 'none'}
+              stageId={stageId}
+              stage={stage}
+              rows={columnRows}
+              totalValue={totalValue}
+              clients={clients}
+              onNavigate={(id) => navigate(`/jobs/${id}`)}
+              onAddPhase={(id) => {
+                setPhaseDialogJobId(id)
+                setPhaseDialogState({ open: true, block: null })
+              }}
+            />
+          ))}
         </div>
       )}
 
