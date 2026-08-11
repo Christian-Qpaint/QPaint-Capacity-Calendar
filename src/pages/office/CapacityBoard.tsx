@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useData } from '@/context/DataContext'
 import { useCurrentUser } from '@/context/AuthContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
 import { usePersistedState } from '@/hooks/usePersistedState'
+import { useInfiniteScrollSentinel } from '@/hooks/useInfiniteScrollSentinel'
 import { canManageTargets, isOfficeRole } from '@/lib/permissions'
 import { jobDisplayName } from '@/lib/jobDisplay'
 import { cn } from '@/lib/utils'
@@ -463,6 +464,24 @@ export function CapacityBoard() {
 
   const jobsFiltered = jobSearch.trim() !== '' || teamFilter.length > 0 || stageFilter.length > 0 || overBudgetOnly
 
+  // This list scopes to every job ever booked onto the Calendar (activeJobs above), not the
+  // current week/month window, so for a busy multi-year account it trends toward the size of the
+  // whole jobs table — confirmed as the cause of this page rendering hundreds of cards/rows at
+  // once with no windowing at all. Reveals in batches instead, same reveal-on-scroll pattern as
+  // JobsList.tsx's Kanban columns — no network wait needed since the data's already in memory via
+  // DataContext, this purely caps DOM node count.
+  const JOB_REVEAL_STEP = 30
+  const [visibleJobCount, setVisibleJobCount] = useState(JOB_REVEAL_STEP)
+  useEffect(() => setVisibleJobCount(JOB_REVEAL_STEP), [filteredJobRows])
+  const visibleJobRows = filteredJobRows.slice(0, visibleJobCount)
+  const hasMoreJobRows = visibleJobRows.length < filteredJobRows.length
+  const jobRowsSentinelRef = useInfiniteScrollSentinel({
+    onLoadMore: () => setVisibleJobCount((n) => n + JOB_REVEAL_STEP),
+    hasMore: hasMoreJobRows,
+    loading: false,
+    root: null,
+  })
+
   const monthlyTargetRow = monthlyTargets.find((t) => t.year === anchor.getFullYear() && t.month === anchor.getMonth() + 1)
   const monthlyTargetDollars = monthlyTargetRow?.targetDollars ?? 0
   const targetTotal = isMonthly ? monthlyTargetDollars : weeklyFromMonthly(monthlyTargetDollars)
@@ -641,7 +660,7 @@ export function CapacityBoard() {
                   : 'No jobs match your search / filter.'}
               </p>
             )}
-            {filteredJobRows.map(({ job, progress, teams: jobTeams }) => (
+            {visibleJobRows.map(({ job, progress, teams: jobTeams }) => (
               <JobProgressCard
                 key={job.id}
                 job={job}
@@ -677,7 +696,7 @@ export function CapacityBoard() {
                     </TableCell>
                   </TableRow>
                 )}
-                {filteredJobRows.map(({ job, progress, teams: jobTeams }) => (
+                {visibleJobRows.map(({ job, progress, teams: jobTeams }) => (
                   <JobProgressTableRow
                     key={job.id}
                     job={job}
@@ -691,6 +710,12 @@ export function CapacityBoard() {
             </Table>
           </div>
         )}
+        {/* Always rendered so the IntersectionObserver has a stable node to attach to from the
+            first render — same reasoning as CrmBoard.tsx's matching sentinel. Shared by both views
+            since only one is ever mounted at a time. */}
+        <div ref={jobRowsSentinelRef} className="py-2 text-center text-xs text-muted-foreground">
+          {hasMoreJobRows ? 'Loading more…' : ''}
+        </div>
       </section>
     </div>
   )

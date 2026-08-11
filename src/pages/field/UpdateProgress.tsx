@@ -16,8 +16,14 @@ export function UpdateProgress() {
   const currentUser = useCurrentUser()
   const isOffice = isOfficeRole(currentUser.role)
 
+  // For an office user `isOffice ||` used to short-circuit true, offering every schedule block
+  // ever created company-wide, including years-old fully-completed phases — a real, actionable
+  // list for updating progress should only ever include work that isn't already at 100% (there's
+  // nothing left to update on those). This also fixes the dropdown ballooning to the size of the
+  // entire schedule_blocks table for a busy multi-year account, since it now trends toward however
+  // much work is currently in flight, not the account's whole history.
   const eligibleBlocks = useMemo(
-    () => scheduleBlocks.filter((b) => isOffice || b.teamId === currentUser.teamId),
+    () => scheduleBlocks.filter((b) => (isOffice || b.teamId === currentUser.teamId) && b.percentComplete < 100),
     [scheduleBlocks, isOffice, currentUser.teamId],
   )
 
