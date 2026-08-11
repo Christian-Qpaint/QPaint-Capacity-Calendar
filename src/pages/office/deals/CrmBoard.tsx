@@ -20,6 +20,7 @@ import { CrmAdvancedFilterDialog } from '@/components/crm/CrmAdvancedFilterDialo
 import { SavedFilterDropdown } from '@/components/crm/SavedFilterDropdown'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Card } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -203,6 +204,37 @@ function DraggableDealCard({ deal, stage, onClick, disabled }: { deal: CrmDeal; 
   )
 }
 
+/** Shimmering placeholder matching DraggableDealCard's shape, shown while a column's first page
+ * (or a post-sync full reload) is in flight — replaces stale cards outright rather than layering
+ * a "Loading…" label on top of them, which used to leave old cards visible until the fetch
+ * resolved and swapped them out at whatever moment that column's own request happened to finish,
+ * a staggered, one-column-at-a-time flicker on every board refresh. */
+function DealCardSkeleton() {
+  return (
+    <Card className="gap-2 p-3">
+      <Skeleton className="h-4 w-3/4" />
+      <Skeleton className="h-3 w-1/2" />
+      <div className="flex items-center justify-between">
+        <Skeleton className="h-3 w-12" />
+        <Skeleton className="h-4 w-14 rounded-full" />
+      </div>
+    </Card>
+  )
+}
+
+function DealRowSkeleton() {
+  return (
+    <TableRow>
+      <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+      <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+      <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+      <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+      <TableCell><Skeleton className="h-4 w-16 rounded-full" /></TableCell>
+      <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+    </TableRow>
+  )
+}
+
 interface ColumnState {
   deals: CrmDeal[]
   total: number
@@ -262,13 +294,14 @@ function KanbanColumn({
         }}
         className={cn('max-h-[65vh] space-y-2 overflow-y-auto p-2 transition-colors', isOver && 'bg-accent/50')}
       >
-        {state.initialLoading && <p className="py-6 text-center text-xs text-muted-foreground">Loading…</p>}
+        {state.initialLoading && Array.from({ length: 3 }, (_, i) => <DealCardSkeleton key={i} />)}
         {!state.initialLoading && state.deals.length === 0 && (
           <p className="py-6 text-center text-xs text-muted-foreground">No deals</p>
         )}
-        {state.deals.map((deal) => (
-          <DraggableDealCard key={deal.id} deal={deal} stage={stage} onClick={() => onOpenDeal(deal)} disabled={!canManage} />
-        ))}
+        {!state.initialLoading &&
+          state.deals.map((deal) => (
+            <DraggableDealCard key={deal.id} deal={deal} stage={stage} onClick={() => onOpenDeal(deal)} disabled={!canManage} />
+          ))}
         {/* Always rendered (not just while hasMore) — the sentinel DOM node must exist and stay
             stable from the first render so the IntersectionObserver (created once `root` is
             available) has something to attach to. It's created BEFORE the first fetch resolves
@@ -408,14 +441,23 @@ export function CrmBoard() {
   // ---- Kanban mode: one lazily-extended page PER stage ----
   const [columnState, setColumnState] = useState<Record<string, ColumnState>>({})
 
-  async function fetchStagePage(stageId: string, offset: number, append: boolean) {
+  async function fetchStagePage(stageId: string, offset: number, append: boolean, includeSummary = false) {
     if (!activePipelineId) return
     setColumnState((prev) => ({
       ...prev,
-      [stageId]: { ...(prev[stageId] ?? EMPTY_COLUMN), loadingMore: append, initialLoading: !append },
+      [stageId]: {
+        ...(prev[stageId] ?? EMPTY_COLUMN),
+        // A fresh (non-append) fetch — first load, or a post-sync/filter-change reload — clears the
+        // old cards immediately rather than leaving them rendered underneath the skeleton until this
+        // column's own request happens to resolve (see DealCardSkeleton's comment for why that
+        // staggered swap-in was the actual "cards slowly changing" complaint).
+        deals: append ? (prev[stageId]?.deals ?? []) : [],
+        loadingMore: append,
+        initialLoading: !append,
+      },
     }))
     try {
-      const result = await queryDeals({ pipelineId: activePipelineId, stageId, offset, limit: PAGE_SIZE, ...queryScope })
+      const result = await queryDeals({ pipelineId: activePipelineId, stageId, offset, limit: PAGE_SIZE, includeSummary, ...queryScope })
       setColumnState((prev) => {
         const existing = prev[stageId]?.deals ?? []
         return {
@@ -454,7 +496,11 @@ export function CrmBoard() {
       fetchTablePage(0, false)
     } else {
       setColumnState({})
-      for (const stage of pipelineStages) fetchStagePage(stage.id, 0, false)
+      // Only the first column's request asks for the pipeline-wide summary/avgDwell aggregates —
+      // every other column shares that same response via the stageId-keyed merge below, instead of
+      // each column redundantly recomputing the identical whole-pipeline query (see crm-data.mts's
+      // includeSummary comment for why that was the real cause of a slow Kanban page load).
+      pipelineStages.forEach((stage, i) => fetchStagePage(stage.id, 0, false, i === 0))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePipelineId, viewMode, queryScope, stageIdsKey])
@@ -517,7 +563,7 @@ export function CrmBoard() {
         : 'Sync complete',
     )
     if (viewMode === 'table') fetchTablePage(0, false)
-    else for (const stage of pipelineStages) fetchStagePage(stage.id, 0, false)
+    else pipelineStages.forEach((stage, i) => fetchStagePage(stage.id, 0, false, i === 0))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job])
 
@@ -807,13 +853,7 @@ export function CrmBoard() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {tableInitialLoading && (
-                  <TableRow>
-                    <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
-                      Loading deals…
-                    </TableCell>
-                  </TableRow>
-                )}
+                {tableInitialLoading && Array.from({ length: 8 }, (_, i) => <DealRowSkeleton key={i} />)}
                 {!tableInitialLoading && tableDeals.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">

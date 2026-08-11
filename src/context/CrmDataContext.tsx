@@ -35,6 +35,11 @@ export interface CrmDealsQuery {
   /** Stages configured with an auto-hide age (e.g. Jobs Pipeline's "All Done & Paid", 180 days)
    * drop their long-sitting deals from the default view too — set true to bring them back. */
   includeAged?: boolean
+  /** Whether to compute stageSummary/stageAvgDwellDays on this call — both are pipeline-wide
+   * aggregates (identical no matter which stageId this particular request is for), so the Kanban
+   * board only needs to ask for them once per pipeline/filter change, not once per column. Defaults
+   * to true when no stageId is set (Table view's one call still needs them for the summary card). */
+  includeSummary?: boolean
   limit?: number
   offset?: number
 }
@@ -143,6 +148,7 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
     if (query.includeWon) params.set('includeWon', '1')
     if (query.includeLost) params.set('includeLost', '1')
     if (query.includeAged) params.set('includeAged', '1')
+    if (query.includeSummary) params.set('includeSummary', '1')
     params.set('limit', String(query.limit ?? 50))
     params.set('offset', String(query.offset ?? 0))
     return api.get<CrmDealsQueryResult>(`/api/crm-data?${params.toString()}`)

@@ -185,22 +185,36 @@ export default withErrorHandling(async (req: Request) => {
   const includeWon = url.searchParams.get('includeWon') === '1'
   const includeLost = url.searchParams.get('includeLost') === '1'
   const includeAged = url.searchParams.get('includeAged') === '1'
+  // The Kanban board fires one request per stage column on load (each lazily paging its own
+  // dealRows) — summaryRows/avgDwellRows below are pipeline-wide aggregates, identical no matter
+  // which stageId the request is for, so computing them on every column's request redundantly ran
+  // the same expensive GROUP BY / stage-history AVG(epoch) query N times concurrently (confirmed as
+  // the real cause of a slow Kanban page load, not card-rendering volume — the board already
+  // lazy-loads 50 rows per column). The frontend now only asks for them once per pipeline/filter
+  // change (?includeSummary=1) and reuses that single response for every column, keyed by stageId.
+  const includeSummary = !stageId || url.searchParams.get('includeSummary') === '1'
 
   const [pipelineRows, stageRows, fieldDefinitionRows, savedFilterRows] = await Promise.all([
     db.select().from(crmPipelines).orderBy(asc(crmPipelines.order)),
     db.select().from(crmStages).orderBy(asc(crmStages.order)),
-    db.select().from(crmFieldDefinitions).orderBy(asc(crmFieldDefinitions.order)),
-    db
-      .select({
-        id: crmSavedFilters.id,
-        pipedriveFilterId: crmSavedFilters.pipedriveFilterId,
-        name: crmSavedFilters.name,
-        order: crmSavedFilters.order,
-        supported: crmSavedFilters.supported,
-        unsupportedReason: crmSavedFilters.unsupportedReason,
-      })
-      .from(crmSavedFilters)
-      .orderBy(asc(crmSavedFilters.order)),
+    // Echoed straight into the response for the initial no-pipelineId bootstrap call
+    // (CrmDataContext.refetch) but never read back out of a per-pipeline queryDeals result — every
+    // deal-page request (Table's one call, Kanban's per-column calls) was refetching these two
+    // small-but-pointless selects for nothing.
+    pipelineId ? Promise.resolve([]) : db.select().from(crmFieldDefinitions).orderBy(asc(crmFieldDefinitions.order)),
+    pipelineId
+      ? Promise.resolve([])
+      : db
+          .select({
+            id: crmSavedFilters.id,
+            pipedriveFilterId: crmSavedFilters.pipedriveFilterId,
+            name: crmSavedFilters.name,
+            order: crmSavedFilters.order,
+            supported: crmSavedFilters.supported,
+            unsupportedReason: crmSavedFilters.unsupportedReason,
+          })
+          .from(crmSavedFilters)
+          .orderBy(asc(crmSavedFilters.order)),
   ])
 
   const rawConditions = parseConditions(conditionsParam)
@@ -304,17 +318,19 @@ export default withErrorHandling(async (req: Request) => {
     const [dealRows, countRows, summaryRows, avgDwellRows] = await Promise.all([
       db.select(JOB_LIST_COLUMNS).from(jobs).leftJoin(clients, eq(clients.id, jobs.clientId)).where(where).orderBy(orderBy).limit(limit).offset(offset),
       db.select({ count: sql<number>`count(*)::int` }).from(jobs).leftJoin(clients, eq(clients.id, jobs.clientId)).where(where),
-      db
-        .select({
-          stageId: jobs.stageId,
-          count: sql<number>`count(*)::int`,
-          totalValue: sql<string>`coalesce(sum(${jobs.totalValue}), 0)`,
-        })
-        .from(jobs)
-        .leftJoin(clients, eq(clients.id, jobs.clientId))
-        .where(summaryWhere)
-        .groupBy(jobs.stageId),
-      pipelineStageIds.length > 0
+      !includeSummary
+        ? Promise.resolve([])
+        : db
+            .select({
+              stageId: jobs.stageId,
+              count: sql<number>`count(*)::int`,
+              totalValue: sql<string>`coalesce(sum(${jobs.totalValue}), 0)`,
+            })
+            .from(jobs)
+            .leftJoin(clients, eq(clients.id, jobs.clientId))
+            .where(summaryWhere)
+            .groupBy(jobs.stageId),
+      includeSummary && pipelineStageIds.length > 0
         ? db
             .select({
               stageId: crmDealStageHistory.stageId,
@@ -373,20 +389,22 @@ export default withErrorHandling(async (req: Request) => {
     const [dealRows, countRows, summaryRows, avgDwellRows] = await Promise.all([
       db.select(DEAL_LIST_COLUMNS).from(crmDeals).where(where).orderBy(orderBy).limit(limit).offset(offset),
       db.select({ count: sql<number>`count(*)::int` }).from(crmDeals).where(where),
-      db
-        .select({
-          stageId: crmDeals.stageId,
-          count: sql<number>`count(*)::int`,
-          totalValue: sql<string>`coalesce(sum(${crmDeals.value}), 0)`,
-        })
-        .from(crmDeals)
-        .where(summaryWhere)
-        .groupBy(crmDeals.stageId),
+      !includeSummary
+        ? Promise.resolve([])
+        : db
+            .select({
+              stageId: crmDeals.stageId,
+              count: sql<number>`count(*)::int`,
+              totalValue: sql<string>`coalesce(sum(${crmDeals.value}), 0)`,
+            })
+            .from(crmDeals)
+            .where(summaryWhere)
+            .groupBy(crmDeals.stageId),
       // "How long does a deal typically stay here" — averaged over completed stints only
       // (exitedAt IS NOT NULL): an in-progress stay's eventual length is still unknown, so
       // including it would understate the real average. Not scoped by search/filter/stageId —
       // this is a historical stage-level stat, not a property of the current result set.
-      pipelineStageIds.length > 0
+      includeSummary && pipelineStageIds.length > 0
         ? db
             .select({
               stageId: crmDealStageHistory.stageId,

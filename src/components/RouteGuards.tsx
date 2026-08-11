@@ -4,6 +4,7 @@ import { useData } from '@/context/DataContext'
 import { PermissionsProvider, usePermissions } from '@/context/PermissionsContext'
 import { ImportProgressProvider } from '@/context/ImportProgressContext'
 import { AccessDeniedPage } from '@/components/AccessDeniedPage'
+import { PageLoadingSkeleton } from '@/components/PageLoadingSkeleton'
 
 /** Gates every authenticated route: redirects to /login with no session, shows a loading state
  * while the session/profile/data resolve, and only renders children once everything is ready.
@@ -35,11 +36,7 @@ export function RequireAuth() {
     )
   }
   if (dataLoading) {
-    return (
-      <div className="flex min-h-svh items-center justify-center text-sm text-muted-foreground">
-        Loading data…
-      </div>
-    )
+    return <PageLoadingSkeleton />
   }
   return (
     <PermissionsProvider>

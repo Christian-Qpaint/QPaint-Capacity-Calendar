@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -173,6 +174,33 @@ const METRIC_OPTIONS: ComparisonMetric[] = ['leads', 'quotes', 'jobsWon', 'quote
 const STATUS_OPTIONS = ['Open', 'Won', 'Lost']
 const STATUS_LABEL_TO_VALUE: Record<string, 'open' | 'won' | 'lost'> = { Open: 'open', Won: 'won', Lost: 'lost' }
 
+/** Shimmering placeholder matching this page's eventual shape (header, filter bar, KPI cards,
+ * chart) — shown while useMarketingData's own fetch (separate from the app-wide data bootstrap)
+ * is in flight, replacing what used to be a plain "Loading marketing data…" line. */
+function MarketingDashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <Skeleton className="h-6 w-32" />
+        <Skeleton className="h-8 w-28" />
+      </div>
+      <Card className="p-4">
+        <div className="flex flex-wrap gap-3">
+          {Array.from({ length: 4 }, (_, i) => (
+            <Skeleton key={i} className="h-9 w-36" />
+          ))}
+        </div>
+      </Card>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {Array.from({ length: 4 }, (_, i) => (
+          <Skeleton key={i} className="h-20 rounded-lg" />
+        ))}
+      </div>
+      <Skeleton className="h-72 w-full rounded-lg" />
+    </div>
+  )
+}
+
 export function MarketingDashboard() {
   const { adSpend, deals, loading, error, addAdSpend, deleteAdSpend } = useMarketingData()
 
@@ -239,7 +267,7 @@ export function MarketingDashboard() {
   }
 
   if (loading) {
-    return <div className="p-6 text-sm text-muted-foreground">Loading marketing data…</div>
+    return <MarketingDashboardSkeleton />
   }
   if (error) {
     return <div className="p-6 text-sm text-danger">Couldn't load marketing data: {error}</div>
