@@ -354,35 +354,35 @@ export function MarketingDashboard() {
                 value={summary.totalLeads.toLocaleString()}
                 icon={Users}
                 color={KPI_COLORS.leads}
-                info="Every deal in the current filter, regardless of stage — the top of the funnel."
+                info="Every Sales Pipeline deal in the current filter, regardless of status or stage — the top of the funnel. Jobs Pipeline records aren't counted here since they're already-won production, not fresh leads."
               />
               <KpiCard
                 label="Total Quotes"
                 value={summary.totalQuotes.toLocaleString()}
                 icon={FileText}
                 color={KPI_COLORS.quotes}
-                info="Deals marked as Quoted, from either a Quote Sent date or a Quoted stage classification during import."
+                info="Sales Pipeline deals marked as Quoted, from either a Quote Sent date or a Quoted stage classification during import."
               />
               <KpiCard
                 label="Total Quote Value"
                 value={formatCurrency(summary.totalQuoteValue)}
                 icon={DollarSign}
                 color={KPI_COLORS.quoteValue}
-                info="Sum of deal value across every Quoted deal."
+                info="Sum of deal value across every Quoted Sales Pipeline deal."
               />
               <KpiCard
                 label="Jobs Won"
                 value={summary.jobsWon.toLocaleString()}
                 icon={CheckCircle2}
                 color={KPI_COLORS.jobsWon}
-                info="Deals marked as Won."
+                info="Every job on the Jobs Pipeline board — the real production record, whether it was promoted from a tracked Sales lead or created directly in Jobs Pipeline."
               />
               <KpiCard
                 label="Jobs Won Value"
                 value={formatCurrency(summary.jobsWonValue)}
                 icon={DollarSign}
                 color={KPI_COLORS.jobsWonValue}
-                info="Sum of deal value across every Won deal."
+                info="Sum of total value across every job on the Jobs Pipeline board."
               />
               <KpiCard
                 label="Lead → Quote Conversion"

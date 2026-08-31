@@ -76,10 +76,17 @@ export function totalAdSpend(adSpend: AdSpendEntry[]): number {
   return adSpend.reduce((sum, a) => sum + a.amount, 0)
 }
 
+// Leads/Quotes are Sales-Pipeline-only (a Jobs Pipeline record is already-won production, not a
+// fresh lead); Jobs Won/Value are Jobs-Pipeline-only (the real production record, not just a Sales
+// deal's own status flag). Without this split, a Sales deal promoted to a Job was counted twice —
+// once via its own crm_deals row (source: 'sales', isWon true), again via the job it produced
+// (source: 'jobsPipeline') — see MarketingDeal.source's comment and marketing-data.mts's header.
 export function computeMarketingSummary(deals: MarketingDeal[], adSpend: AdSpendEntry[]): MarketingSummary {
-  const totalLeads = deals.length
-  const quoted = deals.filter((d) => d.isQuoted)
-  const won = deals.filter((d) => d.isWon)
+  const salesDeals = deals.filter((d) => d.source === 'sales')
+  const jobsPipelineDeals = deals.filter((d) => d.source === 'jobsPipeline')
+  const totalLeads = salesDeals.length
+  const quoted = salesDeals.filter((d) => d.isQuoted)
+  const won = jobsPipelineDeals
   const totalQuotes = quoted.length
   const totalQuoteValue = quoted.reduce((sum, d) => sum + d.value, 0)
   const jobsWon = won.length
@@ -144,10 +151,14 @@ export function uniqueReferralSources(deals: MarketingDeal[], adSpend: AdSpendEn
 }
 
 /** Which referral sources bring in the most leads — used to pick a sane default selection for the
- * trends comparison chart (rather than showing nothing, or every source at once, on first load). */
+ * trends comparison chart (rather than showing nothing, or every source at once, on first load).
+ * Sales-Pipeline-only, matching the "Leads" metric elsewhere (a Jobs Pipeline record isn't a lead). */
 export function topReferralSourcesByLeads(deals: MarketingDeal[], limit: number): string[] {
   const counts = new Map<string, number>()
-  for (const d of deals) counts.set(d.referralSource, (counts.get(d.referralSource) ?? 0) + 1)
+  for (const d of deals) {
+    if (d.source !== 'sales') continue
+    counts.set(d.referralSource, (counts.get(d.referralSource) ?? 0) + 1)
+  }
   return Array.from(counts.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit)
@@ -164,18 +175,20 @@ export const COMPARISON_METRIC_LABELS: Record<ComparisonMetric, string> = {
   jobsWonValue: 'Jobs Won Value',
 }
 
+// Same source split as computeMarketingSummary — leads/quotes from Sales Pipeline deals only,
+// jobsWon/jobsWonValue from Jobs Pipeline records only.
 function computeMetric(deals: MarketingDeal[], metric: ComparisonMetric): number {
   switch (metric) {
     case 'leads':
-      return deals.length
+      return deals.filter((d) => d.source === 'sales').length
     case 'quotes':
-      return deals.filter((d) => d.isQuoted).length
+      return deals.filter((d) => d.source === 'sales' && d.isQuoted).length
     case 'jobsWon':
-      return deals.filter((d) => d.isWon).length
+      return deals.filter((d) => d.source === 'jobsPipeline').length
     case 'quoteValue':
-      return deals.filter((d) => d.isQuoted).reduce((sum, d) => sum + d.value, 0)
+      return deals.filter((d) => d.source === 'sales' && d.isQuoted).reduce((sum, d) => sum + d.value, 0)
     case 'jobsWonValue':
-      return deals.filter((d) => d.isWon).reduce((sum, d) => sum + d.value, 0)
+      return deals.filter((d) => d.source === 'jobsPipeline').reduce((sum, d) => sum + d.value, 0)
   }
 }
 

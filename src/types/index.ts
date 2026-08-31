@@ -283,6 +283,13 @@ export interface MarketingDeal {
   value: number
   createdDate: string // ISO date
   eventDate: string | null // ISO date — won date if won, else null
+  /** Which table this record actually came from — 'sales' (crm_deals, Sales Pipeline) or
+   * 'jobsPipeline' (jobs, Jobs Pipeline). Leads/Quotes are Sales-Pipeline-only (a Jobs Pipeline
+   * record is already-won production, not a fresh lead); Jobs Won/Value are Jobs-Pipeline-only
+   * (the real production record, not just a Sales deal's own status flag) — see
+   * computeMarketingSummary. Without this split, a Sales deal promoted to a Job was counted twice:
+   * once via its own crm_deals row, again via the job it produced. */
+  source: 'sales' | 'jobsPipeline'
 }
 
 /** A local mirror of one Pipedrive pipeline (Sales/Jobs/Business Development, or a pipeline

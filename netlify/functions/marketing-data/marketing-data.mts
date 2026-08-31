@@ -7,10 +7,15 @@
 //
 // Post Jobs/Jobs-Pipeline merge, a Jobs-Pipeline-origin record is a `jobs` row, not a `crm_deals`
 // row (that migration deleted the old Jobs-Pipeline crm_deals rows entirely) — so this pulls from
-// both tables and concatenates. A job promoted from *Sales* (not Jobs Pipeline) still has its own
-// Sales-pipeline crm_deals row (status='won'), which the crm_deals branch below already counts —
-// only jobs whose stageId actually sits on the Jobs Pipeline board are added from the jobs table,
-// so a Sales-origin job is never double-counted.
+// both tables and concatenates. Every job (regardless of whether it was promoted from a Sales deal
+// or created directly in Jobs Pipeline) ends up on a Jobs Pipeline stage — a Sales-origin job is
+// NOT distinguishable from a native one by stageId alone (confirmed: promotion always places a new
+// job on the Jobs Pipeline's board). Each record is tagged with `source` ('sales' or
+// 'jobsPipeline') so the dashboard can keep the two halves of the funnel separate: Leads/Quotes are
+// Sales-Pipeline-only (a Jobs Pipeline record is already-won production, not a fresh lead), and
+// Jobs Won/Value are Jobs-Pipeline-only (the real production record). Without this split, a Sales
+// deal promoted to a Job used to get counted twice — once via its own crm_deals row, again via the
+// job it produced — see computeMarketingSummary for where the split is actually applied.
 //
 // `status` is passed through as-is (open/won/lost) so the dashboard can filter by it — Won deals
 // stay counted here even though the CRM board hides them from its own default view once won (see
@@ -61,6 +66,7 @@ export default withErrorHandling(async (req: Request) => {
     value: number
     createdDate: string
     eventDate: string | null
+    source: 'sales' | 'jobsPipeline'
   }[] = []
   const reportedPipelineIds = reportedPipelines.map((p) => p.id)
   if (reportedPipelineIds.length > 0) {
@@ -99,6 +105,7 @@ export default withErrorHandling(async (req: Request) => {
           value: d.value,
           createdDate,
           eventDate: isWon ? wonDate || createdDate || null : null,
+          source: 'sales' as const,
         }
       })
       // Same rule the old CSV import used: no created date, can't place it on any date-scoped
@@ -143,6 +150,7 @@ export default withErrorHandling(async (req: Request) => {
           value: j.value,
           createdDate,
           eventDate: createdDate || null,
+          source: 'jobsPipeline' as const,
         }
       })
       .filter((d) => d.createdDate)
