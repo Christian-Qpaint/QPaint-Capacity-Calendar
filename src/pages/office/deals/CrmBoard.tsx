@@ -416,6 +416,24 @@ export function CrmBoard() {
   const [tableInitialLoading, setTableInitialLoading] = useState(false)
   const [tableLoadingMore, setTableLoadingMore] = useState(false)
 
+  // How long a pipeline's already-fetched data stays "fresh enough to reuse" when switching back
+  // to it — matches the hourly background-refresh cadence the other data sources (DataContext,
+  // CrmDataContext's own bootstrap) already use. Real-time edits (drag, sync completion, etc.)
+  // update the live state directly regardless of this, so this TTL only governs "how long can a
+  // pipeline sit un-visited before switching back to it should re-fetch instead of reusing it."
+  const CACHE_TTL_MS = 60 * 60 * 1000
+  const pipelineFetchedAtRef = useRef<Record<string, number>>({})
+  // Table view's flat deals array isn't naturally keyed per pipeline the way columnState/
+  // stageSummary are (those use globally-unique stageIds, so multiple pipelines' data already
+  // coexists there for free) — this keeps one cached copy per pipeline, kept in sync with
+  // `tableDeals`/`tableTotal` by the effect below (covers fresh fetches, load-more, and any live
+  // mutation like drag/patch/create/delete, without needing to touch every one of those handlers).
+  const tableCacheRef = useRef<Record<string, { deals: CrmDeal[]; total: number }>>({})
+  useEffect(() => {
+    if (!activePipelineId || viewMode !== 'table') return
+    tableCacheRef.current[activePipelineId] = { deals: tableDeals, total: tableTotal }
+  }, [activePipelineId, viewMode, tableDeals, tableTotal])
+
   async function fetchTablePage(offset: number, append: boolean) {
     if (!activePipelineId) return
     if (append) setTableLoadingMore(true)
@@ -430,6 +448,7 @@ export function CrmBoard() {
         return next
       })
       setStageAvgDwellDays((prev) => ({ ...prev, ...result.stageAvgDwellDays }))
+      if (!append) pipelineFetchedAtRef.current[activePipelineId] = Date.now()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to load deals')
     } finally {
@@ -476,26 +495,54 @@ export function CrmBoard() {
         return next
       })
       setStageAvgDwellDays((prev) => ({ ...prev, ...result.stageAvgDwellDays }))
+      if (!append) pipelineFetchedAtRef.current[activePipelineId] = Date.now()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to load deals')
       setColumnState((prev) => ({ ...prev, [stageId]: { ...(prev[stageId] ?? EMPTY_COLUMN), loadingMore: false, initialLoading: false } }))
     }
   }
 
-  // Reset + (re)fetch the first page whenever the pipeline, view, search, sort, or advanced
-  // filter changes — same trigger set JobsList recomputes its client-side filtered/sorted rows
-  // on, just server-driven here since the full result set is never held in memory.
+  // Tracks the search/filter/sort/view "scope" independent of which pipeline is active — changing
+  // any of these genuinely invalidates every cached pipeline's data (the results depend on it), so
+  // that still clears and refetches everything. Switching pipelines alone (scope unchanged) now
+  // reuses whatever's already cached for that pipeline instead of blanking to a skeleton and
+  // refetching every time — columnState/stageSummary/stageAvgDwellDays already key by stageId
+  // (globally unique across pipelines), so they naturally hold multiple pipelines' data at once;
+  // only Table view's flat array needed an explicit per-pipeline cache (tableCacheRef above).
+  const scopeKeyRef = useRef<string | null>(null)
   useEffect(() => {
     if (!activePipelineId) return
-    setStageSummary({}) // stage ids are pipeline-specific uuids — stale entries from a previous
-    // pipeline/filter scope would otherwise never get overwritten, just silently accumulate.
-    setStageAvgDwellDays({})
+    const scopeKey = `${viewMode}:${JSON.stringify(queryScope)}`
+    const scopeChanged = scopeKeyRef.current !== null && scopeKeyRef.current !== scopeKey
+    scopeKeyRef.current = scopeKey
+
+    if (scopeChanged) {
+      pipelineFetchedAtRef.current = {}
+      tableCacheRef.current = {}
+      setStageSummary({})
+      setStageAvgDwellDays({})
+      setColumnState({})
+      setTableDeals([])
+      setTableTotal(0)
+    }
+
+    const fetchedAt = pipelineFetchedAtRef.current[activePipelineId]
+    const isFresh = fetchedAt != null && Date.now() - fetchedAt < CACHE_TTL_MS
+
     if (viewMode === 'table') {
+      const cached = tableCacheRef.current[activePipelineId]
+      if (isFresh && cached) {
+        setTableDeals(cached.deals)
+        setTableTotal(cached.total)
+        return
+      }
       setTableDeals([])
       setTableTotal(0)
       fetchTablePage(0, false)
     } else {
-      setColumnState({})
+      const allStagesLoaded =
+        pipelineStages.length > 0 && pipelineStages.every((s) => columnState[s.id] && !columnState[s.id].initialLoading)
+      if (isFresh && allStagesLoaded) return
       // Only the first column's request asks for the pipeline-wide summary/avgDwell aggregates —
       // every other column shares that same response via the stageId-keyed merge below, instead of
       // each column redundantly recomputing the identical whole-pipeline query (see crm-data.mts's
