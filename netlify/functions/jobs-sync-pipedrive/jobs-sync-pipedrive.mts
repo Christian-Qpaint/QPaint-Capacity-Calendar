@@ -35,10 +35,9 @@ import { eq, and, inArray, isNotNull, notInArray, notLike } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { requireCrmAccess, withErrorHandling, HttpError } from '../_shared/authz.js'
 import { parseJsonBody } from '../_shared/http.js'
-import { extractFieldsFromV1Deal, extractPrimaryContact, type PipedriveDealPayload } from '../_shared/pipedriveApi.js'
-import { createOrAdoptJobFromDeal, CATEGORY_OPTION_MAP, FIELD_TARGET_HOURS, FIELD_ACTUAL_HOURS, FIELD_CATEGORY, FIELD_ADDRESS } from '../_shared/dealToJob.js'
-import { recordStageEntry } from '../_shared/stageHistory.js'
-import { crmPipelines, crmStages, crmFieldDefinitions, jobs, clients } from '../../../db/schema.js'
+import { type PipedriveDealPayload } from '../_shared/pipedriveApi.js'
+import { upsertJobsPipelineDeals } from '../_shared/dealSync.js'
+import { crmPipelines, crmStages, jobs } from '../../../db/schema.js'
 
 export default withErrorHandling(async (req: Request) => {
   await requireCrmAccess(req)
@@ -78,128 +77,10 @@ export default withErrorHandling(async (req: Request) => {
 
   const rawDeals = (body.deals as PipedriveDealPayload[] | undefined) ?? []
 
-  const [stageRows, fieldDefs, existingJobRows] = await Promise.all([
-    db.select().from(crmStages).where(eq(crmStages.pipelineId, pipelineId)),
-    db.select().from(crmFieldDefinitions),
-    rawDeals.length > 0
-      ? db.select().from(jobs).where(inArray(jobs.pipedriveDealId, rawDeals.map((d) => String(d.id))))
-      : Promise.resolve([]),
-  ])
-  const stageByPipedriveId = new Map(stageRows.filter((s) => s.pipedriveStageId != null).map((s) => [s.pipedriveStageId as number, s]))
-  const existingByPipedriveId = new Map(existingJobRows.map((r) => [r.pipedriveDealId, r]))
-
-  let created = 0
-  let updated = 0
-  let skipped = 0
-  let deleted = 0
-
-  for (const deal of rawDeals) {
-    if (deal.pipeline_id !== pipeline.pipedrivePipelineId) {
-      skipped++
-      continue
-    }
-    const pipedriveDealId = String(deal.id)
-    const existingJob = existingByPipedriveId.get(pipedriveDealId)
-
-    // Pipedrive is the single source of truth for whether this deal should be a Job at all, not
-    // just for its fields — a deal that isn't (or is no longer) Won has no business staying a Job
-    // here. Without this check, a deal reverted from Won back to Lost/Open in Pipedrive left its
-    // Job behind forever, since the rest of this loop only ever refreshes an existing Job's fields
-    // and never reconsiders whether it should still exist (confirmed root cause of a Job showing
-    // "Won" locally days after its deal was manually marked Lost in Pipedrive).
-    if (deal.status !== 'won') {
-      if (existingJob) {
-        await db.delete(jobs).where(eq(jobs.id, existingJob.id))
-        deleted++
-      } else {
-        skipped++
-      }
-      continue
-    }
-
-    const stage = deal.stage_id != null ? stageByPipedriveId.get(deal.stage_id) : undefined
-    if (!stage) {
-      skipped++
-      continue
-    }
-
-    const fields = extractFieldsFromV1Deal(deal, fieldDefs)
-    const contact = extractPrimaryContact(deal)
-
-    if (existingJob) {
-      const stageChanged = stage.id !== existingJob.stageId
-      const stageEnteredAtValue = new Date().toISOString()
-      // fields/pipedriveDealTitle/totalValue always take Pipedrive's current value outright (not
-      // gated behind a truthy check) — a title/value Pipedrive now reports, even trivially changed
-      // (a fixed typo, a stray space), must win here, not just a "look nonempty" check that would
-      // let e.g. an intentionally-cleared title silently stay stale.
-      const patch: Record<string, unknown> = {
-        fields,
-        pipedriveDealTitle: deal.title ?? existingJob.pipedriveDealTitle,
-        totalValue: typeof deal.value === 'number' ? deal.value : existingJob.totalValue,
-      }
-      if (stageChanged) {
-        patch.stageId = stage.id
-        patch.stageEnteredAt = stageEnteredAtValue
-      }
-      const rawTargetHours = fields[FIELD_TARGET_HOURS]
-      if (typeof rawTargetHours === 'number') patch.targetHours = rawTargetHours
-      const rawActualHours = fields[FIELD_ACTUAL_HOURS]
-      if (typeof rawActualHours === 'number') patch.actualHours = rawActualHours
-      const mappedCategory = CATEGORY_OPTION_MAP[String(fields[FIELD_CATEGORY] ?? '')]
-      if (mappedCategory) patch.category = mappedCategory
-      const address = fields[FIELD_ADDRESS] as string | undefined
-      if (address) patch.address = address
-
-      await db.update(jobs).set(patch).where(eq(jobs.id, existingJob.id))
-      if (stageChanged) await recordStageEntry(db, { jobId: existingJob.id }, stage.id, stageEnteredAtValue)
-
-      // Client name kept current too, not just phone/email — an org renamed or a name typo fixed
-      // in Pipedrive should show up here, same as any other field.
-      const clientName = deal.org_name || deal.person_name
-      const clientPatch: Record<string, unknown> = {}
-      if (clientName) clientPatch.name = clientName
-      if (contact.phone || contact.email) {
-        clientPatch.phone = contact.phone
-        clientPatch.email = contact.email
-      }
-      if (Object.keys(clientPatch).length > 0) {
-        await db.update(clients).set(clientPatch).where(eq(clients.id, existingJob.clientId))
-      }
-      updated++
-      continue
-    }
-
-    const rawTargetHours = fields[FIELD_TARGET_HOURS]
-    const targetHours = typeof rawTargetHours === 'number' ? rawTargetHours : null
-    const rawActualHours = fields[FIELD_ACTUAL_HOURS]
-    const actualHours = typeof rawActualHours === 'number' ? rawActualHours : null
-    const categoryOptionId = String(fields[FIELD_CATEGORY] ?? '')
-    const address = (fields[FIELD_ADDRESS] as string | undefined) ?? ''
-
-    const result = await createOrAdoptJobFromDeal(db, {
-      pipedriveDealId,
-      title: deal.title ?? null,
-      orgName: deal.org_name ?? null,
-      personName: deal.person_name ?? null,
-      value: deal.value ?? 0,
-      targetHours,
-      actualHours,
-      category: CATEGORY_OPTION_MAP[categoryOptionId] ?? 'Commercial',
-      address,
-      dateWon: (deal.won_time ?? deal.add_time ?? new Date().toISOString()).slice(0, 10),
-      personPhone: contact.phone,
-      personEmail: contact.email,
-      initialStageId: stage.id,
-      fields,
-    })
-
-    if (result.status === 'skipped') {
-      skipped++
-      continue
-    }
-    created++
-  }
+  // Shared with crm-sync-deals.mts's own upsert and the scheduled reconciliation backstop
+  // (pipedrive-reconcile-sync.mts) — see _shared/dealSync.ts's header for why this lives there
+  // instead of being duplicated in each caller.
+  const { created, updated, skipped, deleted } = await upsertJobsPipelineDeals(db, pipeline, rawDeals)
 
   return Response.json({ created, updated, skipped, deleted, total: rawDeals.length })
 })

@@ -32,14 +32,13 @@
 //     (add/update AND remove), not just add/update. Never touches rows with a null pipedriveDealId
 //     (deals added manually here, never sourced from Pipedrive) or the Jobs Pipeline (which has no
 //     crm_deals rows left post-merge — see crm-job-updated.mts instead).
-import { eq, and, inArray, isNotNull, notInArray } from 'drizzle-orm'
+import { eq, and, isNotNull, notInArray } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { requireCrmAccess, withErrorHandling, HttpError } from '../_shared/authz.js'
 import { parseJsonBody } from '../_shared/http.js'
-import { extractFieldsFromV1Deal, extractPrimaryContact, type PipedriveDealPayload } from '../_shared/pipedriveApi.js'
-import { attemptPromotion } from '../_shared/dealToJob.js'
-import { recordStageEntry } from '../_shared/stageHistory.js'
-import { crmPipelines, crmStages, crmFieldDefinitions, crmDeals } from '../../../db/schema.js'
+import { type PipedriveDealPayload } from '../_shared/pipedriveApi.js'
+import { upsertSalesDeals } from '../_shared/dealSync.js'
+import { crmPipelines, crmDeals } from '../../../db/schema.js'
 
 interface PipedriveListResponse {
   success: boolean
@@ -131,119 +130,10 @@ export default withErrorHandling(async (req: Request) => {
     const [pipeline] = await db.select().from(crmPipelines).where(eq(crmPipelines.id, pipelineId)).limit(1)
     if (!pipeline) throw new HttpError(404, 'Pipeline not found')
 
-    const [stageRows, fieldDefs, existingRows] = await Promise.all([
-      db.select().from(crmStages).where(eq(crmStages.pipelineId, pipelineId)),
-      db.select().from(crmFieldDefinitions),
-      // Batched up front instead of one db.select() per deal in the loop below — that N+1 pattern
-      // (up to 100 sequential round trips just to check existence) was comfortably fast against
-      // local dev's near-instant Postgres, but against real production Supabase latency + a chunk
-      // full of writes on top, it was what actually blew the function timeout on live Sales
-      // Pipeline syncs (confirmed via `netlify logs`: several invocations at 44-50s, right at the
-      // platform ceiling) even after the GET side was already paginated per-page.
-      rawDeals.length > 0
-        ? db.select().from(crmDeals).where(inArray(crmDeals.pipedriveDealId, rawDeals.map((d) => String(d.id))))
-        : Promise.resolve([]),
-    ])
-    const stageByPipedriveId = new Map(stageRows.filter((s) => s.pipedriveStageId != null).map((s) => [s.pipedriveStageId as number, s]))
-    const existingByPipedriveId = new Map(existingRows.map((r) => [r.pipedriveDealId as string, r]))
-
-    let created = 0
-    let updated = 0
-    let skipped = 0
-
-    for (const deal of rawDeals) {
-      if (deal.pipeline_id !== pipeline.pipedrivePipelineId) {
-        skipped++
-        continue
-      }
-      const pipedriveDealId = String(deal.id)
-      const stage = deal.stage_id != null ? stageByPipedriveId.get(deal.stage_id) : undefined
-      if (!stage) {
-        skipped++
-        continue
-      }
-
-      const existing = existingByPipedriveId.get(pipedriveDealId)
-      if (existing?.status === 'won') {
-        skipped++
-        continue
-      }
-
-      const fields = extractFieldsFromV1Deal(deal, fieldDefs)
-      const contact = extractPrimaryContact(deal)
-      const status = deal.status === 'won' || deal.status === 'lost' ? deal.status : 'open'
-
-      if (existing) {
-        const stageChanged = stage.id !== existing.stageId
-        const stageEnteredAtValue = new Date().toISOString()
-        const [row] = await db
-          .update(crmDeals)
-          .set({
-            stageId: stage.id,
-            ...(stageChanged ? { stageEnteredAt: stageEnteredAtValue } : {}),
-            title: deal.title || existing.title,
-            value: deal.value ?? existing.value,
-            currency: deal.currency || existing.currency,
-            status,
-            orgName: deal.org_name ?? null,
-            personName: deal.person_name ?? null,
-            personPhone: contact.phone,
-            personEmail: contact.email,
-            lostReason: deal.lost_reason ?? null,
-            wonAt: status === 'won' ? (deal.won_time ?? existing.wonAt ?? new Date().toISOString()) : existing.wonAt,
-            lostAt: status === 'lost' ? (deal.lost_time ?? existing.lostAt ?? new Date().toISOString()) : existing.lostAt,
-            pipedriveUpdateTime: deal.update_time ?? null,
-            nextActivityDate: deal.next_activity_date ?? null,
-            activitiesCount: deal.activities_count ?? null,
-            stageChangeTime: deal.stage_change_time ?? null,
-            expectedCloseDate: deal.expected_close_date ?? null,
-            fields,
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(crmDeals.id, existing.id))
-          .returning()
-        if (stageChanged) await recordStageEntry(db, { dealId: row.id }, stage.id, stageEnteredAtValue)
-        // existing.status is already guaranteed not 'won' by the guard above, so any 'won' here is new.
-        if (status === 'won') await attemptPromotion(db, row)
-        updated++
-      } else {
-        const [row] = await db
-          .insert(crmDeals)
-          .values({
-            pipelineId,
-            stageId: stage.id,
-            title: deal.title || `Deal ${deal.id}`,
-            value: deal.value ?? 0,
-            currency: deal.currency || 'AUD',
-            status,
-            pipedriveDealId,
-            orgName: deal.org_name ?? null,
-            personName: deal.person_name ?? null,
-            personPhone: contact.phone,
-            personEmail: contact.email,
-            lostReason: deal.lost_reason ?? null,
-            wonAt: status === 'won' ? (deal.won_time ?? new Date().toISOString()) : null,
-            lostAt: status === 'lost' ? (deal.lost_time ?? new Date().toISOString()) : null,
-            pipedriveUpdateTime: deal.update_time ?? null,
-            nextActivityDate: deal.next_activity_date ?? null,
-            activitiesCount: deal.activities_count ?? null,
-            stageChangeTime: deal.stage_change_time ?? null,
-            expectedCloseDate: deal.expected_close_date ?? null,
-            fields,
-            createdAt: deal.add_time ?? undefined,
-            stageEnteredAt: deal.add_time ?? undefined,
-          })
-          .returning()
-        await recordStageEntry(db, { dealId: row.id }, stage.id, row.stageEnteredAt)
-        // Unlike the update branch above, a freshly-inserted deal has no prior local status to
-        // compare against — so this must check the deal's own status directly, not "did it just
-        // become won." A deal synced in for the first time as already-Won (e.g. Jobs Pipeline's
-        // historical backfill) previously never got promoted at all — this was the root cause of
-        // most Jobs Pipeline deals having no linked Job.
-        if (status === 'won') await attemptPromotion(db, row)
-        created++
-      }
-    }
+    // Shared with jobs-sync-pipedrive.mts's own upsert and the scheduled reconciliation backstop
+    // (pipedrive-reconcile-sync.mts) — see _shared/dealSync.ts's header for why this lives there
+    // instead of being duplicated in each caller.
+    const { created, updated, skipped } = await upsertSalesDeals(db, pipeline, rawDeals)
 
     return Response.json({ created, updated, skipped, total: rawDeals.length })
   }
