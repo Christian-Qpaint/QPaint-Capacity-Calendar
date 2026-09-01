@@ -74,14 +74,14 @@ export default async (req: Request): Promise<Response> => {
     const db = getDb()
     const pipedriveDealId = String(deal.id)
 
-    // Pipedrive is the single source of truth for whether this deal should be a Job at all, not
-    // just for its fields — a deal reverted from Won back to Lost/Open has its Job deleted outright
-    // rather than left behind showing stale "Won" data forever (this is what jobs-sync-pipedrive.mts's
-    // bulk sync also checks on every run; this covers it in real time).
-    if (deal.status !== 'won') {
-      const [row] = await db.delete(jobs).where(eq(jobs.pipedriveDealId, pipedriveDealId)).returning({ id: jobs.id })
-      return Response.json({ updated: false, deleted: !!row, dealId: deal.id, reason: `status is "${deal.status}", not won — ignored or deleted if it had a Job` })
-    }
+    // A deal reverted from Won back to Lost/Open (or one sitting in the Jobs Pipeline that was
+    // never actually Won) is still recorded — not deleted, not skipped — just archived, same
+    // mechanism as the board's own "Show Archived" toggle already uses. Pipedrive keeps deals like
+    // this sitting in the Jobs Pipeline rather than removing them (confirmed: 30 of 625 real Jobs
+    // Pipeline deals were status='lost'), so QPaint mirrors that instead of silently dropping them —
+    // "recorded, hidden by default" instead of "doesn't exist here." Un-archives automatically if a
+    // deal comes back to Won later (see the `archivedAt: null` patches below).
+    const isWon = deal.status === 'won'
 
     const stageIdRaw = deal.stage_id ?? null
     const [stage] = stageIdRaw
@@ -107,6 +107,14 @@ export default async (req: Request): Promise<Response> => {
         fields,
         pipedriveDealTitle: deal.title ?? existingJob.pipedriveDealTitle,
         totalValue: typeof deal.value === 'number' ? deal.value : existingJob.totalValue,
+        // Won -> not-Won archives it (recorded, just hidden from the default board view); coming
+        // back to Won un-archives it automatically. This is the deal's own won-status driving
+        // archivedAt directly, so it can also clear a manual archive a user set on an already-Won
+        // job (e.g. via the board's own Archive button) if that same deal's status happens to flip
+        // in Pipedrive afterward — an accepted tradeoff for keeping this rule simple and
+        // predictable, and one that only matters if a manually-archived Won deal's status changes
+        // again later, which is rare in practice (see also archivedAt's own doc comment).
+        archivedAt: isWon ? null : (existingJob.archivedAt ?? new Date().toISOString()),
       }
       if (stageChanged) {
         patch.stageId = stage.id
@@ -165,6 +173,11 @@ export default async (req: Request): Promise<Response> => {
     if (result.status === 'skipped') {
       return Response.json({ updated: false, dealId: deal.id, reason: result.reason })
     }
+
+    // Same as the existing-job patch above — a deal that's never actually been Won still gets
+    // recorded as a Job (so it shows up under "Show Archived"), just archived immediately on
+    // creation instead of shown on the live board by default.
+    if (!isWon) await db.update(jobs).set({ archivedAt: new Date().toISOString() }).where(eq(jobs.id, result.jobId))
 
     const [staleDeal] = await db.select().from(crmDeals).where(eq(crmDeals.pipedriveDealId, pipedriveDealId)).limit(1)
     if (staleDeal) {

@@ -152,16 +152,12 @@ export async function upsertJobsPipelineDeals(db: Db, pipeline: CrmPipelineRow, 
     }
     const pipedriveDealId = String(deal.id)
     const existingJob = existingByPipedriveId.get(pipedriveDealId)
-
-    if (deal.status !== 'won') {
-      if (existingJob) {
-        await db.delete(jobs).where(eq(jobs.id, existingJob.id))
-        deleted++
-      } else {
-        skipped++
-      }
-      continue
-    }
+    // A deal that isn't (or is no longer) Won is still recorded — not deleted, not skipped — just
+    // archived, same mechanism the board's own "Show Archived" toggle already uses. Pipedrive keeps
+    // deals like this sitting in the Jobs Pipeline rather than removing them (confirmed: 30 of 625
+    // real Jobs Pipeline deals were status='lost'), so this mirrors that instead of silently
+    // dropping them. See dealToJob.ts's dedicated comment for the un-archive-on-return tradeoff.
+    const isWon = deal.status === 'won'
 
     const stage = deal.stage_id != null ? stageByPipedriveId.get(deal.stage_id) : undefined
     if (!stage) {
@@ -179,6 +175,7 @@ export async function upsertJobsPipelineDeals(db: Db, pipeline: CrmPipelineRow, 
         fields,
         pipedriveDealTitle: deal.title ?? existingJob.pipedriveDealTitle,
         totalValue: typeof deal.value === 'number' ? deal.value : existingJob.totalValue,
+        archivedAt: isWon ? null : (existingJob.archivedAt ?? new Date().toISOString()),
       }
       if (stageChanged) {
         patch.stageId = stage.id
@@ -238,6 +235,10 @@ export async function upsertJobsPipelineDeals(db: Db, pipeline: CrmPipelineRow, 
       skipped++
       continue
     }
+    // Same as the existing-job patch above — a deal that's never actually been Won still gets
+    // recorded as a Job (so it shows up under "Show Archived"), just archived immediately on
+    // creation instead of shown on the live board by default.
+    if (!isWon) await db.update(jobs).set({ archivedAt: new Date().toISOString() }).where(eq(jobs.id, result.jobId))
     created++
   }
 
