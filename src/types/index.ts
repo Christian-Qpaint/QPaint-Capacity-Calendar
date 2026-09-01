@@ -68,9 +68,13 @@ export interface Job {
    * Capacity Calendar. Same column/semantics as CrmDeal.archivedAt (job-shaped deals). */
   archivedAt?: string | null
   /** Custom field values copied from the originating deal (Jobs Pipeline's own fields, or the
-   * Sales/BizDev deal's fields at promotion time) — keyed by CrmFieldDefinition.key. Always
-   * present (defaults to `{}`, so never stripped like the nullable columns above). */
-  fields: Record<string, unknown>
+   * Sales/BizDev deal's fields at promotion time) — keyed by CrmFieldDefinition.key. Always present
+   * at the DB level (defaults to `{}`), but omitted from the app-wide data-bootstrap list (it's
+   * ~90 possible keys, several KB per job — real cost, no bootstrap-sourced page reads it) and
+   * only actually populated by the single-job detail fetch (/api/jobs?id=, used by the CRM Deal
+   * drawer for a Jobs-Pipeline-origin "deal"). Treat as absent unless you fetched that job
+   * individually. */
+  fields?: Record<string, unknown>
   /** Actual hours worked to date — sourced directly from Pipedrive's "Actual Hours to Date"
    * custom field (see FIELD_ACTUAL_HOURS in dealToJob.ts), never manually editable here. Absent
    * until Pipedrive has ever reported a value for this job's deal. */

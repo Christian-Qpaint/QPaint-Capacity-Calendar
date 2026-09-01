@@ -27,6 +27,30 @@ import {
 } from '../../../db/schema.js'
 import { eq } from 'drizzle-orm'
 
+// Every column except `fields` — that jsonb blob (~90 possible custom-field keys, ~2.3KB average
+// per row) accounted for 91% of the whole jobs table's payload weight (confirmed: 1.36MB of 1.49MB
+// total across 595 rows) despite nothing in the frontend ever reading a bootstrap-sourced job's
+// `fields` — only the single-job detail fetch (/api/jobs?id=, used by the CRM Deal drawer for a
+// Jobs-Pipeline-origin "deal") actually needs it. Same lesson crm-data.mts's list query already
+// learned for crm_deals.fields; this bootstrap just hadn't caught up to it yet.
+const JOB_SUMMARY_COLUMNS = {
+  id: jobs.id,
+  pipedriveDealId: jobs.pipedriveDealId,
+  clientId: jobs.clientId,
+  address: jobs.address,
+  category: jobs.category,
+  totalValue: jobs.totalValue,
+  targetHours: jobs.targetHours,
+  dateWon: jobs.dateWon,
+  pipedriveDealTitle: jobs.pipedriveDealTitle,
+  actualHours: jobs.actualHours,
+  productionPercentOverride: jobs.productionPercentOverride,
+  productionPercentSource: jobs.productionPercentSource,
+  stageId: jobs.stageId,
+  stageEnteredAt: jobs.stageEnteredAt,
+  archivedAt: jobs.archivedAt,
+}
+
 export default withErrorHandling(async (req: Request) => {
   const user = await requireUser(req)
   const office = isOfficeRole(user)
@@ -54,7 +78,7 @@ export default withErrorHandling(async (req: Request) => {
     db.select().from(teams),
     office ? db.select().from(workers) : Promise.resolve([]),
     office ? db.select().from(teamMemberships) : Promise.resolve([]),
-    db.select().from(jobs),
+    db.select(JOB_SUMMARY_COLUMNS).from(jobs),
     db.select().from(scheduleBlocks),
     office || !user.teamId
       ? db.select().from(dailyHoursEntries)
