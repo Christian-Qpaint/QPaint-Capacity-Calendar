@@ -23,7 +23,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { GatedButton } from '@/components/GatedButton'
 import { usePersistedState } from '@/hooks/usePersistedState'
-import { useMarketingData } from '@/hooks/useMarketingData'
+import { useMarketingData } from '@/context/MarketingDataContext'
 import {
   buildReferralSourceTimeSeries,
   computeMarketingSummary,

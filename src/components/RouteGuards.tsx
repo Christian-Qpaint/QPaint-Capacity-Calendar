@@ -3,6 +3,8 @@ import { useAuth } from '@/context/AuthContext'
 import { useData } from '@/context/DataContext'
 import { PermissionsProvider, usePermissions } from '@/context/PermissionsContext'
 import { ImportProgressProvider } from '@/context/ImportProgressContext'
+import { CrmDataProvider } from '@/context/CrmDataContext'
+import { MarketingDataProvider } from '@/context/MarketingDataContext'
 import { AccessDeniedPage } from '@/components/AccessDeniedPage'
 import { PageLoadingSkeleton } from '@/components/PageLoadingSkeleton'
 
@@ -38,10 +40,20 @@ export function RequireAuth() {
   if (dataLoading) {
     return <PageLoadingSkeleton />
   }
+  // CrmDataProvider/MarketingDataProvider mounted here — once per authenticated session, not
+  // per-route — so navigating to /deals or /marketing and back reuses whatever's already cached
+  // instead of refetching from scratch every time (each provider still fetches lazily on its own
+  // first mount here, and refreshes hourly in the background; see their own files for why). Both
+  // need to sit inside ImportProgressProvider, since MarketingDataProvider watches it for
+  // "Sync from Pipedrive" completions.
   return (
     <PermissionsProvider>
       <ImportProgressProvider>
-        <Outlet />
+        <CrmDataProvider>
+          <MarketingDataProvider>
+            <Outlet />
+          </MarketingDataProvider>
+        </CrmDataProvider>
       </ImportProgressProvider>
     </PermissionsProvider>
   )

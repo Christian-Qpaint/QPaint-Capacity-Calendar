@@ -116,6 +116,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
     fetchAll()
   }, [fetchAll])
 
+  // Background refresh only — never triggered by navigation (fetchAll's own deps only change on
+  // login/logout, not on route changes, so switching pages reuses whatever's already in state
+  // instead of refetching). This just keeps that already-cached data from going stale for a
+  // long-lived tab; any explicit "Sync from Pipedrive" action already calls `refetch` directly the
+  // moment it finishes, so this interval is purely a slow-decay safety net on top of that.
+  useEffect(() => {
+    if (!userId) return
+    const interval = setInterval(fetchAll, 60 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [userId, fetchAll])
+
   const value = useMemo<DataContextValue>(
     () => ({
       ...state,

@@ -131,6 +131,15 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
     refetch()
   }, [refetch])
 
+  // Mounted once per authenticated session now (see RouteGuards.tsx's RequireAuth), not remounted
+  // per navigation to /deals — this background refresh is what keeps that long-lived cache from
+  // going stale, not a per-visit refetch. Any explicit "Sync from Pipedrive" action already calls
+  // `refetch` directly the moment it finishes.
+  useEffect(() => {
+    const interval = setInterval(refetch, 60 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [refetch])
+
   const queryDeals = useCallback(async (query: CrmDealsQuery): Promise<CrmDealsQueryResult> => {
     const params = new URLSearchParams()
     params.set('pipelineId', query.pipelineId)
