@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react'
-import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, XAxis, YAxis } from 'recharts'
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, LabelList, XAxis, YAxis } from 'recharts'
 import {
+  BarChart3,
   CheckCircle2,
   DollarSign,
   FileText,
@@ -25,20 +26,28 @@ import { GatedButton } from '@/components/GatedButton'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import { useMarketingData } from '@/context/MarketingDataContext'
 import {
+  adSpendMonthSpan,
+  bucketLabel,
+  bucketRangeKeys,
   buildReferralSourceTimeSeries,
   computeMarketingSummary,
+  dealsDateSpan,
   filterAdSpend,
   filterDeals,
-  groupAdSpendByMonth,
+  groupAdSpendBySourceMonth,
   groupByReferralSource,
+  monthsBetweenKeys,
+  pickGranularity,
   topReferralSourcesByLeads,
   uniqueReferralSources,
   uniqueStages,
   COMPARISON_METRIC_LABELS,
   type ComparisonMetric,
   type MarketingFilters,
+  type ReferralSourceRow,
+  type TimeGranularity,
 } from '@/lib/marketingDataAccess'
-import { colorForIndex, colorForReferralSource, KPI_COLORS } from '@/lib/marketingColors'
+import { colorForReferralSource, gradientId, KPI_COLORS } from '@/lib/marketingColors'
 import { formatCurrency, formatPercent } from '@/lib/formulas'
 import { cn } from '@/lib/utils'
 import { AdSpendDialog } from './AdSpendDialog'
@@ -158,21 +167,39 @@ function ReferralSourceCard({
   )
 }
 
-function formatMonthShort(monthKey: string): string {
-  return new Date(`${monthKey}-01T00:00:00`).toLocaleDateString('en-AU', { month: 'short', year: '2-digit' })
-}
-
 function formatRoas(value: number): string {
   return `${value.toFixed(1)}x`
-}
-
-const SPEND_CHART_CONFIG: ChartConfig = {
-  total: { label: 'Ad Spend', color: 'var(--chart-3)' },
 }
 
 const METRIC_OPTIONS: ComparisonMetric[] = ['leads', 'quotes', 'jobsWon', 'quoteValue', 'jobsWonValue']
 const STATUS_OPTIONS = ['Open', 'Won', 'Lost']
 const STATUS_LABEL_TO_VALUE: Record<string, 'open' | 'won' | 'lost'> = { Open: 'open', Won: 'won', Lost: 'lost' }
+
+// 'auto' picks day/month/year from the active date span (see pickGranularity) — the user can pin
+// one explicitly, e.g. to compare full years even while zoomed into a shorter filter window.
+type GranularityChoice = 'auto' | TimeGranularity
+const GRANULARITY_LABELS: Record<GranularityChoice, string> = { auto: 'Auto', day: 'Day', month: 'Month', year: 'Year' }
+
+type BreakdownMetric = 'leads' | 'quotes' | 'jobsWon' | 'jobsWonValue' | 'adSpend' | 'roas'
+const BREAKDOWN_METRIC_LABELS: Record<BreakdownMetric, string> = {
+  leads: 'Leads',
+  quotes: 'Quotes',
+  jobsWon: 'Jobs Won',
+  jobsWonValue: 'Jobs Won Value',
+  adSpend: 'Ad Spend',
+  roas: 'ROAS',
+}
+const BREAKDOWN_METRIC_OPTIONS: BreakdownMetric[] = ['jobsWonValue', 'leads', 'quotes', 'jobsWon', 'adSpend', 'roas']
+
+function breakdownMetricValue(row: ReferralSourceRow, metric: BreakdownMetric): number {
+  return metric === 'roas' ? Number(row.roas.toFixed(2)) : row[metric]
+}
+
+function formatBreakdownMetric(value: number, metric: BreakdownMetric): string {
+  if (metric === 'roas') return formatRoas(value)
+  if (metric === 'jobsWonValue' || metric === 'adSpend') return formatCurrency(value)
+  return value.toLocaleString()
+}
 
 /** Shimmering placeholder matching this page's eventual shape (header, filter bar, KPI cards,
  * chart) — shown while useMarketingData's own fetch (separate from the app-wide data bootstrap)
@@ -211,6 +238,8 @@ export function MarketingDashboard() {
   const [statusLabels, setStatusLabels] = usePersistedState<string[]>('qpaint:marketing:statuses', [])
   const [compareSources, setCompareSources] = usePersistedState<string[]>('qpaint:marketing:compareSources', [])
   const [compareMetric, setCompareMetric] = usePersistedState<ComparisonMetric>('qpaint:marketing:compareMetric', 'leads')
+  const [trendGranularity, setTrendGranularity] = usePersistedState<GranularityChoice>('qpaint:marketing:trendGranularity', 'auto')
+  const [breakdownMetric, setBreakdownMetric] = usePersistedState<BreakdownMetric>('qpaint:marketing:breakdownMetric', 'jobsWonValue')
 
   const statuses = useMemo(() => statusLabels.map((s) => STATUS_LABEL_TO_VALUE[s]).filter(Boolean), [statusLabels])
 
@@ -224,10 +253,30 @@ export function MarketingDashboard() {
 
   const summary = useMemo(() => computeMarketingSummary(filteredDeals, filteredAdSpend), [filteredDeals, filteredAdSpend])
   const bySource = useMemo(() => groupByReferralSource(filteredDeals, filteredAdSpend), [filteredDeals, filteredAdSpend])
-  const monthlySpend = useMemo(() => groupAdSpendByMonth(filteredAdSpend), [filteredAdSpend])
 
   const allSources = useMemo(() => uniqueReferralSources(deals, adSpend), [deals, adSpend])
   const allStages = useMemo(() => uniqueStages(deals), [deals])
+
+  // Ad spend is recorded at month granularity only — the chart spans the active date filter (or,
+  // absent one, every month any spend entry touches) and zero-fills every month in between, split
+  // by source (color = identity) rather than the old single "total" bar colored by month index.
+  const spendMonthSpan = useMemo(() => {
+    if (dateFrom && dateTo) return { from: dateFrom.slice(0, 7), to: dateTo.slice(0, 7) }
+    return adSpendMonthSpan(filteredAdSpend)
+  }, [dateFrom, dateTo, filteredAdSpend])
+  const spendRangeKeys = useMemo(() => (spendMonthSpan ? monthsBetweenKeys(spendMonthSpan.from, spendMonthSpan.to) : []), [spendMonthSpan])
+  const spendSources = useMemo(
+    () => allSources.filter((s) => filteredAdSpend.some((a) => a.referralSource === s)),
+    [allSources, filteredAdSpend],
+  )
+  const spendBySource = useMemo(
+    () => groupAdSpendBySourceMonth(filteredAdSpend, spendSources, spendRangeKeys),
+    [filteredAdSpend, spendSources, spendRangeKeys],
+  )
+  const spendChartConfig: ChartConfig = useMemo(
+    () => Object.fromEntries(spendSources.map((s) => [s, { label: s, color: colorForReferralSource(s, allSources) }])),
+    [spendSources, allSources],
+  )
 
   // First-load default: compare the top 5 sources by lead volume, rather than opening on an empty
   // chart or every source at once — the user can add/remove any source from here.
@@ -242,9 +291,35 @@ export function MarketingDashboard() {
     setCompareSources((prev) => (prev.includes(source) ? prev.filter((s) => s !== source) : [...prev, source]))
   }
 
+  // Granularity auto-picks day/month/year from the active span so a 2-week filter isn't crushed
+  // into one month-wide bucket and a multi-year range doesn't render 60+ illegible month ticks —
+  // and the bucket range always covers the FULL span (zero-filled), not just months with deals in
+  // them, so the chart never silently truncates to whatever a hardcoded window used to allow.
+  const trendSpan = useMemo(() => {
+    if (dateFrom && dateTo) return { from: dateFrom, to: dateTo }
+    return dealsDateSpan(filteredDeals)
+  }, [dateFrom, dateTo, filteredDeals])
+  const autoTrendGranularity = trendSpan ? pickGranularity(trendSpan.from, trendSpan.to) : 'month'
+  const effectiveGranularity: TimeGranularity = trendGranularity === 'auto' ? autoTrendGranularity : trendGranularity
+  const trendRangeKeys = useMemo(
+    () => (trendSpan ? bucketRangeKeys(trendSpan.from, trendSpan.to, effectiveGranularity) : []),
+    [trendSpan, effectiveGranularity],
+  )
   const trendSeries = useMemo(
-    () => buildReferralSourceTimeSeries(filteredDeals, compareSources, compareMetric),
-    [filteredDeals, compareSources, compareMetric],
+    () => buildReferralSourceTimeSeries(filteredDeals, compareSources, compareMetric, effectiveGranularity, trendRangeKeys),
+    [filteredDeals, compareSources, compareMetric, effectiveGranularity, trendRangeKeys],
+  )
+  const trendChartConfig: ChartConfig = useMemo(
+    () => Object.fromEntries(compareSources.map((s) => [s, { label: s, color: colorForReferralSource(s, allSources) }])),
+    [compareSources, allSources],
+  )
+
+  const breakdownRows = useMemo(
+    () =>
+      [...bySource]
+        .map((row) => ({ ...row, value: breakdownMetricValue(row, breakdownMetric) }))
+        .sort((a, b) => b.value - a.value),
+    [bySource, breakdownMetric],
   )
 
   const hasActiveFilters = !!dateFrom || !!dateTo || referralSources.length > 0 || stages.length > 0 || statusLabels.length > 0
@@ -464,27 +539,48 @@ export function MarketingDashboard() {
               <DollarSign className="size-4 text-muted-foreground" />
               <h3 className="text-sm font-medium">Monthly Ad Spend</h3>
             </div>
-            {monthlySpend.length === 0 ? (
+            <p className="text-xs text-muted-foreground">{describeActiveFilters()}</p>
+            {spendBySource.length === 0 || spendSources.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">No ad spend recorded for this filter.</p>
             ) : (
-              <ChartContainer config={SPEND_CHART_CONFIG} className="h-64 w-full">
-                <BarChart data={monthlySpend.map((r) => ({ month: r.month.slice(0, 7), total: r.total }))}>
+              <ChartContainer config={spendChartConfig} className="h-64 w-full">
+                <BarChart data={spendBySource} barCategoryGap={4}>
+                  <defs>
+                    {spendSources.map((source) => {
+                      const color = colorForReferralSource(source, allSources)
+                      return (
+                        <linearGradient key={source} id={gradientId('spend', source)} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={color} stopOpacity={0.55} />
+                          <stop offset="100%" stopColor={color} stopOpacity={1} />
+                        </linearGradient>
+                      )
+                    })}
+                  </defs>
                   <CartesianGrid vertical={false} />
-                  <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={formatMonthShort} />
+                  <XAxis dataKey="key" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(k) => bucketLabel(String(k), 'month')} />
                   <YAxis tickLine={false} axisLine={false} width={48} tickFormatter={(v) => formatCurrency(Number(v))} />
                   <ChartTooltip
+                    cursor={{ fill: 'var(--muted)', opacity: 0.4 }}
                     content={
                       <ChartTooltipContent
-                        labelFormatter={(label) => formatMonthShort(String(label))}
-                        formatter={(value) => formatCurrency(Number(value))}
+                        labelFormatter={(label) => bucketLabel(String(label), 'month')}
+                        formatter={(value, name) => [formatCurrency(Number(value)), String(name)]}
                       />
                     }
                   />
-                  <Bar dataKey="total" radius={4} isAnimationActive={false}>
-                    {monthlySpend.map((r, i) => (
-                      <Cell key={r.month} fill={colorForIndex(i)} />
-                    ))}
-                  </Bar>
+                  {spendSources.map((source, i) => (
+                    <Bar
+                      key={source}
+                      dataKey={source}
+                      stackId="spend"
+                      fill={`url(#${gradientId('spend', source)})`}
+                      stroke="var(--card)"
+                      strokeWidth={2}
+                      maxBarSize={24}
+                      radius={i === spendSources.length - 1 ? [4, 4, 0, 0] : 0}
+                      isAnimationActive={false}
+                    />
+                  ))}
                 </BarChart>
               </ChartContainer>
             )}
@@ -496,20 +592,36 @@ export function MarketingDashboard() {
                 <LineChartIcon className="size-4 text-muted-foreground" />
                 <h3 className="text-sm font-medium">Referral Source Trends</h3>
               </div>
-              <Select value={compareMetric} onValueChange={(v) => v && setCompareMetric(v as ComparisonMetric)}>
-                <SelectTrigger size="sm" className="w-40 print:hidden">
-                  {/* Explicit label function — SelectValue's default item-label lookup only
-                      populates after the popup has opened once, so it briefly shows the raw
-                      value (e.g. "jobsWonValue") instead of "Jobs Won Value" on first render. */}
-                  <SelectValue>{(v: unknown) => COMPARISON_METRIC_LABELS[v as ComparisonMetric]}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {METRIC_OPTIONS.map((m) => (
-                    <SelectItem key={m} value={m}>{COMPARISON_METRIC_LABELS[m]}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex flex-wrap items-center gap-2 print:hidden">
+                <Select value={trendGranularity} onValueChange={(v) => v && setTrendGranularity(v as GranularityChoice)}>
+                  <SelectTrigger size="sm" className="w-28">
+                    <SelectValue>{(v: unknown) => GRANULARITY_LABELS[v as GranularityChoice]}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(['auto', 'day', 'month', 'year'] as const).map((g) => (
+                      <SelectItem key={g} value={g}>{GRANULARITY_LABELS[g]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={compareMetric} onValueChange={(v) => v && setCompareMetric(v as ComparisonMetric)}>
+                  <SelectTrigger size="sm" className="w-40">
+                    {/* Explicit label function — SelectValue's default item-label lookup only
+                        populates after the popup has opened once, so it briefly shows the raw
+                        value (e.g. "jobsWonValue") instead of "Jobs Won Value" on first render. */}
+                    <SelectValue>{(v: unknown) => COMPARISON_METRIC_LABELS[v as ComparisonMetric]}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {METRIC_OPTIONS.map((m) => (
+                      <SelectItem key={m} value={m}>{COMPARISON_METRIC_LABELS[m]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
+            <p className="text-xs text-muted-foreground">
+              {describeActiveFilters()} · Bucketed by {effectiveGranularity}
+              {trendGranularity === 'auto' && ' (auto)'}
+            </p>
 
             <div className="flex flex-wrap gap-1.5 print:hidden">
               {allSources.map((source) => (
@@ -533,10 +645,29 @@ export function MarketingDashboard() {
             ) : trendSeries.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">No deals in this filter.</p>
             ) : (
-              <ChartContainer config={{}} className="h-72 w-full">
-                <LineChart data={trendSeries}>
+              <ChartContainer config={trendChartConfig} className="h-72 w-full">
+                <AreaChart data={trendSeries}>
+                  <defs>
+                    {compareSources.map((source) => {
+                      const color = colorForReferralSource(source, allSources)
+                      return (
+                        <linearGradient key={source} id={gradientId('trend', source)} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={color} stopOpacity={0.32} />
+                          <stop offset="95%" stopColor={color} stopOpacity={0.02} />
+                        </linearGradient>
+                      )
+                    })}
+                  </defs>
                   <CartesianGrid vertical={false} />
-                  <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={formatMonthShort} />
+                  <XAxis
+                    dataKey="key"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    minTickGap={24}
+                    interval="preserveStartEnd"
+                    tickFormatter={(k) => bucketLabel(String(k), effectiveGranularity)}
+                  />
                   <YAxis
                     tickLine={false}
                     axisLine={false}
@@ -546,7 +677,7 @@ export function MarketingDashboard() {
                   <ChartTooltip
                     content={
                       <ChartTooltipContent
-                        labelFormatter={(label) => formatMonthShort(String(label))}
+                        labelFormatter={(label) => bucketLabel(String(label), effectiveGranularity)}
                         formatter={(value, name) => [
                           compareMetric === 'quoteValue' || compareMetric === 'jobsWonValue' ? formatCurrency(Number(value)) : String(value),
                           String(name),
@@ -555,23 +686,84 @@ export function MarketingDashboard() {
                     }
                   />
                   {compareSources.map((source) => (
-                    <Line
+                    <Area
                       key={source}
                       type="monotone"
                       dataKey={source}
                       stroke={colorForReferralSource(source, allSources)}
                       strokeWidth={2}
-                      dot={{ r: 3 }}
-                      activeDot={{ r: 5 }}
+                      fill={`url(#${gradientId('trend', source)})`}
+                      fillOpacity={1}
+                      dot={false}
+                      activeDot={{ r: 5, strokeWidth: 2, stroke: 'var(--card)' }}
+                      isAnimationActive={false}
                     />
                   ))}
-                </LineChart>
+                </AreaChart>
+              </ChartContainer>
+            )}
+          </Card>
+
+          <Card className="gap-3 p-4 break-inside-avoid">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="size-4 text-muted-foreground" />
+                <h3 className="text-sm font-medium">Referral Source Performance</h3>
+              </div>
+              <Select value={breakdownMetric} onValueChange={(v) => v && setBreakdownMetric(v as BreakdownMetric)}>
+                <SelectTrigger size="sm" className="w-40 print:hidden">
+                  <SelectValue>{(v: unknown) => BREAKDOWN_METRIC_LABELS[v as BreakdownMetric]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {BREAKDOWN_METRIC_OPTIONS.map((m) => (
+                    <SelectItem key={m} value={m}>{BREAKDOWN_METRIC_LABELS[m]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-xs text-muted-foreground">{describeActiveFilters()} · Ranked by {BREAKDOWN_METRIC_LABELS[breakdownMetric]}</p>
+            {breakdownRows.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">No data for this filter.</p>
+            ) : (
+              <ChartContainer config={{}} className="w-full" style={{ height: Math.max(160, breakdownRows.length * 36) }}>
+                <BarChart data={breakdownRows} layout="vertical" margin={{ right: 56 }}>
+                  <defs>
+                    {breakdownRows.map((row) => {
+                      const color = colorForReferralSource(row.referralSource, allSources)
+                      return (
+                        <linearGradient key={row.referralSource} id={gradientId('breakdown', row.referralSource)} x1="0" y1="0" x2="1" y2="0">
+                          <stop offset="0%" stopColor={color} stopOpacity={0.55} />
+                          <stop offset="100%" stopColor={color} stopOpacity={1} />
+                        </linearGradient>
+                      )
+                    })}
+                  </defs>
+                  <CartesianGrid horizontal={false} />
+                  <XAxis type="number" hide />
+                  <YAxis type="category" dataKey="referralSource" width={120} tickLine={false} axisLine={false} />
+                  <ChartTooltip
+                    cursor={{ fill: 'var(--muted)', opacity: 0.4 }}
+                    content={<ChartTooltipContent formatter={(value) => formatBreakdownMetric(Number(value), breakdownMetric)} />}
+                  />
+                  <Bar dataKey="value" radius={[0, 4, 4, 0]} maxBarSize={20} isAnimationActive={false}>
+                    {breakdownRows.map((row) => (
+                      <Cell key={row.referralSource} fill={`url(#${gradientId('breakdown', row.referralSource)})`} />
+                    ))}
+                    <LabelList
+                      dataKey="value"
+                      position="right"
+                      className="fill-foreground text-xs"
+                      formatter={(v: number) => formatBreakdownMetric(v, breakdownMetric)}
+                    />
+                  </Bar>
+                </BarChart>
               </ChartContainer>
             )}
           </Card>
 
           <Card className="gap-3 p-4 break-inside-avoid">
             <h3 className="text-sm font-medium">Referral Source Breakdown</h3>
+            <p className="text-xs text-muted-foreground">{describeActiveFilters()}</p>
             {bySource.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">No data for this filter.</p>
             ) : (

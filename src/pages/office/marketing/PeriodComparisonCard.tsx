@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react'
-import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 import { CalendarRange, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -13,20 +13,26 @@ import {
   monthKeyNow,
   monthKeyRange,
   monthKeyToDateRange,
+  monthsBetweenKeys,
   shiftMonthKey,
   COMPARISON_METRIC_LABELS,
   type ComparisonMetric,
   type MarketingFilters,
   type MarketingSummary,
 } from '@/lib/marketingDataAccess'
-import { colorForIndex } from '@/lib/marketingColors'
+import { SEQUENTIAL_ACCENT } from '@/lib/marketingColors'
 import { formatCurrency } from '@/lib/formulas'
 import { MultiSelectFilter } from '@/components/MultiSelectFilter'
 import type { AdSpendEntry, MarketingDeal } from '@/types'
 
 const METRIC_OPTIONS: ComparisonMetric[] = ['leads', 'quotes', 'jobsWon', 'quoteValue', 'jobsWonValue']
-const DURATIONS = [1, 3, 6] as const
+// Was capped at [1, 3, 6] — a real limit the user hit ("still shows only 6 months"). 12/24 cover a
+// full year or two of month-by-month comparison; 'all' spans every month the data actually has,
+// so a long-running account isn't stuck picking the largest fixed number and clicking "back"
+// repeatedly to see further history.
+const DURATIONS = [1, 3, 6, 12, 24, 'all'] as const
 type Duration = (typeof DURATIONS)[number]
+const DURATION_LABELS: Record<Duration, string> = { 1: '1 Month', 3: '3 Months', 6: '6 Months', 12: '1 Year', 24: '2 Years', all: 'All' }
 
 function formatMonthKeyLabel(key: string): string {
   return new Date(`${key}-01T00:00:00`).toLocaleDateString('en-AU', { month: 'short', year: 'numeric' })
@@ -83,7 +89,20 @@ export function PeriodComparisonCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deals.length])
 
-  const monthKeys = useMemo(() => monthKeyRange(anchorMonth, duration), [anchorMonth, duration])
+  // 'all' spans every month the current deal set touches, rather than a fixed window the user has
+  // to keep re-anchoring — falls back to just the anchor month if there's no data yet.
+  const monthKeys = useMemo(() => {
+    if (duration !== 'all') return monthKeyRange(anchorMonth, duration)
+    if (deals.length === 0) return [anchorMonth]
+    const span = deals.reduce(
+      (acc, d) => {
+        const m = d.createdDate.slice(0, 7)
+        return { from: m < acc.from ? m : acc.from, to: m > acc.to ? m : acc.to }
+      },
+      { from: anchorMonth, to: anchorMonth },
+    )
+    return monthsBetweenKeys(span.from, span.to)
+  }, [anchorMonth, duration, deals])
 
   const rows = useMemo(
     () =>
@@ -105,11 +124,13 @@ export function PeriodComparisonCard({
 
   const isCurrency = metric === 'quoteValue' || metric === 'jobsWonValue'
 
-  const chartData = rows.map((r) => ({
-    label: r.label,
-    value: metricValue(r.summary, metric),
-    fill: colorForIndex(r.index),
-  }))
+  const chartData = rows.map((r) => ({ label: r.label, value: metricValue(r.summary, metric) }))
+
+  const filterSummary = [
+    referralSources.length > 0 ? `Source: ${referralSources.join(', ')}` : null,
+    baseFilters.stages?.length ? `Stage: ${baseFilters.stages.join(', ')}` : null,
+    baseFilters.statuses?.length ? `Status: ${baseFilters.statuses.join(', ')}` : null,
+  ].filter(Boolean)
 
   return (
     <Card className="gap-3 p-4 break-inside-avoid">
@@ -122,7 +143,7 @@ export function PeriodComparisonCard({
           <div className="flex items-center gap-1 rounded-md border border-border p-0.5">
             {DURATIONS.map((d) => (
               <Button key={d} size="sm" variant={duration === d ? 'secondary' : 'ghost'} onClick={() => setDuration(d)}>
-                {d} {d === 1 ? 'Month' : 'Months'}
+                {DURATION_LABELS[d]}
               </Button>
             ))}
           </div>
@@ -131,6 +152,7 @@ export function PeriodComparisonCard({
               size="icon-sm"
               variant="outline"
               onClick={() => setAnchorMonth((m) => shiftMonthKey(m, -1))}
+              disabled={duration === 'all'}
               aria-label="Shift back a month"
               title="Shift back a month"
             >
@@ -140,6 +162,7 @@ export function PeriodComparisonCard({
               size="icon-sm"
               variant="outline"
               onClick={() => setAnchorMonth((m) => shiftMonthKey(m, 1))}
+              disabled={duration === 'all'}
               aria-label="Shift forward a month"
               title="Shift forward a month"
             >
@@ -161,27 +184,32 @@ export function PeriodComparisonCard({
       </div>
 
       <p className="text-xs text-muted-foreground">
-        {rows[0]?.label} – {rows[rows.length - 1]?.label}
-        {referralSources.length > 0 && ` · Source: ${referralSources.join(', ')}`}
+        {rows[0]?.label} – {rows[rows.length - 1]?.label} ({rows.length} {rows.length === 1 ? 'month' : 'months'})
+        {filterSummary.length > 0 && ` · ${filterSummary.join(' · ')}`}
       </p>
 
       <ChartContainer config={{}} className="h-56 w-full">
-        <BarChart data={chartData}>
+        <BarChart data={chartData} barCategoryGap={4}>
+          <defs>
+            <linearGradient id="mkt-grad-period" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={SEQUENTIAL_ACCENT} stopOpacity={0.55} />
+              <stop offset="100%" stopColor={SEQUENTIAL_ACCENT} stopOpacity={1} />
+            </linearGradient>
+          </defs>
           <CartesianGrid vertical={false} />
-          <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
+          <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} interval="preserveStartEnd" />
           <YAxis tickLine={false} axisLine={false} width={48} tickFormatter={(v) => (isCurrency ? formatCurrency(Number(v)) : String(v))} />
-          <ChartTooltip content={<ChartTooltipContent formatter={(value) => (isCurrency ? formatCurrency(Number(value)) : String(value))} />} />
-          <Bar dataKey="value" radius={4} isAnimationActive={false}>
-            {chartData.map((entry) => (
-              <Cell key={entry.label} fill={entry.fill} />
-            ))}
-          </Bar>
+          <ChartTooltip
+            cursor={{ fill: 'var(--muted)', opacity: 0.4 }}
+            content={<ChartTooltipContent formatter={(value) => (isCurrency ? formatCurrency(Number(value)) : String(value))} />}
+          />
+          <Bar dataKey="value" fill="url(#mkt-grad-period)" radius={[4, 4, 0, 0]} maxBarSize={28} isAnimationActive={false} />
         </BarChart>
       </ChartContainer>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {rows.map((r) => (
-          <PeriodMiniCard key={r.key} label={r.label} color={colorForIndex(r.index)} summary={r.summary} />
+          <PeriodMiniCard key={r.key} label={r.label} color={SEQUENTIAL_ACCENT} summary={r.summary} />
         ))}
       </div>
     </Card>

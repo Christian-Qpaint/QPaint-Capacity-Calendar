@@ -27,6 +27,20 @@ export function colorForReferralSource(source: string, allSources: string[]): st
   return colorForIndex(index < 0 ? 0 : index)
 }
 
+/** Deterministic, DOM-safe id for a `<linearGradient>` slot keyed by referral source — SVG ids
+ * can't contain spaces/punctuation, and each chart embeds its own `<defs>` so a shared prefix
+ * plus the caller's own chart tag keeps ids unique when the same source appears in more than one
+ * chart on the page at once. */
+export function gradientId(chartTag: string, source: string): string {
+  const slug = source.replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase()
+  return `mkt-grad-${chartTag}-${slug}`
+}
+
+// Sequential accent used where the axis itself is the identity (time periods, a single ranked
+// magnitude) — bars there must NOT be colored by index (that reads as categorical identity on a
+// sequential axis, implying each bar is a different "thing"). One hue, gradient light-to-solid.
+export const SEQUENTIAL_ACCENT = '#2563eb'
+
 // KPI tiles get fixed, meaningful colors rather than palette-by-index, so "Jobs Won" is always
 // green and "Cost Per Lead" is always the same warm tone regardless of dashboard state.
 export const KPI_COLORS = {

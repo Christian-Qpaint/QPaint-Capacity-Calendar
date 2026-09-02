@@ -43,11 +43,6 @@ export interface ReferralSourceRow {
   roas: number
 }
 
-export interface MonthlyAdSpendRow {
-  month: string // ISO date, 1st of month
-  total: number
-}
-
 function safeDiv(numerator: number, denominator: number): number {
   return denominator > 0 ? numerator / denominator : 0
 }
@@ -136,14 +131,38 @@ export function groupByReferralSource(deals: MarketingDeal[], adSpend: AdSpendEn
     .sort((a, b) => b.jobsWonValue - a.jobsWonValue)
 }
 
-export function groupAdSpendByMonth(adSpend: AdSpendEntry[]): MonthlyAdSpendRow[] {
-  const byMonth = new Map<string, number>()
+/** One row per month, one column per referral source (plus `total`) — ad spend is only ever
+ * recorded at month granularity (`AdSpendEntry.month`), so unlike the deal trend chart this stays
+ * month-bucketed regardless of the active date range; it still zero-fills every month across
+ * `rangeKeys` rather than only the months that have an entry, and splits by source (color =
+ * identity) instead of the old single "total" bar colored by month index. */
+export function groupAdSpendBySourceMonth(adSpend: AdSpendEntry[], sources: string[], rangeKeys: string[]): Record<string, string | number>[] {
+  return rangeKeys.map((month) => {
+    const row: Record<string, string | number> = { key: month, total: 0 }
+    let total = 0
+    for (const source of sources) {
+      const amount = adSpend
+        .filter((a) => a.month.slice(0, 7) === month && a.referralSource === source)
+        .reduce((sum, a) => sum + a.amount, 0)
+      row[source] = amount
+      total += amount
+    }
+    row.total = total
+    return row
+  })
+}
+
+/** Month-key span covering every ad-spend entry — the fallback range for the spend chart when no
+ * explicit date filter narrows it. */
+export function adSpendMonthSpan(adSpend: AdSpendEntry[]): { from: string; to: string } | null {
+  if (adSpend.length === 0) return null
+  let from = adSpend[0].month
+  let to = adSpend[0].month
   for (const a of adSpend) {
-    byMonth.set(a.month, (byMonth.get(a.month) ?? 0) + a.amount)
+    if (a.month < from) from = a.month
+    if (a.month > to) to = a.month
   }
-  return Array.from(byMonth.entries())
-    .map(([month, total]) => ({ month, total }))
-    .sort((a, b) => a.month.localeCompare(b.month))
+  return { from, to }
 }
 
 export function uniqueReferralSources(deals: MarketingDeal[], adSpend: AdSpendEntry[]): string[] {
@@ -192,23 +211,103 @@ function computeMetric(deals: MarketingDeal[], metric: ComparisonMetric): number
   }
 }
 
-/** One row per month, one column per referral source — shaped for a multi-line "trends" chart
- * (recharts wants a flat object per point, not nested series). Months are derived from the
- * filtered deals themselves so the chart's x-axis always matches whatever date range is active,
- * rather than a hardcoded lookback window. */
+// ---- Time bucketing (day / month / year) --------------------------------------------------
+// The trend/spend charts used to always bucket by calendar month, sourced only from months that
+// actually had data — a 2-week filter showed one crowded month-wide bucket, and a 5-year range
+// showed 60 illegible month ticks. Bucketing now auto-picks a granularity from the active date
+// span and enumerates every bucket across the FULL span (zero-filled), not just the ones with
+// data, so a real gap in the timeline reads as a dip to zero rather than silently compressing out.
+
+export type TimeGranularity = 'day' | 'month' | 'year'
+
+/** Auto-pick a granularity from a date span: short ranges get daily resolution, medium ranges
+ * get monthly, long ranges get yearly — chosen so a chart never renders more than ~90-100 ticks. */
+export function pickGranularity(fromISO: string, toISO: string): TimeGranularity {
+  const days = Math.max(0, Math.round((new Date(toISO).getTime() - new Date(fromISO).getTime()) / 86400000))
+  if (days <= 90) return 'day'
+  if (days <= 730) return 'month'
+  return 'year'
+}
+
+export function bucketKeyForDate(dateISO: string, granularity: TimeGranularity): string {
+  switch (granularity) {
+    case 'day':
+      return dateISO.slice(0, 10)
+    case 'month':
+      return dateISO.slice(0, 7)
+    case 'year':
+      return dateISO.slice(0, 4)
+  }
+}
+
+export function bucketLabel(key: string, granularity: TimeGranularity): string {
+  switch (granularity) {
+    case 'day':
+      return new Date(`${key}T00:00:00`).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
+    case 'month':
+      return new Date(`${key}-01T00:00:00`).toLocaleDateString('en-AU', { month: 'short', year: '2-digit' })
+    case 'year':
+      return key
+  }
+}
+
+/** Every bucket key from `fromISO` to `toISO` inclusive, ascending — the zero-fill backbone for a
+ * time-series chart's x-axis, independent of which buckets the data happens to touch. */
+export function bucketRangeKeys(fromISO: string, toISO: string, granularity: TimeGranularity): string[] {
+  const from = new Date(fromISO)
+  const to = new Date(toISO)
+  if (to < from) return []
+  const keys: string[] = []
+  if (granularity === 'day') {
+    const cur = new Date(from.getFullYear(), from.getMonth(), from.getDate())
+    const end = new Date(to.getFullYear(), to.getMonth(), to.getDate())
+    while (cur <= end) {
+      keys.push(cur.toISOString().slice(0, 10))
+      cur.setDate(cur.getDate() + 1)
+    }
+  } else if (granularity === 'month') {
+    const cur = new Date(from.getFullYear(), from.getMonth(), 1)
+    const end = new Date(to.getFullYear(), to.getMonth(), 1)
+    while (cur <= end) {
+      keys.push(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`)
+      cur.setMonth(cur.getMonth() + 1)
+    }
+  } else {
+    for (let y = from.getFullYear(); y <= to.getFullYear(); y++) keys.push(String(y))
+  }
+  return keys
+}
+
+/** The earliest/latest `createdDate` across a deal set — the fallback span when no explicit
+ * date-range filter is active, so the trend chart still covers exactly what's on screen. */
+export function dealsDateSpan(deals: MarketingDeal[]): { from: string; to: string } | null {
+  if (deals.length === 0) return null
+  let from = deals[0].createdDate
+  let to = deals[0].createdDate
+  for (const d of deals) {
+    if (d.createdDate < from) from = d.createdDate
+    if (d.createdDate > to) to = d.createdDate
+  }
+  return { from, to }
+}
+
+/** One row per time bucket, one column per referral source — shaped for a multi-series chart
+ * (recharts wants a flat object per point, not nested series). Buckets span the full `rangeKeys`
+ * (zero-filled) rather than only the buckets that happen to contain deals. */
 export function buildReferralSourceTimeSeries(
   deals: MarketingDeal[],
   sources: string[],
   metric: ComparisonMetric,
+  granularity: TimeGranularity,
+  rangeKeys: string[],
 ): Record<string, string | number>[] {
-  if (deals.length === 0 || sources.length === 0) return []
-  const months = Array.from(new Set(deals.map((d) => d.createdDate.slice(0, 7)))).sort()
+  if (sources.length === 0) return []
 
-  return months.map((month) => {
-    const row: Record<string, string | number> = { month }
+  return rangeKeys.map((key) => {
+    const row: Record<string, string | number> = { key }
     for (const source of sources) {
-      const monthSourceDeals = deals.filter((d) => d.createdDate.slice(0, 7) === month && d.referralSource === source)
-      row[source] = computeMetric(monthSourceDeals, metric)
+      const bucketSourceDeals = deals.filter((d) => bucketKeyForDate(d.createdDate, granularity) === key && d.referralSource === source)
+      row[source] = computeMetric(bucketSourceDeals, metric)
     }
     return row
   })
