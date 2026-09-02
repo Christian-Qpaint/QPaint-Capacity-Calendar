@@ -22,11 +22,19 @@
 // does). `crm-deals.mts`'s GET ?id= fetches one deal's full record (fields included) on demand
 // when a card/row is actually opened. Custom fields are also deliberately NOT filterable/sortable
 // here for the same reason — see src/lib/crmDealFilters.ts's header comment.
-import { asc, desc, eq, and, or, not, ilike, ne, notInArray, inArray, isNotNull, isNull, lt, lte, gt, gte, sql, type SQL, type AnyColumn } from 'drizzle-orm'
+import { asc, desc, eq, and, or, not, ilike, notInArray, inArray, isNotNull, isNull, lt, sql, type SQL, type AnyColumn } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { requireCrmAccess, canAccessCrm, withErrorHandling, HttpError } from '../_shared/authz.js'
 import { stripNullsAll } from '../_shared/rows.js'
-import { buildSavedFilterSql, savedFilterReferencesField, CRM_DEALS_SAVED_FILTER_TARGET, JOBS_SAVED_FILTER_TARGET, type SavedFilterNode } from '../_shared/savedFilterSql.js'
+import {
+  buildSavedFilterSql,
+  savedFilterReferencesField,
+  CRM_DEALS_SAVED_FILTER_TARGET,
+  JOBS_SAVED_FILTER_TARGET,
+  type SavedFilterNode,
+  type SavedFilterLeaf,
+  type SavedFilterTarget,
+} from '../_shared/savedFilterSql.js'
 import { crmPipelines, crmStages, crmFieldDefinitions, crmDeals, crmSavedFilters, crmDealStageHistory, jobs, clients } from '../../../db/schema.js'
 
 // Jobs/Jobs-Pipeline merge: a job IS its Jobs Pipeline board card now — this pipeline's "deals"
@@ -65,85 +73,15 @@ const DEAL_LIST_COLUMNS = {
   updatedAt: crmDeals.updatedAt,
 }
 
-const FILTER_COLUMNS: Record<string, AnyColumn> = {
-  title: crmDeals.title,
-  orgName: crmDeals.orgName,
-  personName: crmDeals.personName,
-  currency: crmDeals.currency,
-  value: crmDeals.value,
-  status: crmDeals.status,
-  stageId: crmDeals.stageId,
-  createdAt: crmDeals.createdAt,
-}
-const TEXT_FIELDS = new Set(['title', 'orgName', 'personName', 'currency'])
-const NUMBER_FIELDS = new Set(['value'])
-const ENUM_FIELDS = new Set(['status', 'stageId'])
-const DATE_FIELDS = new Set(['createdAt'])
-
-// The advanced filter's only two custom-field options — Category and Referral Source — compared
-// as text against the `fields` jsonb blob. Not a general "filter on any custom field" mechanism:
-// loading the rest of the ~90-key blob back for every list row is the exact cost crm-data.mts's
-// list query was rewritten to avoid, so this stays limited to these two named fields rather than
-// looking any key up dynamically.
-const CUSTOM_FILTER_FIELD_KEYS: Record<string, string> = {
-  category: '27b0830b634b7730cc4cc6680db2ac2c7391ee77',
-  referralSource: 'e7f330cf1cbe354a1592472798c8709842330bee',
-}
-
-interface RawCondition {
-  field: string
-  operator: string
-  value: string
-}
-
-function conditionToSql(c: RawCondition): SQL | undefined {
-  if (c.value === '' || c.value == null) return undefined
-
-  const customKey = CUSTOM_FILTER_FIELD_KEYS[c.field]
-  if (customKey) {
-    const expr = sql`(${crmDeals.fields} ->> ${customKey})`
-    if (c.operator === 'equals') return sql`${expr} = ${c.value}`
-    if (c.operator === 'not_equals') return sql`${expr} != ${c.value}`
-    return undefined
-  }
-
-  const col = FILTER_COLUMNS[c.field]
-  if (!col) return undefined
-
-  if (TEXT_FIELDS.has(c.field)) {
-    if (c.operator === 'contains') return ilike(col, `%${c.value}%`)
-    if (c.operator === 'equals') return eq(col, c.value)
-    if (c.operator === 'not_equals') return ne(col, c.value)
-    return undefined
-  }
-  if (NUMBER_FIELDS.has(c.field)) {
-    const n = Number(c.value)
-    if (Number.isNaN(n)) return undefined
-    switch (c.operator) {
-      case 'eq': return eq(col, n)
-      case 'neq': return ne(col, n)
-      case 'lt': return lt(col, n)
-      case 'lte': return lte(col, n)
-      case 'gt': return gt(col, n)
-      case 'gte': return gte(col, n)
-      default: return undefined
-    }
-  }
-  if (ENUM_FIELDS.has(c.field)) {
-    if (c.operator === 'equals') return eq(col, c.value)
-    if (c.operator === 'not_equals') return ne(col, c.value)
-    return undefined
-  }
-  if (DATE_FIELDS.has(c.field)) {
-    if (c.operator === 'on') return sql`${col}::date = ${c.value}::date`
-    if (c.operator === 'before') return sql`${col}::date < ${c.value}::date`
-    if (c.operator === 'after') return sql`${col}::date > ${c.value}::date`
-    return undefined
-  }
-  return undefined
-}
-
-function parseConditions(conditionsParam: string | null): RawCondition[] {
+// The Advanced Filter dialog builds its ad-hoc conditions in exactly the same shape saved filters
+// already use (field/isCustom/operator/value) — see crmDealFilters.ts's header — so both run
+// through the exact same buildSavedFilterSql engine instead of a second, parallel implementation.
+// This is also what makes every real custom field filterable (not just Category/Referral Source,
+// the only two previously hardcoded here): any crm_field_definitions key works automatically,
+// typed correctly via CUSTOM_FIELD_NUMERIC_TYPES below so a number/date custom field compares
+// numerically/chronologically instead of as text (a known limitation savedFilterSql.ts's own
+// header used to call out — fixed alongside this).
+function parseAdHocConditions(conditionsParam: string | null): SavedFilterLeaf[] {
   if (!conditionsParam) return []
   try {
     return JSON.parse(conditionsParam)
@@ -152,11 +90,23 @@ function parseConditions(conditionsParam: string | null): RawCondition[] {
   }
 }
 
-function buildFilterConditions(raw: RawCondition[], matchMode: string | null): SQL[] {
-  const parts = raw.map(conditionToSql).filter((x): x is SQL => !!x)
-  if (parts.length === 0) return []
-  const combined = matchMode === 'OR' ? or(...parts) : and(...parts)
-  return combined ? [combined] : []
+function buildAdHocFilterSql(conditions: SavedFilterLeaf[], matchMode: string | null, target: SavedFilterTarget): SQL | undefined {
+  if (conditions.length === 0) return undefined
+  return buildSavedFilterSql({ glue: matchMode === 'OR' ? 'or' : 'and', conditions }, target)
+}
+
+// crm_field_definitions.field_type -> the cast savedFilterSql.ts's customFieldExpr should apply
+// before a </<=/>/>= comparison, so e.g. Target Hours (a number field) sorts numerically instead
+// of as text ("9" > "70" lexicographically, but not numerically). 'monetary' fields count as
+// numbers too; everything else (text, boolean, select, multiselect, address) compares as plain
+// text, which is already correct for eq/neq/contains/is_null/is_not_null regardless of cast.
+function customFieldTypesFrom(fieldDefs: { key: string; fieldType: string }[]): Record<string, 'number' | 'date'> {
+  const map: Record<string, 'number' | 'date'> = {}
+  for (const f of fieldDefs) {
+    if (f.fieldType === 'number' || f.fieldType === 'monetary') map[f.key] = 'number'
+    else if (f.fieldType === 'date') map[f.key] = 'date'
+  }
+  return map
 }
 
 const SORTABLE_COLUMNS: Record<string, AnyColumn> = {
@@ -197,11 +147,11 @@ export default withErrorHandling(async (req: Request) => {
   const [pipelineRows, stageRows, fieldDefinitionRows, savedFilterRows] = await Promise.all([
     db.select().from(crmPipelines).orderBy(asc(crmPipelines.order)),
     db.select().from(crmStages).orderBy(asc(crmStages.order)),
-    // Echoed straight into the response for the initial no-pipelineId bootstrap call
-    // (CrmDataContext.refetch) but never read back out of a per-pipeline queryDeals result — every
-    // deal-page request (Table's one call, Kanban's per-column calls) was refetching these two
-    // small-but-pointless selects for nothing.
-    pipelineId ? Promise.resolve([]) : db.select().from(crmFieldDefinitions).orderBy(asc(crmFieldDefinitions.order)),
+    // Always fetched now (previously skipped for a per-pipeline request as a pointless re-fetch —
+    // see the comment that used to be here) since the Advanced Filter's ad-hoc conditions need to
+    // resolve a custom field's real type (customFieldTypesFrom below) on every filtered request,
+    // not just the initial bootstrap call. Still a small, cheap table (~96 rows, no jsonb blob).
+    db.select().from(crmFieldDefinitions).orderBy(asc(crmFieldDefinitions.order)),
     pipelineId
       ? Promise.resolve([])
       : db
@@ -217,11 +167,12 @@ export default withErrorHandling(async (req: Request) => {
           .orderBy(asc(crmSavedFilters.order)),
   ])
 
-  const rawConditions = parseConditions(conditionsParam)
+  const rawConditions = parseAdHocConditions(conditionsParam)
   // If whatever's already selected (ad-hoc condition or saved filter) has its own opinion about
   // `status` — e.g. Pipedrive's real "All lost deals" filter — the hard default exclusion below
   // backs off instead of AND-ing against it and silently returning zero rows.
-  const adHocReferencesStatus = rawConditions.some((c) => c.field === 'status')
+  const adHocReferencesStatus = rawConditions.some((c) => !c.isCustom && c.field === 'status')
+  const customFieldTypes = customFieldTypesFrom(fieldDefinitionRows)
 
   // Compiled to SQL per-branch below (buildSavedFilterSql(savedFilterTree, target)), not once here —
   // the same condition tree needs different real columns depending on whether the active pipeline
@@ -282,8 +233,12 @@ export default withErrorHandling(async (req: Request) => {
       const searchOr = or(ilike(jobs.pipedriveDealTitle, like), ilike(jobs.address, like), ilike(clients.name, like))
       if (searchOr) baseConditions.push(searchOr)
     }
+    // Previously missing entirely on this branch — the Advanced Filter dialog silently had no
+    // effect on the Jobs Pipeline board. Now shares the exact same engine saved filters use here.
+    const adHocSql = buildAdHocFilterSql(rawConditions, matchMode, { ...JOBS_SAVED_FILTER_TARGET, customFieldTypes })
+    if (adHocSql) baseConditions.push(adHocSql)
     if (savedFilterTree) {
-      const savedFilterSql = buildSavedFilterSql(savedFilterTree, JOBS_SAVED_FILTER_TARGET)
+      const savedFilterSql = buildSavedFilterSql(savedFilterTree, { ...JOBS_SAVED_FILTER_TARGET, customFieldTypes })
       if (savedFilterSql) baseConditions.push(savedFilterSql)
     }
 
@@ -372,9 +327,10 @@ export default withErrorHandling(async (req: Request) => {
       const searchOr = or(ilike(crmDeals.title, like), ilike(crmDeals.orgName, like), ilike(crmDeals.personName, like))
       if (searchOr) baseConditions.push(searchOr)
     }
-    baseConditions.push(...buildFilterConditions(rawConditions, matchMode))
+    const adHocSql = buildAdHocFilterSql(rawConditions, matchMode, { ...CRM_DEALS_SAVED_FILTER_TARGET, customFieldTypes })
+    if (adHocSql) baseConditions.push(adHocSql)
     if (savedFilterTree) {
-      const savedFilterSql = buildSavedFilterSql(savedFilterTree, CRM_DEALS_SAVED_FILTER_TARGET)
+      const savedFilterSql = buildSavedFilterSql(savedFilterTree, { ...CRM_DEALS_SAVED_FILTER_TARGET, customFieldTypes })
       if (savedFilterSql) baseConditions.push(savedFilterSql)
     }
 
@@ -431,8 +387,13 @@ export default withErrorHandling(async (req: Request) => {
   return Response.json({
     pipelines: stripNullsAll(pipelineRows),
     stages: stripNullsAll(stageRows),
-    fieldDefinitions: stripNullsAll(fieldDefinitionRows),
-    savedFilters: stripNullsAll(savedFilterRows),
+    // Only the initial no-pipelineId bootstrap call (CrmDataContext.refetch) ever reads these back
+    // out of the response — every per-pipeline queryDeals call now fetches fieldDefinitionRows too
+    // (needed internally to type-cast custom-field filter comparisons, see customFieldTypesFrom),
+    // but echoing it back on every one of those would just be the same redundant-payload mistake
+    // already fixed here once for stageSummary/avgDwell.
+    fieldDefinitions: pipelineId ? [] : stripNullsAll(fieldDefinitionRows),
+    savedFilters: pipelineId ? [] : stripNullsAll(savedFilterRows),
     deals: responseDeals,
     total,
     stageSummary: responseSummary,

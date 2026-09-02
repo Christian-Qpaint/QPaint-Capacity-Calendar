@@ -2,20 +2,24 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { Plus, X } from 'lucide-react'
 import {
-  FILTER_FIELDS,
+  SALES_SYSTEM_FIELDS,
+  JOBS_SYSTEM_FIELDS,
+  customFieldToFilterConfig,
   operatorsForType,
+  operatorNeedsValue,
   type FilterCondition,
-  type FilterFieldKey,
+  type FilterFieldConfig,
   type MatchMode,
 } from '@/lib/crmDealFilters'
+import type { CrmFieldDefinition } from '@/types'
 
-function newCondition(id: string): FilterCondition {
-  const first = FILTER_FIELDS[0]
-  return { id, field: first.key, operator: operatorsForType(first.type)[0].value, value: '' }
+function newCondition(id: string, fields: FilterFieldConfig[]): FilterCondition {
+  const first = fields[0]
+  return { id, field: first.key, isCustom: first.isCustom, operator: operatorsForType(first.type)[0].value, value: '' }
 }
 
 function StageDot({ color }: { color?: string | null }) {
@@ -30,37 +34,39 @@ export function CrmAdvancedFilterDialog({
   matchMode,
   onApply,
   stageOptions,
-  categoryOptions,
-  referralSourceOptions,
+  fieldDefinitions,
+  isJobsPipeline,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   conditions: FilterCondition[]
   matchMode: MatchMode
   onApply: (conditions: FilterCondition[], matchMode: MatchMode) => void
-  /** Live stages for the active pipeline — overrides the empty static options baked into
-   * FILTER_FIELDS so the "Stage" condition always reflects the pipeline currently in view. */
+  /** Live stages for the active pipeline — overrides the empty static options baked into the
+   * system field list's "Stage" entry so it always reflects the pipeline currently in view. */
   stageOptions: { value: string; label: string; color?: string | null }[]
-  /** Live option lists for the two custom-field conditions, resolved from crm_field_definitions —
-   * same override pattern as stageOptions, since FILTER_FIELDS itself only carries empty
-   * placeholders for these (the real option id -> label list is account-specific). */
-  categoryOptions: { value: string; label: string }[]
-  referralSourceOptions: { value: string; label: string }[]
+  /** Every real Pipedrive custom field on this account (crm_field_definitions) — each becomes its
+   * own filterable field below, matching Pipedrive's own filter builder (every field, not just a
+   * couple of named ones). */
+  fieldDefinitions: CrmFieldDefinition[]
+  /** Jobs Pipeline reads a different underlying table (`jobs`, not `crm_deals`) with far fewer real
+   * system columns — see JOBS_SYSTEM_FIELDS vs SALES_SYSTEM_FIELDS. */
+  isJobsPipeline: boolean
 }) {
   const [draft, setDraft] = useState<FilterCondition[]>(conditions)
   const [draftMode, setDraftMode] = useState<MatchMode>(matchMode)
   const nextId = useRef(0)
 
-  const fields = useMemo(
-    () =>
-      FILTER_FIELDS.map((f) => {
-        if (f.key === 'stageId') return { ...f, options: stageOptions }
-        if (f.key === 'category') return { ...f, options: categoryOptions }
-        if (f.key === 'referralSource') return { ...f, options: referralSourceOptions }
-        return f
-      }),
-    [stageOptions, categoryOptions, referralSourceOptions],
-  )
+  const systemFields = isJobsPipeline ? JOBS_SYSTEM_FIELDS : SALES_SYSTEM_FIELDS
+  const fields = useMemo(() => {
+    const system = systemFields.map((f) => (f.key === 'stageId' ? { ...f, options: stageOptions } : f))
+    const custom = fieldDefinitions.map(customFieldToFilterConfig).sort((a, b) => a.label.localeCompare(b.label))
+    return [...system, ...custom]
+  }, [systemFields, stageOptions, fieldDefinitions])
+
+  function findField(field: string, isCustom: boolean) {
+    return fields.find((f) => f.key === field && f.isCustom === isCustom)
+  }
 
   useEffect(() => {
     if (!open) return
@@ -70,7 +76,7 @@ export function CrmAdvancedFilterDialog({
   }, [open])
 
   function addCondition() {
-    setDraft((rows) => [...rows, newCondition(`c${nextId.current++}`)])
+    setDraft((rows) => [...rows, newCondition(`c${nextId.current++}`, fields)])
   }
 
   function removeCondition(id: string) {
@@ -81,14 +87,14 @@ export function CrmAdvancedFilterDialog({
     setDraft((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)))
   }
 
-  function changeField(id: string, field: FilterFieldKey) {
-    const config = fields.find((f) => f.key === field)!
-    updateCondition(id, { field, operator: operatorsForType(config.type)[0].value, value: '' })
+  function changeField(id: string, field: string, isCustom: boolean) {
+    const config = findField(field, isCustom)!
+    updateCondition(id, { field, isCustom, operator: operatorsForType(config.type)[0].value, value: '' })
   }
 
   function handleApply() {
     onApply(
-      draft.filter((c) => c.value !== ''),
+      draft.filter((c) => c.value !== '' || !operatorNeedsValue(c.operator)),
       draftMode,
     )
     onOpenChange(false)
@@ -138,21 +144,42 @@ export function CrmAdvancedFilterDialog({
 
           <div className="space-y-2">
             {draft.map((condition) => {
-              const config = fields.find((f) => f.key === condition.field)!
+              const config = findField(condition.field, condition.isCustom) ?? fields[0]
               const ops = operatorsForType(config.type)
+              const needsValue = operatorNeedsValue(condition.operator)
               return (
                 <div key={condition.id} className="flex flex-wrap items-center gap-2 rounded-md border border-border p-2">
-                  <Select value={condition.field} onValueChange={(v) => v && changeField(condition.id, v as FilterFieldKey)}>
-                    <SelectTrigger className="w-36"><SelectValue>{(v: string | null) => fields.find((f) => f.key === v)?.label}</SelectValue></SelectTrigger>
-                    <SelectContent>
-                      {fields.map((f) => (
-                        <SelectItem key={f.key} value={f.key}>{f.label}</SelectItem>
-                      ))}
+                  <Select
+                    value={`${condition.isCustom ? 'c' : 's'}:${condition.field}`}
+                    onValueChange={(v) => {
+                      if (!v) return
+                      const [prefix, ...rest] = v.split(':')
+                      changeField(condition.id, rest.join(':'), prefix === 'c')
+                    }}
+                  >
+                    <SelectTrigger className="w-44">
+                      <SelectValue>{() => config.label}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent className="max-h-96">
+                      <SelectGroup>
+                        <SelectLabel>Deal fields</SelectLabel>
+                        {systemFields.map((f) => (
+                          <SelectItem key={`s:${f.key}`} value={`s:${f.key}`}>{f.label}</SelectItem>
+                        ))}
+                      </SelectGroup>
+                      <SelectGroup>
+                        <SelectLabel>Custom fields</SelectLabel>
+                        {fields
+                          .filter((f) => f.isCustom)
+                          .map((f) => (
+                            <SelectItem key={`c:${f.key}`} value={`c:${f.key}`}>{f.label}</SelectItem>
+                          ))}
+                      </SelectGroup>
                     </SelectContent>
                   </Select>
 
-                  <Select value={condition.operator} onValueChange={(v) => v && updateCondition(condition.id, { operator: v })}>
-                    <SelectTrigger className="w-32"><SelectValue>{(v: string | null) => ops.find((o) => o.value === v)?.label}</SelectValue></SelectTrigger>
+                  <Select value={condition.operator} onValueChange={(v) => v && updateCondition(condition.id, { operator: v as FilterCondition['operator'], value: '' })}>
+                    <SelectTrigger className="w-44"><SelectValue>{(v: string | null) => ops.find((o) => o.value === v)?.label}</SelectValue></SelectTrigger>
                     <SelectContent>
                       {ops.map((o) => (
                         <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
@@ -160,14 +187,16 @@ export function CrmAdvancedFilterDialog({
                     </SelectContent>
                   </Select>
 
-                  {config.type === 'enum' ? (
+                  {!needsValue ? (
+                    <span className="min-w-32 flex-1 text-xs text-muted-foreground italic">No value needed</span>
+                  ) : config.type === 'enum' ? (
                     <Select value={condition.value} onValueChange={(v) => updateCondition(condition.id, { value: v ?? '' })}>
                       <SelectTrigger className="min-w-36 flex-1">
                         <SelectValue>
                           {(v: string | null) => {
                             const opt = config.options?.find((o) => o.value === v)
                             if (!opt) return 'Select…'
-                            return condition.field === 'stageId' ? (
+                            return condition.field === 'stageId' && !condition.isCustom ? (
                               <span className="flex items-center gap-1.5">
                                 <StageDot color={(opt as { color?: string | null }).color} />
                                 {opt.label}
@@ -181,7 +210,7 @@ export function CrmAdvancedFilterDialog({
                       <SelectContent>
                         {config.options?.map((o) => (
                           <SelectItem key={o.value} value={o.value}>
-                            {condition.field === 'stageId' ? (
+                            {condition.field === 'stageId' && !condition.isCustom ? (
                               <span className="flex items-center gap-1.5">
                                 <StageDot color={(o as { color?: string | null }).color} />
                                 {o.label}

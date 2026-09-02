@@ -26,7 +26,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { formatCurrency } from '@/lib/formulas'
 import { colorForIndex } from '@/lib/marketingColors'
-import { type FilterCondition, type FilterFieldKey, type MatchMode, type SortState } from '@/lib/crmDealFilters'
+import { type FilterCondition, type SortFieldKey, type MatchMode, type SortState } from '@/lib/crmDealFilters'
 import { ArrowDown, ArrowUp, ArrowUpDown, Columns3, Eye, EyeOff, ListFilter, Plus, RefreshCw, Rows3, Search, Settings2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { CrmDeal, CrmStage } from '@/types'
@@ -152,9 +152,9 @@ function SortableHead({
   className,
 }: {
   label: string
-  sortKey: FilterFieldKey
+  sortKey: SortFieldKey
   sort: SortState
-  onSort: (key: FilterFieldKey) => void
+  onSort: (key: SortFieldKey) => void
   className?: string
 }) {
   const active = sort.key === sortKey
@@ -718,7 +718,7 @@ export function CrmBoard() {
     }
   }
 
-  function toggleSort(key: FilterFieldKey) {
+  function toggleSort(key: SortFieldKey) {
     setSort((s) => (s.key === key ? { key, direction: s.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' }))
   }
 
@@ -737,17 +737,6 @@ export function CrmBoard() {
     () => new Map(pipelineStages.map((s, i) => [s.id, s.color || colorForIndex(i)])),
     [pipelineStages],
   )
-
-  // Live option lists for the Advanced Filter's two custom-field conditions — resolved by label
-  // since crm_field_definitions.key is an opaque, account-specific Pipedrive hash.
-  const categoryOptions = useMemo(() => {
-    const def = fieldDefinitions.find((f) => f.label === 'Category Type')
-    return (def?.options ?? []).map((o) => ({ value: o.id, label: o.label }))
-  }, [fieldDefinitions])
-  const referralSourceOptions = useMemo(() => {
-    const def = fieldDefinitions.find((f) => f.label === 'Referral Source')
-    return (def?.options ?? []).map((o) => ({ value: o.id, label: o.label }))
-  }, [fieldDefinitions])
 
   // Sum of every loaded stage's summary — accurate for the whole current pipeline/search/filter
   // scope regardless of which view is active or how much of it has actually loaded into the DOM,
@@ -998,8 +987,8 @@ export function CrmBoard() {
         conditions={conditions}
         matchMode={matchMode}
         stageOptions={stageOptions}
-        categoryOptions={categoryOptions}
-        referralSourceOptions={referralSourceOptions}
+        fieldDefinitions={fieldDefinitions}
+        isJobsPipeline={isJobsPipeline}
         onApply={(next, mode) => {
           setConditions(next)
           setMatchMode(mode)

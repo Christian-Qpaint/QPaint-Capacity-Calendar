@@ -52,6 +52,13 @@ export interface SavedFilterTarget {
   /** Fields with no real column on this target — the leaf instead evaluates as a compile-time
    * true/false against this literal value, e.g. a job's implicit status is always 'won'. */
   constantFields?: Record<string, string>
+  /** Per-custom-field-key type hint (from crm_field_definitions.field_type), so a custom field's
+   * `fields ->> key` text extraction gets cast before <//<=/>/>= comparison instead of sorting
+   * lexicographically — e.g. "90" < "700" as text but not as a number. Built fresh per request
+   * (crm-data.mts) from whichever custom fields a filter actually references; omit a key here and
+   * it's compared as plain text, matching the previous behavior for eq/neq/contains anyway.
+   * 'number' covers Pipedrive's number/monetary field types; 'date' covers its date field type. */
+  customFieldTypes?: Record<string, 'number' | 'date'>
 }
 
 export const CRM_DEALS_SAVED_FILTER_TARGET: SavedFilterTarget = {
@@ -167,7 +174,11 @@ function resolveLeafValue(value: string, isRelativeDate?: boolean): string {
 }
 
 function customFieldExpr(target: SavedFilterTarget, key: string) {
-  return sql`(${target.customFieldsColumn} ->> ${key})`
+  const raw = sql`(${target.customFieldsColumn} ->> ${key})`
+  const type = target.customFieldTypes?.[key]
+  if (type === 'number') return sql`(${raw})::numeric`
+  if (type === 'date') return sql`(${raw})::date`
+  return raw
 }
 
 /** Evaluates a leaf against a compile-time constant (e.g. Jobs Pipeline's always-'won' status) in
@@ -223,13 +234,18 @@ function leafToSql(leaf: SavedFilterLeaf, target: SavedFilterTarget): SQL | unde
   const value = resolveLeafValue(rawValue, leaf.isRelativeDate)
 
   if (leaf.isCustom) {
+    const customType = target.customFieldTypes?.[leaf.field]
+    // Matches customFieldExpr's own cast on the column side — comparing a ::numeric/::date
+    // expression against a bare text parameter mostly coerces fine on its own, but casting the
+    // value explicitly too avoids relying on Postgres inferring the right side from context.
+    const typedValue = customType === 'number' ? sql`${value}::numeric` : customType === 'date' ? sql`${value}::date` : sql`${value}`
     switch (leaf.operator) {
-      case 'eq': return sql`${expr} = ${value}`
-      case 'neq': return sql`${expr} != ${value}`
-      case 'lt': return sql`${expr} < ${value}`
-      case 'lte': return sql`${expr} <= ${value}`
-      case 'gt': return sql`${expr} > ${value}`
-      case 'gte': return sql`${expr} >= ${value}`
+      case 'eq': return sql`${expr} = ${typedValue}`
+      case 'neq': return sql`${expr} != ${typedValue}`
+      case 'lt': return sql`${expr} < ${typedValue}`
+      case 'lte': return sql`${expr} <= ${typedValue}`
+      case 'gt': return sql`${expr} > ${typedValue}`
+      case 'gte': return sql`${expr} >= ${typedValue}`
       case 'contains': return sql`${expr} ILIKE ${'%' + value + '%'}`
       default: return undefined
     }
