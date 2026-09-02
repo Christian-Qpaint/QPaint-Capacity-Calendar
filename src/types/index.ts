@@ -84,6 +84,12 @@ export interface Job {
    * value (see getJobProgress in dataAccess.ts). */
   productionPercentOverride?: number
   productionPercentSource: 'computed' | 'manual'
+  /** The underlying deal's real Pipedrive status. Was implicitly "always won" for a long time (a
+   * job only ever existed for an already-Won deal) — now a real column, since a Lost (or reverted-
+   * from-Won) Jobs Pipeline deal is recorded as an archived Job rather than skipped/deleted. Absent
+   * on bootstrap-sourced jobs from before this column existed only in the sense that older code
+   * paths might not have set it explicitly; the DB itself always has a value (defaults to 'won'). */
+  status?: 'open' | 'won' | 'lost'
 }
 
 export type WorkArea = 'External' | 'Internal' | 'Roof' | 'Epoxy Floors' | 'Decks'

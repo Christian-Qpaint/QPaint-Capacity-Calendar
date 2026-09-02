@@ -1,0 +1,11 @@
+-- jobs.status was implicitly "always won" (a job only ever existed for an already-Won deal) and
+-- hardcoded as a compile-time constant in the app's saved-filter engine rather than a real column.
+-- Now that a Lost/reverted deal is recorded as an archived Job instead of being skipped or deleted
+-- (see the "record Jobs Pipeline deals that aren't Won" fix), won-vs-lost became a real, meaningful
+-- distinction worth a real column and worth filtering on directly, instead of a constant.
+--
+-- Defaults every existing row to 'won' — correct for the overwhelming majority of jobs today
+-- (genuinely won production work); the handful already archived for being Lost will get their real
+-- status corrected the next time "Sync Jobs Pipeline" runs, same self-healing backfill pattern
+-- already used elsewhere rather than one-off data surgery here.
+alter table jobs add column status crm_deal_status not null default 'won';

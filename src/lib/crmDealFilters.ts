@@ -45,11 +45,14 @@ export const SALES_SYSTEM_FIELDS: FilterFieldConfig[] = [
   { key: 'activitiesCount', label: 'Activities Count', type: 'number', isCustom: false },
 ]
 
-// Jobs Pipeline — reads `jobs`, which has far fewer real columns (see JOBS_SAVED_FILTER_TARGET);
-// `status` isn't offered here since it's always 'won' for a job, never a real filterable choice.
+// Jobs Pipeline — reads `jobs`, which has far fewer real columns (see JOBS_SAVED_FILTER_TARGET).
+// `status` is a real, meaningful filter here now too: a Lost (or reverted-from-Won) deal is
+// recorded as an archived Job rather than skipped/deleted (see dealSync.ts's
+// upsertJobsPipelineDeals), so won-vs-lost genuinely varies instead of every row being 'won'.
 export const JOBS_SYSTEM_FIELDS: FilterFieldConfig[] = [
   { key: 'title', label: 'Job', type: 'text', isCustom: false },
   { key: 'stageId', label: 'Stage', type: 'enum', isCustom: false, options: [] }, // overridden with live stages per pipeline
+  { key: 'status', label: 'Status', type: 'enum', isCustom: false, options: DEAL_STATUSES.map((s) => ({ value: s, label: s[0].toUpperCase() + s.slice(1) })) },
   { key: 'value', label: 'Value ($)', type: 'number', isCustom: false },
   { key: 'wonAt', label: 'Won Date', type: 'date', isCustom: false },
 ]

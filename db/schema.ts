@@ -89,6 +89,11 @@ export const credentialJobTypeScopeEnum = pgEnum('credential_job_type_scope', [
   'Corporate',
   'Commercial',
 ])
+// Declared up here (not down in the CRM section below, where it conceptually belongs alongside
+// crm_deals) because `jobs.status` (below) needs it in scope — pgEnum values are plain `const`
+// bindings, not hoisted like a function declaration would be, so referencing this before its
+// declaration would throw at module load time if it stayed next to crmDeals.
+export const crmDealStatusEnum = pgEnum('crm_deal_status', ['open', 'won', 'lost'])
 
 // ============================================================================
 // users — replaces Supabase's profiles + auth.users. Password auth is hand-rolled (bcrypt hash),
@@ -218,6 +223,14 @@ export const jobs = pgTable('jobs', {
   // board's default view (alongside the existing autoHideAfterDays age-based hiding) but never
   // excluded from the Capacity Calendar, which must keep showing every job regardless of this.
   archivedAt: timestamp('archived_at', { withTimezone: true, mode: 'string' }),
+  // The underlying deal's real Pipedrive status — reuses crm_deals' own enum. Was implicitly
+  // "always won" for a long time (a job used to only ever get created for an already-Won deal),
+  // hardcoded as a compile-time constant in savedFilterSql.ts's JOBS_SAVED_FILTER_TARGET rather
+  // than a real column. Now a genuine column: a deal that's Lost (or reverted from Won) is still
+  // recorded as a Job — archived, not deleted — so "won" vs "lost" became a real, meaningful
+  // distinction worth filtering on, not a constant. Defaults to 'won' to match every job that
+  // predates this column; new syncs set it from the deal's actual live status going forward.
+  status: crmDealStatusEnum('status').notNull().default('won'),
 }, (table) => [
   check('jobs_production_percent_source_check', sql`${table.productionPercentSource} in ('computed', 'manual')`),
 ])
@@ -404,7 +417,6 @@ export const marketingDeals = pgTable(
 // from then on — nothing here ever pushes back to Pipedrive. See
 // netlify/functions/crm-deal-created for the one-way, creation-only Sales Pipeline automation.
 // ============================================================================
-export const crmDealStatusEnum = pgEnum('crm_deal_status', ['open', 'won', 'lost'])
 export const crmFieldTypeEnum = pgEnum('crm_field_type', [
   'text',
   'number',

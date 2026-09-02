@@ -72,6 +72,11 @@ export interface DealForJobCreation {
    * the next sync corrects it. Omitted by a Sales/Business Development promotion, which has no
    * Jobs Pipeline stage of its own to hand over — falls back to the pipeline's first stage. */
   initialStageId?: string
+  /** The underlying deal's real Pipedrive status. Defaults to 'won' since every caller except the
+   * Jobs Pipeline sync paths (_shared/dealSync.ts, crm-job-updated.mts) only ever promotes an
+   * already-Won deal — those two explicitly pass the deal's real status, since a Jobs Pipeline
+   * deal that's Lost (or reverted from Won) still gets recorded as a Job now, just archived. */
+  status?: 'open' | 'won' | 'lost'
 }
 
 export type JobCreationResult = { status: 'created' | 'adopted'; jobId: string } | { status: 'skipped'; reason: string }
@@ -132,6 +137,7 @@ export async function createOrAdoptJobFromDeal(db: ReturnType<typeof getDb>, inp
       pipedriveDealTitle: input.title,
       stageId: firstStage?.id,
       stageEnteredAt: firstStage ? stageEnteredAt : undefined,
+      status: input.status ?? 'won',
       fields: input.fields,
     })
     .returning({ id: jobs.id })

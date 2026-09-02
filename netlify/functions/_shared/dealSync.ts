@@ -157,7 +157,8 @@ export async function upsertJobsPipelineDeals(db: Db, pipeline: CrmPipelineRow, 
     // deals like this sitting in the Jobs Pipeline rather than removing them (confirmed: 30 of 625
     // real Jobs Pipeline deals were status='lost'), so this mirrors that instead of silently
     // dropping them. See dealToJob.ts's dedicated comment for the un-archive-on-return tradeoff.
-    const isWon = deal.status === 'won'
+    const dealStatus: 'open' | 'won' | 'lost' = deal.status === 'won' || deal.status === 'lost' ? deal.status : 'open'
+    const isWon = dealStatus === 'won'
 
     const stage = deal.stage_id != null ? stageByPipedriveId.get(deal.stage_id) : undefined
     if (!stage) {
@@ -176,6 +177,7 @@ export async function upsertJobsPipelineDeals(db: Db, pipeline: CrmPipelineRow, 
         pipedriveDealTitle: deal.title ?? existingJob.pipedriveDealTitle,
         totalValue: typeof deal.value === 'number' ? deal.value : existingJob.totalValue,
         archivedAt: isWon ? null : (existingJob.archivedAt ?? new Date().toISOString()),
+        status: dealStatus,
       }
       if (stageChanged) {
         patch.stageId = stage.id
@@ -228,6 +230,7 @@ export async function upsertJobsPipelineDeals(db: Db, pipeline: CrmPipelineRow, 
       personPhone: contact.phone,
       personEmail: contact.email,
       initialStageId: stage.id,
+      status: dealStatus,
       fields,
     })
 

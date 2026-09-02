@@ -98,12 +98,13 @@ export const JOBS_SAVED_FILTER_TARGET: SavedFilterTarget = {
     value: jobs.totalValue,
     title: jobs.pipedriveDealTitle,
     wonAt: jobs.dateWon,
+    // A real column now, not a compile-time 'won' constant — a Lost (or reverted-from-Won) Jobs
+    // Pipeline deal is recorded as an archived Job rather than skipped/deleted (see dealSync.ts's
+    // upsertJobsPipelineDeals), so won-vs-lost is a genuine, filterable distinction going forward.
+    status: jobs.status,
   },
   customFieldsColumn: jobs.fields,
   numericFields: new Set(['value']),
-  // A job only ever exists because its deal was Won and promoted — there's no open/lost job, so
-  // `status` isn't a real column here, just always 'won'.
-  constantFields: { status: 'won' },
 }
 
 function toIsoDate(d: Date): string {

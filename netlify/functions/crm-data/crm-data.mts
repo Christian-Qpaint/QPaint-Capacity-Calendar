@@ -252,7 +252,10 @@ export default withErrorHandling(async (req: Request) => {
       title: jobs.pipedriveDealTitle,
       value: jobs.totalValue,
       currency: sql<string>`'AUD'`,
-      status: sql<'won'>`'won'`,
+      // Real column now, not a hardcoded 'won' literal — a Lost (or reverted-from-Won) Jobs
+      // Pipeline deal is recorded as an archived Job rather than skipped/deleted, so this can now
+      // genuinely be 'lost' too (see jobs.status's own schema comment).
+      status: jobs.status,
       pipedriveDealId: jobs.pipedriveDealId,
       orgName: clients.name,
       personName: sql<string | null>`null`,

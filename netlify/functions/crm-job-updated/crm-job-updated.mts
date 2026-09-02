@@ -81,7 +81,8 @@ export default async (req: Request): Promise<Response> => {
     // Pipeline deals were status='lost'), so QPaint mirrors that instead of silently dropping them —
     // "recorded, hidden by default" instead of "doesn't exist here." Un-archives automatically if a
     // deal comes back to Won later (see the `archivedAt: null` patches below).
-    const isWon = deal.status === 'won'
+    const dealStatus: 'open' | 'won' | 'lost' = deal.status === 'won' || deal.status === 'lost' ? deal.status : 'open'
+    const isWon = dealStatus === 'won'
 
     const stageIdRaw = deal.stage_id ?? null
     const [stage] = stageIdRaw
@@ -115,6 +116,7 @@ export default async (req: Request): Promise<Response> => {
         // predictable, and one that only matters if a manually-archived Won deal's status changes
         // again later, which is rare in practice (see also archivedAt's own doc comment).
         archivedAt: isWon ? null : (existingJob.archivedAt ?? new Date().toISOString()),
+        status: dealStatus,
       }
       if (stageChanged) {
         patch.stageId = stage.id
@@ -167,6 +169,7 @@ export default async (req: Request): Promise<Response> => {
       personPhone: contact.phone,
       personEmail: contact.email,
       initialStageId: stage.id,
+      status: dealStatus,
       fields,
     })
 
