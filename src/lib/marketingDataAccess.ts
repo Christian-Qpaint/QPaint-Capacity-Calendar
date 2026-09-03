@@ -76,7 +76,10 @@ export function totalAdSpend(adSpend: AdSpendEntry[]): number {
 // deal's own status flag). Without this split, a Sales deal promoted to a Job was counted twice —
 // once via its own crm_deals row (source: 'sales', isWon true), again via the job it produced
 // (source: 'jobsPipeline') — see MarketingDeal.source's comment and marketing-data.mts's header.
-export function computeMarketingSummary(deals: MarketingDeal[], adSpend: AdSpendEntry[]): MarketingSummary {
+// Takes the ad spend total directly (rather than an AdSpendEntry[]) so a caller that already has a
+// specific bucket's spend amount (e.g. a prorated day-level slice — see buildReferralSourceTimeSeries)
+// doesn't need to fabricate a fake entry array just to satisfy this signature.
+export function computeMarketingSummary(deals: MarketingDeal[], adSpendAmount: number): MarketingSummary {
   const salesDeals = deals.filter((d) => d.source === 'sales')
   const jobsPipelineDeals = deals.filter((d) => d.source === 'jobsPipeline')
   const totalLeads = salesDeals.length
@@ -86,7 +89,7 @@ export function computeMarketingSummary(deals: MarketingDeal[], adSpend: AdSpend
   const totalQuoteValue = quoted.reduce((sum, d) => sum + d.value, 0)
   const jobsWon = won.length
   const jobsWonValue = won.reduce((sum, d) => sum + d.value, 0)
-  const spend = totalAdSpend(adSpend)
+  const spend = adSpendAmount
 
   return {
     totalLeads,
@@ -113,7 +116,7 @@ export function groupByReferralSource(deals: MarketingDeal[], adSpend: AdSpendEn
     .map((referralSource) => {
       const sourceDeals = deals.filter((d) => d.referralSource === referralSource)
       const sourceSpend = adSpend.filter((a) => a.referralSource === referralSource)
-      const summary = computeMarketingSummary(sourceDeals, sourceSpend)
+      const summary = computeMarketingSummary(sourceDeals, totalAdSpend(sourceSpend))
       return {
         referralSource,
         leads: summary.totalLeads,
@@ -184,6 +187,9 @@ export function topReferralSourcesByLeads(deals: MarketingDeal[], limit: number)
     .map(([source]) => source)
 }
 
+// Period Comparison's own metric picker (month-over-month cards) — deliberately kept narrower than
+// TrendMetric below since that widget only ever compares raw volume/value, never the ad-spend-
+// derived ratios.
 export type ComparisonMetric = 'leads' | 'quotes' | 'jobsWon' | 'quoteValue' | 'jobsWonValue'
 
 export const COMPARISON_METRIC_LABELS: Record<ComparisonMetric, string> = {
@@ -194,21 +200,76 @@ export const COMPARISON_METRIC_LABELS: Record<ComparisonMetric, string> = {
   jobsWonValue: 'Jobs Won Value',
 }
 
-// Same source split as computeMarketingSummary — leads/quotes from Sales Pipeline deals only,
-// jobsWon/jobsWonValue from Jobs Pipeline records only.
-function computeMetric(deals: MarketingDeal[], metric: ComparisonMetric): number {
-  switch (metric) {
-    case 'leads':
-      return deals.filter((d) => d.source === 'sales').length
-    case 'quotes':
-      return deals.filter((d) => d.source === 'sales' && d.isQuoted).length
-    case 'jobsWon':
-      return deals.filter((d) => d.source === 'jobsPipeline').length
-    case 'quoteValue':
-      return deals.filter((d) => d.source === 'sales' && d.isQuoted).reduce((sum, d) => sum + d.value, 0)
-    case 'jobsWonValue':
-      return deals.filter((d) => d.source === 'jobsPipeline').reduce((sum, d) => sum + d.value, 0)
-  }
+// The Referral Source Comparison chart's metric picker — every field computeMarketingSummary
+// produces, i.e. exactly the metrics already shown as KPI boxes at the top of the dashboard
+// (Total Leads, ROAS, Avg Sale Value, etc.) — so "compare referral sources on X" always means the
+// same X the rest of the page already reports, rather than a separate narrower vocabulary.
+export type TrendMetric = keyof MarketingSummary
+
+// Grouped to match the page's own two KPI sections ("Performance Summary" / "Marketing Analysis")
+// so the metric picker reads as "pick one of the boxes you're already looking at."
+export const TREND_METRIC_GROUPS: { label: string; metrics: TrendMetric[] }[] = [
+  { label: 'Performance Summary', metrics: ['totalLeads', 'totalQuotes', 'totalQuoteValue', 'jobsWon', 'jobsWonValue', 'leadToQuoteConversion', 'quoteToJobConversion'] },
+  { label: 'Marketing Analysis', metrics: ['cpl', 'cpq', 'cpj', 'totalAdSpend', 'avgQuoteValue', 'avgSaleValue', 'roas'] },
+]
+
+export const TREND_METRIC_LABELS: Record<TrendMetric, string> = {
+  totalLeads: 'Total Leads',
+  totalQuotes: 'Total Quotes',
+  totalQuoteValue: 'Total Quote Value',
+  jobsWon: 'Jobs Won',
+  jobsWonValue: 'Jobs Won Value',
+  leadToQuoteConversion: 'Lead → Quote Conversion',
+  quoteToJobConversion: 'Quote → Job Conversion',
+  totalAdSpend: 'Sum Cost',
+  cpl: 'Cost Per Lead',
+  cpq: 'Cost Per Quote',
+  cpj: 'Cost Per Job',
+  avgQuoteValue: 'Avg Quote Value',
+  avgSaleValue: 'Avg Sale Value',
+  roas: 'ROAS',
+}
+
+export type TrendMetricFormat = 'count' | 'currency' | 'percent' | 'roas'
+
+const TREND_METRIC_FORMATS: Record<TrendMetric, TrendMetricFormat> = {
+  totalLeads: 'count',
+  totalQuotes: 'count',
+  totalQuoteValue: 'currency',
+  jobsWon: 'count',
+  jobsWonValue: 'currency',
+  leadToQuoteConversion: 'percent',
+  quoteToJobConversion: 'percent',
+  totalAdSpend: 'currency',
+  cpl: 'currency',
+  cpq: 'currency',
+  cpj: 'currency',
+  avgQuoteValue: 'currency',
+  avgSaleValue: 'currency',
+  roas: 'roas',
+}
+
+export function trendMetricFormat(metric: TrendMetric): TrendMetricFormat {
+  return TREND_METRIC_FORMATS[metric]
+}
+
+function daysInMonth(monthISO: string): number {
+  const [y, m] = monthISO.split('-').map(Number)
+  return new Date(y, m, 0).getDate()
+}
+
+/** A source's ad spend contributing to one time bucket. Month/year buckets line up exactly with
+ * how spend is recorded (`AdSpendEntry.month`); a day bucket doesn't (spend is only ever entered
+ * per month), so each month's amount is spread evenly across that month's days rather than either
+ * dumping the whole month onto day 1 or leaving every day but the 1st reading zero. */
+function adSpendAmountForBucket(adSpend: AdSpendEntry[], source: string, bucketKey: string, granularity: TimeGranularity): number {
+  return adSpend
+    .filter((a) => a.referralSource === source)
+    .reduce((sum, a) => {
+      if (granularity === 'year') return a.month.slice(0, 4) === bucketKey ? sum + a.amount : sum
+      if (granularity === 'month') return a.month.slice(0, 7) === bucketKey ? sum + a.amount : sum
+      return a.month.slice(0, 7) === bucketKey.slice(0, 7) ? sum + a.amount / daysInMonth(a.month) : sum
+    }, 0)
 }
 
 // ---- Time bucketing (day / month / year) --------------------------------------------------
@@ -293,11 +354,15 @@ export function dealsDateSpan(deals: MarketingDeal[]): { from: string; to: strin
 
 /** One row per time bucket, one column per referral source — shaped for a multi-series chart
  * (recharts wants a flat object per point, not nested series). Buckets span the full `rangeKeys`
- * (zero-filled) rather than only the buckets that happen to contain deals. */
+ * (zero-filled) rather than only the buckets that happen to contain deals. Routes every metric
+ * through computeMarketingSummary (the same function the page's own KPI boxes use) so "Referral
+ * Source Comparison" can plot any of them — including the ad-spend-derived ones (ROAS, CPL, cost
+ * per job) that a plain deal count can't answer — not just the handful ComparisonMetric covers. */
 export function buildReferralSourceTimeSeries(
   deals: MarketingDeal[],
+  adSpend: AdSpendEntry[],
   sources: string[],
-  metric: ComparisonMetric,
+  metric: TrendMetric,
   granularity: TimeGranularity,
   rangeKeys: string[],
 ): Record<string, string | number>[] {
@@ -307,7 +372,8 @@ export function buildReferralSourceTimeSeries(
     const row: Record<string, string | number> = { key }
     for (const source of sources) {
       const bucketSourceDeals = deals.filter((d) => bucketKeyForDate(d.createdDate, granularity) === key && d.referralSource === source)
-      row[source] = computeMetric(bucketSourceDeals, metric)
+      const bucketSourceSpend = adSpendAmountForBucket(adSpend, source, key, granularity)
+      row[source] = computeMarketingSummary(bucketSourceDeals, bucketSourceSpend)[metric]
     }
     return row
   })

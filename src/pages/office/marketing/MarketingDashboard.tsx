@@ -19,7 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { GatedButton } from '@/components/GatedButton'
@@ -39,13 +39,16 @@ import {
   monthsBetweenKeys,
   pickGranularity,
   topReferralSourcesByLeads,
+  totalAdSpend,
+  trendMetricFormat,
   uniqueReferralSources,
   uniqueStages,
-  COMPARISON_METRIC_LABELS,
-  type ComparisonMetric,
+  TREND_METRIC_GROUPS,
+  TREND_METRIC_LABELS,
   type MarketingFilters,
   type ReferralSourceRow,
   type TimeGranularity,
+  type TrendMetric,
 } from '@/lib/marketingDataAccess'
 import { colorForReferralSource, gradientId, KPI_COLORS } from '@/lib/marketingColors'
 import { formatCurrency, formatPercent } from '@/lib/formulas'
@@ -171,7 +174,6 @@ function formatRoas(value: number): string {
   return `${value.toFixed(1)}x`
 }
 
-const METRIC_OPTIONS: ComparisonMetric[] = ['leads', 'quotes', 'jobsWon', 'quoteValue', 'jobsWonValue']
 const STATUS_OPTIONS = ['Open', 'Won', 'Lost']
 const STATUS_LABEL_TO_VALUE: Record<string, 'open' | 'won' | 'lost'> = { Open: 'open', Won: 'won', Lost: 'lost' }
 
@@ -199,6 +201,19 @@ function formatBreakdownMetric(value: number, metric: BreakdownMetric): string {
   if (metric === 'roas') return formatRoas(value)
   if (metric === 'jobsWonValue' || metric === 'adSpend') return formatCurrency(value)
   return value.toLocaleString()
+}
+
+function formatTrendValue(value: number, metric: TrendMetric): string {
+  switch (trendMetricFormat(metric)) {
+    case 'roas':
+      return formatRoas(value)
+    case 'currency':
+      return formatCurrency(value)
+    case 'percent':
+      return formatPercent(value)
+    case 'count':
+      return value.toLocaleString()
+  }
 }
 
 /** Shimmering placeholder matching this page's eventual shape (header, filter bar, KPI cards,
@@ -237,7 +252,7 @@ export function MarketingDashboard() {
   const [stages, setStages] = usePersistedState<string[]>('qpaint:marketing:stages', [])
   const [statusLabels, setStatusLabels] = usePersistedState<string[]>('qpaint:marketing:statuses', [])
   const [compareSources, setCompareSources] = usePersistedState<string[]>('qpaint:marketing:compareSources', [])
-  const [compareMetric, setCompareMetric] = usePersistedState<ComparisonMetric>('qpaint:marketing:compareMetric', 'leads')
+  const [compareMetric, setCompareMetric] = usePersistedState<TrendMetric>('qpaint:marketing:trendMetric', 'totalLeads')
   const [trendGranularity, setTrendGranularity] = usePersistedState<GranularityChoice>('qpaint:marketing:trendGranularity', 'auto')
   const [breakdownMetric, setBreakdownMetric] = usePersistedState<BreakdownMetric>('qpaint:marketing:breakdownMetric', 'jobsWonValue')
 
@@ -251,7 +266,7 @@ export function MarketingDashboard() {
   const filteredDeals = useMemo(() => filterDeals(deals, filters), [deals, filters])
   const filteredAdSpend = useMemo(() => filterAdSpend(adSpend, filters), [adSpend, filters])
 
-  const summary = useMemo(() => computeMarketingSummary(filteredDeals, filteredAdSpend), [filteredDeals, filteredAdSpend])
+  const summary = useMemo(() => computeMarketingSummary(filteredDeals, totalAdSpend(filteredAdSpend)), [filteredDeals, filteredAdSpend])
   const bySource = useMemo(() => groupByReferralSource(filteredDeals, filteredAdSpend), [filteredDeals, filteredAdSpend])
 
   const allSources = useMemo(() => uniqueReferralSources(deals, adSpend), [deals, adSpend])
@@ -306,8 +321,8 @@ export function MarketingDashboard() {
     [trendSpan, effectiveGranularity],
   )
   const trendSeries = useMemo(
-    () => buildReferralSourceTimeSeries(filteredDeals, compareSources, compareMetric, effectiveGranularity, trendRangeKeys),
-    [filteredDeals, compareSources, compareMetric, effectiveGranularity, trendRangeKeys],
+    () => buildReferralSourceTimeSeries(filteredDeals, filteredAdSpend, compareSources, compareMetric, effectiveGranularity, trendRangeKeys),
+    [filteredDeals, filteredAdSpend, compareSources, compareMetric, effectiveGranularity, trendRangeKeys],
   )
   const trendChartConfig: ChartConfig = useMemo(
     () => Object.fromEntries(compareSources.map((s) => [s, { label: s, color: colorForReferralSource(s, allSources) }])),
@@ -535,6 +550,122 @@ export function MarketingDashboard() {
           <PeriodComparisonCard baseFilters={filters} deals={deals} adSpend={adSpend} allSources={allSources} />
 
           <Card className="gap-3 p-4 break-inside-avoid">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <LineChartIcon className="size-4 text-muted-foreground" />
+                <h3 className="text-sm font-medium">Referral Source Comparison</h3>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 print:hidden">
+                <Select value={trendGranularity} onValueChange={(v) => v && setTrendGranularity(v as GranularityChoice)}>
+                  <SelectTrigger size="sm" className="w-28">
+                    <SelectValue>{(v: unknown) => GRANULARITY_LABELS[v as GranularityChoice]}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(['auto', 'day', 'month', 'year'] as const).map((g) => (
+                      <SelectItem key={g} value={g}>{GRANULARITY_LABELS[g]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={compareMetric} onValueChange={(v) => v && setCompareMetric(v as TrendMetric)}>
+                  <SelectTrigger size="sm" className="w-44">
+                    {/* Explicit label function — SelectValue's default item-label lookup only
+                        populates after the popup has opened once, so it briefly shows the raw
+                        value (e.g. "jobsWonValue") instead of "Jobs Won Value" on first render. */}
+                    <SelectValue>{(v: unknown) => TREND_METRIC_LABELS[v as TrendMetric]}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TREND_METRIC_GROUPS.map((group) => (
+                      <SelectGroup key={group.label}>
+                        <SelectLabel>{group.label}</SelectLabel>
+                        {group.metrics.map((m) => (
+                          <SelectItem key={m} value={m}>{TREND_METRIC_LABELS[m]}</SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Comparing <span className="font-medium text-foreground">{TREND_METRIC_LABELS[compareMetric]}</span> across sources ·{' '}
+              {describeActiveFilters()} · Bucketed by {effectiveGranularity}
+              {trendGranularity === 'auto' && ' (auto)'}
+            </p>
+
+            <div className="flex flex-wrap gap-1.5 print:hidden">
+              {allSources.map((source) => (
+                <SourceChip
+                  key={source}
+                  source={source}
+                  color={colorForReferralSource(source, allSources)}
+                  active={compareSources.includes(source)}
+                  onToggle={() => toggleCompareSource(source)}
+                />
+              ))}
+            </div>
+            <p className="hidden text-xs text-muted-foreground print:block">
+              Comparing {TREND_METRIC_LABELS[compareMetric]} for: {compareSources.join(', ') || 'none selected'}
+            </p>
+
+            {compareSources.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                Select one or more referral sources above to compare them over time.
+              </p>
+            ) : trendSeries.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">No deals in this filter.</p>
+            ) : (
+              <ChartContainer config={trendChartConfig} className="h-72 w-full">
+                <AreaChart data={trendSeries}>
+                  <defs>
+                    {compareSources.map((source) => {
+                      const color = colorForReferralSource(source, allSources)
+                      return (
+                        <linearGradient key={source} id={gradientId('trend', source)} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={color} stopOpacity={0.32} />
+                          <stop offset="95%" stopColor={color} stopOpacity={0.02} />
+                        </linearGradient>
+                      )
+                    })}
+                  </defs>
+                  <CartesianGrid vertical={false} />
+                  <XAxis
+                    dataKey="key"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    minTickGap={24}
+                    interval="preserveStartEnd"
+                    tickFormatter={(k) => bucketLabel(String(k), effectiveGranularity)}
+                  />
+                  <YAxis tickLine={false} axisLine={false} width={56} tickFormatter={(v) => formatTrendValue(Number(v), compareMetric)} />
+                  <ChartTooltip
+                    content={
+                      <ChartTooltipContent
+                        labelFormatter={(label) => bucketLabel(String(label), effectiveGranularity)}
+                        formatter={(value, name) => [formatTrendValue(Number(value), compareMetric), String(name)]}
+                      />
+                    }
+                  />
+                  {compareSources.map((source) => (
+                    <Area
+                      key={source}
+                      type="monotone"
+                      dataKey={source}
+                      stroke={colorForReferralSource(source, allSources)}
+                      strokeWidth={2}
+                      fill={`url(#${gradientId('trend', source)})`}
+                      fillOpacity={1}
+                      dot={false}
+                      activeDot={{ r: 5, strokeWidth: 2, stroke: 'var(--card)' }}
+                      isAnimationActive={false}
+                    />
+                  ))}
+                </AreaChart>
+              </ChartContainer>
+            )}
+          </Card>
+
+          <Card className="gap-3 p-4 break-inside-avoid">
             <div className="flex items-center gap-2">
               <DollarSign className="size-4 text-muted-foreground" />
               <h3 className="text-sm font-medium">Monthly Ad Spend</h3>
@@ -582,124 +713,6 @@ export function MarketingDashboard() {
                     />
                   ))}
                 </BarChart>
-              </ChartContainer>
-            )}
-          </Card>
-
-          <Card className="gap-3 p-4 break-inside-avoid">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <LineChartIcon className="size-4 text-muted-foreground" />
-                <h3 className="text-sm font-medium">Referral Source Trends</h3>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 print:hidden">
-                <Select value={trendGranularity} onValueChange={(v) => v && setTrendGranularity(v as GranularityChoice)}>
-                  <SelectTrigger size="sm" className="w-28">
-                    <SelectValue>{(v: unknown) => GRANULARITY_LABELS[v as GranularityChoice]}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(['auto', 'day', 'month', 'year'] as const).map((g) => (
-                      <SelectItem key={g} value={g}>{GRANULARITY_LABELS[g]}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={compareMetric} onValueChange={(v) => v && setCompareMetric(v as ComparisonMetric)}>
-                  <SelectTrigger size="sm" className="w-40">
-                    {/* Explicit label function — SelectValue's default item-label lookup only
-                        populates after the popup has opened once, so it briefly shows the raw
-                        value (e.g. "jobsWonValue") instead of "Jobs Won Value" on first render. */}
-                    <SelectValue>{(v: unknown) => COMPARISON_METRIC_LABELS[v as ComparisonMetric]}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {METRIC_OPTIONS.map((m) => (
-                      <SelectItem key={m} value={m}>{COMPARISON_METRIC_LABELS[m]}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {describeActiveFilters()} · Bucketed by {effectiveGranularity}
-              {trendGranularity === 'auto' && ' (auto)'}
-            </p>
-
-            <div className="flex flex-wrap gap-1.5 print:hidden">
-              {allSources.map((source) => (
-                <SourceChip
-                  key={source}
-                  source={source}
-                  color={colorForReferralSource(source, allSources)}
-                  active={compareSources.includes(source)}
-                  onToggle={() => toggleCompareSource(source)}
-                />
-              ))}
-            </div>
-            <p className="hidden text-xs text-muted-foreground print:block">
-              Comparing {COMPARISON_METRIC_LABELS[compareMetric]} for: {compareSources.join(', ') || 'none selected'}
-            </p>
-
-            {compareSources.length === 0 ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">
-                Select one or more referral sources above to compare their trends over time.
-              </p>
-            ) : trendSeries.length === 0 ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">No deals in this filter.</p>
-            ) : (
-              <ChartContainer config={trendChartConfig} className="h-72 w-full">
-                <AreaChart data={trendSeries}>
-                  <defs>
-                    {compareSources.map((source) => {
-                      const color = colorForReferralSource(source, allSources)
-                      return (
-                        <linearGradient key={source} id={gradientId('trend', source)} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={color} stopOpacity={0.32} />
-                          <stop offset="95%" stopColor={color} stopOpacity={0.02} />
-                        </linearGradient>
-                      )
-                    })}
-                  </defs>
-                  <CartesianGrid vertical={false} />
-                  <XAxis
-                    dataKey="key"
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={8}
-                    minTickGap={24}
-                    interval="preserveStartEnd"
-                    tickFormatter={(k) => bucketLabel(String(k), effectiveGranularity)}
-                  />
-                  <YAxis
-                    tickLine={false}
-                    axisLine={false}
-                    width={48}
-                    tickFormatter={(v) => (compareMetric === 'quoteValue' || compareMetric === 'jobsWonValue' ? formatCurrency(Number(v)) : String(v))}
-                  />
-                  <ChartTooltip
-                    content={
-                      <ChartTooltipContent
-                        labelFormatter={(label) => bucketLabel(String(label), effectiveGranularity)}
-                        formatter={(value, name) => [
-                          compareMetric === 'quoteValue' || compareMetric === 'jobsWonValue' ? formatCurrency(Number(value)) : String(value),
-                          String(name),
-                        ]}
-                      />
-                    }
-                  />
-                  {compareSources.map((source) => (
-                    <Area
-                      key={source}
-                      type="monotone"
-                      dataKey={source}
-                      stroke={colorForReferralSource(source, allSources)}
-                      strokeWidth={2}
-                      fill={`url(#${gradientId('trend', source)})`}
-                      fillOpacity={1}
-                      dot={false}
-                      activeDot={{ r: 5, strokeWidth: 2, stroke: 'var(--card)' }}
-                      isAnimationActive={false}
-                    />
-                  ))}
-                </AreaChart>
               </ChartContainer>
             )}
           </Card>

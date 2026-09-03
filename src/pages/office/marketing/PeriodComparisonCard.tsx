@@ -15,6 +15,7 @@ import {
   monthKeyToDateRange,
   monthsBetweenKeys,
   shiftMonthKey,
+  totalAdSpend,
   COMPARISON_METRIC_LABELS,
   type ComparisonMetric,
   type MarketingFilters,
@@ -117,7 +118,7 @@ export function PeriodComparisonCard({
         }
         const periodDeals = filterDeals(deals, periodFilters)
         const periodAdSpend = filterAdSpend(adSpend, periodFilters)
-        return { key, label: formatMonthKeyLabel(key), index, summary: computeMarketingSummary(periodDeals, periodAdSpend) }
+        return { key, label: formatMonthKeyLabel(key), index, summary: computeMarketingSummary(periodDeals, totalAdSpend(periodAdSpend)) }
       }),
     [monthKeys, referralSources, baseFilters.stages, baseFilters.statuses, deals, adSpend],
   )
