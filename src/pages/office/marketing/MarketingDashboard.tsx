@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react'
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, LabelList, XAxis, YAxis } from 'recharts'
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, LabelList, Pie, PieChart, XAxis, YAxis } from 'recharts'
 import {
   BarChart3,
   CheckCircle2,
@@ -26,7 +26,6 @@ import { GatedButton } from '@/components/GatedButton'
 import { usePersistedState } from '@/hooks/usePersistedState'
 import { useMarketingData } from '@/context/MarketingDataContext'
 import {
-  adSpendMonthSpan,
   bucketLabel,
   bucketRangeKeys,
   buildReferralSourceTimeSeries,
@@ -34,9 +33,7 @@ import {
   dealsDateSpan,
   filterAdSpend,
   filterDeals,
-  groupAdSpendBySourceMonth,
   groupByReferralSource,
-  monthsBetweenKeys,
   pickGranularity,
   topReferralSourcesByLeads,
   totalAdSpend,
@@ -203,6 +200,26 @@ function formatBreakdownMetric(value: number, metric: BreakdownMetric): string {
   return value.toLocaleString()
 }
 
+// ROAS is deliberately excluded here (unlike BreakdownMetric above) — it's a per-source ratio, not
+// an additive quantity, so it can't honestly be shown as a "share of the whole" pie slice.
+type ShareMetric = Exclude<BreakdownMetric, 'roas'>
+const SHARE_METRIC_OPTIONS: ShareMetric[] = ['adSpend', 'jobsWonValue', 'leads', 'quotes', 'jobsWon']
+
+const SHARE_OTHER_COLOR = 'var(--muted-foreground)'
+
+/** Top 7 sources by the chosen metric, any remainder folded into a single "Other sources" slice —
+ * a real account can have 15+ referral sources, and a pie with that many slices is unreadable
+ * (see the series-count ladder: past ~8 slices, fold the tail rather than seat another color). */
+function buildShareSlices(rows: ReferralSourceRow[], metric: ShareMetric): { referralSource: string; value: number }[] {
+  const sorted = rows
+    .map((row) => ({ referralSource: row.referralSource, value: breakdownMetricValue(row, metric) }))
+    .filter((r) => r.value > 0)
+    .sort((a, b) => b.value - a.value)
+  const top = sorted.slice(0, 7)
+  const restTotal = sorted.slice(7).reduce((sum, r) => sum + r.value, 0)
+  return restTotal > 0 ? [...top, { referralSource: 'Other sources', value: restTotal }] : top
+}
+
 function formatTrendValue(value: number, metric: TrendMetric): string {
   switch (trendMetricFormat(metric)) {
     case 'roas':
@@ -255,6 +272,7 @@ export function MarketingDashboard() {
   const [compareMetric, setCompareMetric] = usePersistedState<TrendMetric>('qpaint:marketing:trendMetric', 'totalLeads')
   const [trendGranularity, setTrendGranularity] = usePersistedState<GranularityChoice>('qpaint:marketing:trendGranularity', 'auto')
   const [breakdownMetric, setBreakdownMetric] = usePersistedState<BreakdownMetric>('qpaint:marketing:breakdownMetric', 'jobsWonValue')
+  const [shareMetric, setShareMetric] = usePersistedState<ShareMetric>('qpaint:marketing:shareMetric', 'adSpend')
 
   const statuses = useMemo(() => statusLabels.map((s) => STATUS_LABEL_TO_VALUE[s]).filter(Boolean), [statusLabels])
 
@@ -271,27 +289,6 @@ export function MarketingDashboard() {
 
   const allSources = useMemo(() => uniqueReferralSources(deals, adSpend), [deals, adSpend])
   const allStages = useMemo(() => uniqueStages(deals), [deals])
-
-  // Ad spend is recorded at month granularity only — the chart spans the active date filter (or,
-  // absent one, every month any spend entry touches) and zero-fills every month in between, split
-  // by source (color = identity) rather than the old single "total" bar colored by month index.
-  const spendMonthSpan = useMemo(() => {
-    if (dateFrom && dateTo) return { from: dateFrom.slice(0, 7), to: dateTo.slice(0, 7) }
-    return adSpendMonthSpan(filteredAdSpend)
-  }, [dateFrom, dateTo, filteredAdSpend])
-  const spendRangeKeys = useMemo(() => (spendMonthSpan ? monthsBetweenKeys(spendMonthSpan.from, spendMonthSpan.to) : []), [spendMonthSpan])
-  const spendSources = useMemo(
-    () => allSources.filter((s) => filteredAdSpend.some((a) => a.referralSource === s)),
-    [allSources, filteredAdSpend],
-  )
-  const spendBySource = useMemo(
-    () => groupAdSpendBySourceMonth(filteredAdSpend, spendSources, spendRangeKeys),
-    [filteredAdSpend, spendSources, spendRangeKeys],
-  )
-  const spendChartConfig: ChartConfig = useMemo(
-    () => Object.fromEntries(spendSources.map((s) => [s, { label: s, color: colorForReferralSource(s, allSources) }])),
-    [spendSources, allSources],
-  )
 
   // First-load default: compare the top 5 sources by lead volume, rather than opening on an empty
   // chart or every source at once — the user can add/remove any source from here.
@@ -336,6 +333,9 @@ export function MarketingDashboard() {
         .sort((a, b) => b.value - a.value),
     [bySource, breakdownMetric],
   )
+
+  const shareSlices = useMemo(() => buildShareSlices(bySource, shareMetric), [bySource, shareMetric])
+  const shareTotal = useMemo(() => shareSlices.reduce((sum, s) => sum + s.value, 0), [shareSlices])
 
   const hasActiveFilters = !!dateFrom || !!dateTo || referralSources.length > 0 || stages.length > 0 || statusLabels.length > 0
 
@@ -666,54 +666,75 @@ export function MarketingDashboard() {
           </Card>
 
           <Card className="gap-3 p-4 break-inside-avoid">
-            <div className="flex items-center gap-2">
-              <DollarSign className="size-4 text-muted-foreground" />
-              <h3 className="text-sm font-medium">Monthly Ad Spend</h3>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <DollarSign className="size-4 text-muted-foreground" />
+                <h3 className="text-sm font-medium">Referral Source Share</h3>
+              </div>
+              <Select value={shareMetric} onValueChange={(v) => v && setShareMetric(v as ShareMetric)}>
+                <SelectTrigger size="sm" className="w-40 print:hidden">
+                  <SelectValue>{(v: unknown) => BREAKDOWN_METRIC_LABELS[v as ShareMetric]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {SHARE_METRIC_OPTIONS.map((m) => (
+                    <SelectItem key={m} value={m}>{BREAKDOWN_METRIC_LABELS[m]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <p className="text-xs text-muted-foreground">{describeActiveFilters()}</p>
-            {spendBySource.length === 0 || spendSources.length === 0 ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">No ad spend recorded for this filter.</p>
+            <p className="text-xs text-muted-foreground">{describeActiveFilters()} · Share of {BREAKDOWN_METRIC_LABELS[shareMetric]}</p>
+            {shareSlices.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">No data for this filter.</p>
             ) : (
-              <ChartContainer config={spendChartConfig} className="h-64 w-full">
-                <BarChart data={spendBySource} barCategoryGap={4}>
-                  <defs>
-                    {spendSources.map((source) => {
-                      const color = colorForReferralSource(source, allSources)
-                      return (
-                        <linearGradient key={source} id={gradientId('spend', source)} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={color} stopOpacity={0.55} />
-                          <stop offset="100%" stopColor={color} stopOpacity={1} />
-                        </linearGradient>
-                      )
-                    })}
-                  </defs>
-                  <CartesianGrid vertical={false} />
-                  <XAxis dataKey="key" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(k) => bucketLabel(String(k), 'month')} />
-                  <YAxis tickLine={false} axisLine={false} width={48} tickFormatter={(v) => formatCurrency(Number(v))} />
-                  <ChartTooltip
-                    cursor={{ fill: 'var(--muted)', opacity: 0.4 }}
-                    content={
-                      <ChartTooltipContent
-                        labelFormatter={(label) => bucketLabel(String(label), 'month')}
-                        formatter={(value, name) => [formatCurrency(Number(value)), String(name)]}
-                      />
-                    }
-                  />
-                  {spendSources.map((source, i) => (
-                    <Bar
-                      key={source}
-                      dataKey={source}
-                      stackId="spend"
-                      fill={`url(#${gradientId('spend', source)})`}
+              <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center">
+                <ChartContainer config={{}} className="mx-auto aspect-square h-64 max-h-64 w-64 shrink-0">
+                  <PieChart>
+                    <ChartTooltip
+                      content={
+                        <ChartTooltipContent
+                          formatter={(value, name) => [
+                            `${formatBreakdownMetric(Number(value), shareMetric)} (${((Number(value) / shareTotal) * 100).toFixed(0)}%)`,
+                            String(name),
+                          ]}
+                        />
+                      }
+                    />
+                    <Pie
+                      data={shareSlices}
+                      dataKey="value"
+                      nameKey="referralSource"
+                      innerRadius={56}
+                      outerRadius={100}
+                      paddingAngle={2}
                       stroke="var(--card)"
                       strokeWidth={2}
-                      maxBarSize={24}
-                      radius={i === spendSources.length - 1 ? [4, 4, 0, 0] : 0}
                       isAnimationActive={false}
-                    />
+                      label={({ percent }) => (percent >= 0.08 ? `${(percent * 100).toFixed(0)}%` : '')}
+                      labelLine={false}
+                    >
+                      {shareSlices.map((slice) => (
+                        <Cell
+                          key={slice.referralSource}
+                          fill={slice.referralSource === 'Other sources' ? SHARE_OTHER_COLOR : colorForReferralSource(slice.referralSource, allSources)}
+                        />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ChartContainer>
+                <div className="grid w-full grid-cols-1 gap-1.5 sm:grid-cols-2">
+                  {shareSlices.map((slice) => (
+                    <div key={slice.referralSource} className="flex items-center gap-2 text-xs">
+                      <span
+                        className="size-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: slice.referralSource === 'Other sources' ? SHARE_OTHER_COLOR : colorForReferralSource(slice.referralSource, allSources) }}
+                      />
+                      <span className="flex-1 truncate text-muted-foreground">{slice.referralSource}</span>
+                      <span className="font-medium">{formatBreakdownMetric(slice.value, shareMetric)}</span>
+                      <span className="w-9 text-right text-muted-foreground">{((slice.value / shareTotal) * 100).toFixed(0)}%</span>
+                    </div>
                   ))}
-                </BarChart>
-              </ChartContainer>
+                </div>
+              </div>
             )}
           </Card>
 

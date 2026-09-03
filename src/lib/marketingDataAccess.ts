@@ -134,40 +134,6 @@ export function groupByReferralSource(deals: MarketingDeal[], adSpend: AdSpendEn
     .sort((a, b) => b.jobsWonValue - a.jobsWonValue)
 }
 
-/** One row per month, one column per referral source (plus `total`) — ad spend is only ever
- * recorded at month granularity (`AdSpendEntry.month`), so unlike the deal trend chart this stays
- * month-bucketed regardless of the active date range; it still zero-fills every month across
- * `rangeKeys` rather than only the months that have an entry, and splits by source (color =
- * identity) instead of the old single "total" bar colored by month index. */
-export function groupAdSpendBySourceMonth(adSpend: AdSpendEntry[], sources: string[], rangeKeys: string[]): Record<string, string | number>[] {
-  return rangeKeys.map((month) => {
-    const row: Record<string, string | number> = { key: month, total: 0 }
-    let total = 0
-    for (const source of sources) {
-      const amount = adSpend
-        .filter((a) => a.month.slice(0, 7) === month && a.referralSource === source)
-        .reduce((sum, a) => sum + a.amount, 0)
-      row[source] = amount
-      total += amount
-    }
-    row.total = total
-    return row
-  })
-}
-
-/** Month-key span covering every ad-spend entry — the fallback range for the spend chart when no
- * explicit date filter narrows it. */
-export function adSpendMonthSpan(adSpend: AdSpendEntry[]): { from: string; to: string } | null {
-  if (adSpend.length === 0) return null
-  let from = adSpend[0].month
-  let to = adSpend[0].month
-  for (const a of adSpend) {
-    if (a.month < from) from = a.month
-    if (a.month > to) to = a.month
-  }
-  return { from, to }
-}
-
 export function uniqueReferralSources(deals: MarketingDeal[], adSpend: AdSpendEntry[]): string[] {
   return Array.from(new Set([...deals.map((d) => d.referralSource), ...adSpend.map((a) => a.referralSource)])).sort()
 }

@@ -207,29 +207,6 @@ export function PeriodComparisonCard({
           <Bar dataKey="value" fill="url(#mkt-grad-period)" radius={[4, 4, 0, 0]} maxBarSize={28} isAnimationActive={false} />
         </BarChart>
       </ChartContainer>
-
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {rows.map((r) => (
-          <PeriodMiniCard key={r.key} label={r.label} color={SEQUENTIAL_ACCENT} summary={r.summary} />
-        ))}
-      </div>
     </Card>
-  )
-}
-
-function PeriodMiniCard({ label, color, summary }: { label: string; color: string; summary: MarketingSummary }) {
-  return (
-    <div className="overflow-hidden rounded-xl border" style={{ borderColor: `${color}33`, backgroundColor: `${color}0d` }}>
-      <div className="flex items-center gap-1.5 px-3 pt-3 pb-1">
-        <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
-        <h4 className="truncate text-xs font-semibold" style={{ color }}>{label}</h4>
-      </div>
-      <div className="space-y-1 px-3 pb-3 text-xs">
-        <div className="flex justify-between"><span className="text-muted-foreground">Leads</span><span className="font-medium">{summary.totalLeads}</span></div>
-        <div className="flex justify-between"><span className="text-muted-foreground">Quotes</span><span className="font-medium">{summary.totalQuotes}</span></div>
-        <div className="flex justify-between"><span className="text-muted-foreground">Won</span><span className="font-medium">{summary.jobsWon}</span></div>
-        <div className="flex justify-between"><span className="text-muted-foreground">Won Value</span><span className="font-medium">{formatCurrency(summary.jobsWonValue)}</span></div>
-      </div>
-    </div>
   )
 }
