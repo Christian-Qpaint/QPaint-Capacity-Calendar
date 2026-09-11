@@ -120,6 +120,16 @@ export function AddEditPhaseDialog({
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
+  // New phases only — prefill from the job's Pipedrive-synced Target Hours (minus whatever's
+  // already allocated to its other phases) so the common single-phase job needs no re-typing.
+  // Clamped to 0 rather than skipped when a job's already fully allocated, so the field always
+  // shows a number instead of silently staying blank.
+  function suggestedPhaseHours(forJobId: string): string {
+    const job = jobs.find((j) => j.id === forJobId)
+    if (!job) return ''
+    return String(Math.max(0, job.targetHours - da.getJobPhaseHoursTotal(job.id)))
+  }
+
   useEffect(() => {
     if (!state.open) return
     setError(null)
@@ -133,32 +143,34 @@ export function AddEditPhaseDialog({
       setEndDate(state.block.endDate)
       setPhaseHours(String(state.block.phaseHours))
     } else {
-      setJobId(lockedJobId ?? '')
+      const initialJobId = lockedJobId ?? ''
+      setJobId(initialJobId)
       setTeamId(state.defaultTeamId ?? '')
       setWorkArea('Internal')
       setStartDate(state.defaultDate ?? '')
       setEndDate(state.defaultDate ?? '')
-      setPhaseHours('')
+      // Computed inline (rather than left blank for the auto-fill effect below to fill in on the
+      // next render) so a modal opened with an already-known job — the common case, since both
+      // JobPhaseScheduling and JobsList open this dialog with `lockedJobId` set — shows the real
+      // target hours/value on its very first paint instead of a "0" that self-corrects a moment
+      // later. That effect's own closure can't see this effect's `setPhaseHoursTouched(false)`
+      // until the next render, so leaving it solely responsible for the initial value raced with
+      // this effect and lost every time the dialog was reopened with `phaseHoursTouched` still
+      // true from a previous phase.
+      setPhaseHours(suggestedPhaseHours(initialJobId))
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state])
 
-  // New phases only — prefill from the job's Pipedrive-synced Target Hours (minus whatever's
-  // already allocated to its other phases) so the common single-phase job needs no re-typing.
-  // Re-runs on every job change (not just once) so picking a different job always refreshes the
-  // suggested hours — it only stops once the user has actually typed into the field themselves,
-  // so it never clobbers a manual edit. Clamped to 0 rather than skipped when a job's already
-  // fully allocated, so the field always shows a number instead of silently staying blank.
+  // Re-fill when the user picks a *different* job while the dialog is already open (the Scheduler
+  // flow, where the job isn't locked and starts unselected) — it only stops once the user has
+  // actually typed into the field themselves, so it never clobbers a manual edit. Doesn't need to
+  // handle the dialog's initial open; the effect above already sets the correct starting value.
   useEffect(() => {
     if (!state.open || isEdit || phaseHoursTouched) return
-    const job = jobs.find((j) => j.id === jobId)
-    if (!job) {
-      setPhaseHours('')
-      return
-    }
-    const remaining = Math.max(0, job.targetHours - da.getJobPhaseHoursTotal(job.id))
-    setPhaseHours(String(remaining))
+    setPhaseHours(suggestedPhaseHours(jobId))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId, state.open, isEdit, phaseHoursTouched])
+  }, [jobId])
 
   const job = jobs.find((j) => j.id === jobId)
   const previewValue = job ? phaseValue(job.totalValue, Number(phaseHours) || 0, job.targetHours) : 0
