@@ -83,6 +83,7 @@ function SortableHead({
         type="button"
         onClick={(e) => onSort(sortKey, e.shiftKey)}
         title="Click to sort. Shift+click to sort by multiple columns."
+        aria-label={`Sort by ${label}. Shift+click to sort by multiple columns.`}
         className={cn('inline-flex items-center gap-1 hover:text-foreground', active && 'text-foreground')}
       >
         {label}
@@ -387,7 +388,9 @@ export function JobsList() {
 
       <p className="text-xs text-muted-foreground">
         Jobs land here automatically once a deal is won (in Pipedrive or the Deals CRM) — view-only;
-        manage the deal itself from the Deals page.
+        manage the deal itself from the Deals page. Click a column to sort by it — hold{' '}
+        <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-sans text-[10px]">Shift</kbd> while
+        clicking another column to sort by both (e.g. Pipeline stage, then Total value within each stage).
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
