@@ -107,6 +107,11 @@ export interface JobFilterContext {
   allocatedHours: number
   actualDollars: number
   productionPercent: number
+  /** The stage's position within its pipeline (crm_stages.order) — used only for sorting
+   * "Pipeline stage" into board order; filtering still matches on the raw stageId (see
+   * getFieldValue's 'pipelineStage' case). Optional since a caller without stage metadata to hand
+   * can simply omit it, in which case that sort falls back to stageId's raw string ordering. */
+  stageOrder?: number
 }
 
 function getFieldValue(ctx: JobFilterContext, key: FilterFieldKey): string | number {
@@ -199,19 +204,35 @@ export function applyConditions(rows: JobFilterContext[], conditions: FilterCond
 
 export type SortDirection = 'asc' | 'desc'
 
-export interface SortState {
-  key: FilterFieldKey | null
+export interface SortTier {
+  key: FilterFieldKey
   direction: SortDirection
 }
 
+/** Ordered list of sort tiers — the first is the primary sort, each following tier only breaks
+ * ties left by the ones before it (like a SQL `ORDER BY col1, col2, ...`). Empty means unsorted. */
+export type SortState = SortTier[]
+
+function compareValues(av: string | number, bv: string | number): number {
+  if (typeof av === 'number' && typeof bv === 'number') return av - bv
+  return String(av).localeCompare(String(bv))
+}
+
+// getFieldValue's 'pipelineStage' returns the raw stageId (a uuid) since that's what filtering
+// needs to exact-match against; sorting by that would order rows by uuid, not by where they
+// actually sit on the board. Use each row's precomputed stageOrder for sorting when it's there.
+function getSortValue(ctx: JobFilterContext, key: FilterFieldKey): string | number {
+  if (key === 'pipelineStage' && ctx.stageOrder !== undefined) return ctx.stageOrder
+  return getFieldValue(ctx, key)
+}
+
 export function sortRows<T extends JobFilterContext>(rows: T[], sort: SortState): T[] {
-  if (!sort.key) return rows
-  const key = sort.key
-  const dir = sort.direction === 'asc' ? 1 : -1
+  if (sort.length === 0) return rows
   return [...rows].sort((a, b) => {
-    const av = getFieldValue(a, key)
-    const bv = getFieldValue(b, key)
-    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir
-    return String(av).localeCompare(String(bv)) * dir
+    for (const { key, direction } of sort) {
+      const cmp = compareValues(getSortValue(a, key), getSortValue(b, key))
+      if (cmp !== 0) return direction === 'asc' ? cmp : -cmp
+    }
+    return 0
   })
 }

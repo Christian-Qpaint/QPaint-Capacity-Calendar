@@ -19,10 +19,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   applyConditions,
   sortRows,
+  FILTER_FIELDS,
   type FilterCondition,
   type FilterFieldKey,
   type JobFilterContext,
   type MatchMode,
+  type SortDirection,
   type SortState,
 } from '@/lib/jobFilters'
 import { formatCurrency } from '@/lib/formulas'
@@ -68,20 +70,26 @@ function SortableHead({
   label: string
   sortKey: FilterFieldKey
   sort: SortState
-  onSort: (key: FilterFieldKey) => void
+  onSort: (key: FilterFieldKey, additive: boolean) => void
   className?: string
 }) {
-  const active = sort.key === sortKey
-  const Icon = active ? (sort.direction === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown
+  const tierIndex = sort.findIndex((t) => t.key === sortKey)
+  const tier = tierIndex === -1 ? undefined : sort[tierIndex]
+  const active = !!tier
+  const Icon = active ? (tier.direction === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown
   return (
     <TableHead className={className}>
       <button
         type="button"
-        onClick={() => onSort(sortKey)}
+        onClick={(e) => onSort(sortKey, e.shiftKey)}
+        title="Click to sort. Shift+click to sort by multiple columns."
         className={cn('inline-flex items-center gap-1 hover:text-foreground', active && 'text-foreground')}
       >
         {label}
         <Icon className={cn('size-3.5', !active && 'opacity-30')} />
+        {/* Only shown once a second sort tier exists — a lone "1" badge on a single-column sort
+            would just be noise, since there's nothing to disambiguate it from. */}
+        {active && sort.length > 1 && <span className="text-[10px] text-muted-foreground">{tierIndex + 1}</span>}
       </button>
     </TableHead>
   )
@@ -233,7 +241,7 @@ export function JobsList() {
   const navigate = useNavigate()
 
   const [search, setSearch] = usePersistedState('qpaint:jobsList:search', '')
-  const [sort, setSort] = usePersistedState<SortState>('qpaint:jobsList:sort', { key: null, direction: 'asc' })
+  const [sort, setSort] = usePersistedState<SortState>('qpaint:jobsList:sort', [])
   const [filterOpen, setFilterOpen] = useState(false)
   const [conditions, setConditions] = usePersistedState<FilterCondition[]>('qpaint:jobsList:conditions', [])
   const [matchMode, setMatchMode] = usePersistedState<MatchMode>('qpaint:jobsList:matchMode', 'AND')
@@ -269,9 +277,10 @@ export function JobsList() {
           allocatedHours: da.getJobPhaseHoursTotal(job.id),
           actualDollars: progress.actualDollars,
           productionPercent: progress.productionPercent,
+          stageOrder: stageById.get(job.stageId ?? '')?.order,
         }
       }),
-    [visibleJobs, clients, scheduleBlocks, da],
+    [visibleJobs, clients, scheduleBlocks, da, stageById],
   )
 
   const searched = useMemo(() => {
@@ -329,8 +338,23 @@ export function JobsList() {
   const rangeStart = displayed.length === 0 ? 0 : pageSize === 'all' ? 1 : (safePage - 1) * pageSize + 1
   const rangeEnd = pageSize === 'all' ? displayed.length : Math.min(safePage * pageSize, displayed.length)
 
-  function toggleSort(key: FilterFieldKey) {
-    setSort((s) => (s.key === key ? { key, direction: s.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' }))
+  // Plain click sorts by only this column (replacing any existing sort); shift+click adds it as
+  // another tier instead, breaking ties left by whatever's already being sorted on — e.g. sort by
+  // Pipeline stage, then shift+click Total value to rank same-stage jobs by value. Clicking a
+  // column already in the sort (plain or shift) flips its direction rather than re-adding it.
+  function toggleSort(key: FilterFieldKey, additive: boolean) {
+    setSort((s) => {
+      const existing = s.find((t) => t.key === key)
+      const direction: SortDirection = existing ? (existing.direction === 'asc' ? 'desc' : 'asc') : 'asc'
+      if (!additive) return [{ key, direction }]
+      if (!existing) return [...s, { key, direction }]
+      return s.map((t) => (t.key === key ? { key, direction } : t))
+    })
+    setPage(1)
+  }
+
+  function clearSort() {
+    setSort([])
     setPage(1)
   }
 
@@ -393,6 +417,16 @@ export function JobsList() {
             }}
           >
             <X /> Clear filter
+          </Button>
+        )}
+        {sort.length > 1 && (
+          <span className="text-xs text-muted-foreground">
+            Sorted by {sort.map((t, i) => `${i + 1}. ${FILTER_FIELDS.find((f) => f.key === t.key)?.label ?? t.key}`).join(', ')}
+          </span>
+        )}
+        {sort.length > 0 && (
+          <Button variant="ghost" size="sm" onClick={clearSort}>
+            <X /> Clear sort
           </Button>
         )}
       </div>
