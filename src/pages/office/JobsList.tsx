@@ -241,7 +241,18 @@ export function JobsList() {
   const navigate = useNavigate()
 
   const [search, setSearch] = usePersistedState('qpaint:jobsList:search', '')
-  const [sort, setSort] = usePersistedState<SortState>('qpaint:jobsList:sort', [])
+  // Custom deserialize: this key used to store a single {key, direction} object (pre multi-sort),
+  // so anyone who'd ever sorted this page before has that old shape sitting in localStorage —
+  // parsed as JSON it's a perfectly valid, non-throwing value, just not an array, and every array
+  // method the multi-sort code below calls on `sort` would throw on it and take the whole page
+  // down. Falling back to [] for anything that isn't actually an array makes that self-healing on
+  // the very next load instead of a permanent broken state for anyone who hit it before this fix.
+  const [sort, setSort] = usePersistedState<SortState>('qpaint:jobsList:sort', [], {
+    deserialize: (raw) => {
+      const parsed: unknown = JSON.parse(raw)
+      return Array.isArray(parsed) ? (parsed as SortState) : []
+    },
+  })
   const [filterOpen, setFilterOpen] = useState(false)
   const [conditions, setConditions] = usePersistedState<FilterCondition[]>('qpaint:jobsList:conditions', [])
   const [matchMode, setMatchMode] = usePersistedState<MatchMode>('qpaint:jobsList:matchMode', 'AND')
