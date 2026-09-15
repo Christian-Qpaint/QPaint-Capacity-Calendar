@@ -447,19 +447,24 @@ export function JobsList() {
 
       {viewMode === 'table' && (
       <div className="overflow-hidden rounded-lg border border-border bg-card">
-        <Table>
+        {/* table-fixed + an explicit width on every header — otherwise each column's width comes
+            from an auto layout over whatever happens to be on the current page, so it visibly
+            jumps every time pagination changes which rows (and therefore which content lengths)
+            are on screen. Fixed widths keep the grid steady across pages; TableCell content that
+            can run long (Job, Client) truncates instead of forcing the column wider. */}
+        <Table className="table-fixed">
           <TableHeader>
             <TableRow>
-              <SortableHead label="Job" sortKey="jobName" sort={sort} onSort={toggleSort} />
-              <SortableHead label="Client" sortKey="clientName" sort={sort} onSort={toggleSort} />
-              <SortableHead label="Category" sortKey="category" sort={sort} onSort={toggleSort} />
-              <SortableHead label="Pipeline stage" sortKey="pipelineStage" sort={sort} onSort={toggleSort} />
-              <SortableHead label="Total value" sortKey="totalValue" sort={sort} onSort={toggleSort} />
-              <SortableHead label="Target hours" sortKey="targetHours" sort={sort} onSort={toggleSort} />
-              <SortableHead label="Production $" sortKey="actualDollars" sort={sort} onSort={toggleSort} />
-              <SortableHead label="Production %" sortKey="productionPercent" sort={sort} onSort={toggleSort} />
-              <SortableHead label="Status" sortKey="status" sort={sort} onSort={toggleSort} />
-              <TableHead className="w-20" />
+              <SortableHead label="Job" sortKey="jobName" sort={sort} onSort={toggleSort} className="w-60" />
+              <SortableHead label="Client" sortKey="clientName" sort={sort} onSort={toggleSort} className="w-44" />
+              <SortableHead label="Category" sortKey="category" sort={sort} onSort={toggleSort} className="w-28" />
+              <SortableHead label="Pipeline stage" sortKey="pipelineStage" sort={sort} onSort={toggleSort} className="w-36" />
+              <SortableHead label="Total value" sortKey="totalValue" sort={sort} onSort={toggleSort} className="w-28" />
+              <SortableHead label="Target hours" sortKey="targetHours" sort={sort} onSort={toggleSort} className="w-24" />
+              <SortableHead label="Production $" sortKey="actualDollars" sort={sort} onSort={toggleSort} className="w-28" />
+              <SortableHead label="Production %" sortKey="productionPercent" sort={sort} onSort={toggleSort} className="w-24" />
+              <SortableHead label="Status" sortKey="status" sort={sort} onSort={toggleSort} className="w-28" />
+              <TableHead className="w-16" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -483,13 +488,13 @@ export function JobsList() {
                   <TableCell className="font-medium">
                     <span className="flex items-center gap-1.5">
                       <MapPin className="size-3.5 shrink-0" aria-hidden="true" />
-                      {row.jobName}
+                      <span className="min-w-0 truncate">{row.jobName}</span>
                     </span>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     <span className="flex items-center gap-1.5">
                       <ClientTypeIcon type={clients.find((c) => c.id === job.clientId)?.type ?? 'Individual'} />
-                      {row.clientName || '—'}
+                      <span className="min-w-0 truncate">{row.clientName || '—'}</span>
                     </span>
                   </TableCell>
                   <TableCell>
