@@ -140,14 +140,18 @@ interface Row {
   indent: boolean
   teamId: string | null
   sectionHeader?: boolean
-  /** Which drag-to-sort group this row belongs to — undefined for section headers and
-   * second-level rows under a multi-crew contractor (reordering those isn't supported yet, just
-   * the crews and each top-level contractor group relative to their own siblings). */
-  dragGroup?: 'qpaint' | 'contractor'
-  /** The id whose displayOrder gets persisted when this row is dragged — a team id for a QPaint
-   * row, but a *contractor* id for a contractor-group row (even the single-crew case, where the
-   * row's teamId is set for click-to-add purposes but the order that's actually being changed is
-   * the contractor's position among other contractors, not that one team's). */
+  /** Which sibling set this row reorders within — a row only ever reorders against another row
+   * sharing the exact same key, so dragging never mixes groups. 'qpaint' = every QPaint crew;
+   * 'contractor-groups' = the top-level contractor rows; `contractor-teams:<contractorId>` = just
+   * the crews inside one specific multi-crew contractor, siblings only with each other. Undefined
+   * for section headers, which aren't draggable at all. */
+  dragGroup?: string
+  /** Which table a drag on this row actually persists to — a QPaint crew or a crew inside a
+   * multi-crew contractor both save to teams.displayOrder; a contractor-group row (even the
+   * single-crew case, where the row's teamId is set for click-to-add purposes) saves to
+   * contractors.displayOrder instead. */
+  dragKind?: 'team' | 'contractor'
+  /** The id passed to whichever update function dragKind selects. */
   dragId?: string
 }
 
@@ -311,25 +315,48 @@ export function ResourceCalendar() {
     const qpaintTeams = teams.filter((t) => t.type === 'QPaint' && effectiveSelected.includes(t.id)).sort(byDisplayOrder)
     if (qpaintTeams.length > 0) {
       result.push({ key: 'section-qpaint', label: 'QPaint Teams', indent: false, teamId: null, sectionHeader: true })
-      for (const t of qpaintTeams) result.push({ key: t.id, label: t.name, indent: true, teamId: t.id, dragGroup: 'qpaint', dragId: t.id })
+      for (const t of qpaintTeams) {
+        result.push({ key: t.id, label: t.name, indent: true, teamId: t.id, dragGroup: 'qpaint', dragKind: 'team', dragId: t.id })
+      }
     }
 
     const contractorRows: Row[] = []
     const sortedContractors = [...contractors].sort(byDisplayOrder)
     for (const c of sortedContractors) {
-      const cTeams = teams.filter((t) => t.contractorId === c.id && effectiveSelected.includes(t.id))
+      const cTeams = teams.filter((t) => t.contractorId === c.id && effectiveSelected.includes(t.id)).sort(byDisplayOrder)
       if (cTeams.length === 0) continue
       const allContractorTeams = teams.filter((t) => t.contractorId === c.id)
       if (allContractorTeams.length > 1) {
-        contractorRows.push({ key: c.id, label: c.nickname || c.name, indent: false, teamId: null, dragGroup: 'contractor', dragId: c.id })
-        for (const t of cTeams) contractorRows.push({ key: t.id, label: t.name, indent: true, teamId: t.id })
+        contractorRows.push({
+          key: c.id,
+          label: c.nickname || c.name,
+          indent: false,
+          teamId: null,
+          dragGroup: 'contractor-groups',
+          dragKind: 'contractor',
+          dragId: c.id,
+        })
+        // Reorderable among themselves only — this contractor's own crews, never mixed with
+        // another contractor's (the `contractor-teams:<id>` key scopes the sibling set).
+        for (const t of cTeams) {
+          contractorRows.push({
+            key: t.id,
+            label: t.name,
+            indent: true,
+            teamId: t.id,
+            dragGroup: `contractor-teams:${c.id}`,
+            dragKind: 'team',
+            dragId: t.id,
+          })
+        }
       } else {
         contractorRows.push({
           key: cTeams[0].id,
           label: c.nickname || c.name,
           indent: false,
           teamId: cTeams[0].id,
-          dragGroup: 'contractor',
+          dragGroup: 'contractor-groups',
+          dragKind: 'contractor',
           dragId: c.id,
         })
       }
@@ -342,10 +369,12 @@ export function ResourceCalendar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teams, contractors, selectedTeamIds])
 
-  // Drag-to-sort for the label column. One shared DndContext + SortableContext covers both groups
-  // (QPaint crews and contractor groups) since dnd-kit doesn't need physically separate containers
-  // to track order — handleRowDragEnd itself refuses to reorder across groups, so dragging a crew
-  // into the Contractors list (or back) just snaps back rather than actually moving anything.
+  // Drag-to-sort for the label column. One shared DndContext + SortableContext covers every
+  // sibling group (QPaint crews, the top-level contractor rows, and each multi-crew contractor's
+  // own crew list) since dnd-kit doesn't need physically separate containers to track order —
+  // handleRowDragEnd itself refuses to reorder across a different dragGroup, so dragging e.g. a
+  // crew from one contractor onto another contractor's crew (or into the QPaint list) just snaps
+  // back rather than actually moving anything.
   const dragSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
   const draggableRowIds = useMemo(() => rows.filter((r) => r.dragGroup).map((r) => r.dragId!), [rows])
 
@@ -357,6 +386,7 @@ export function ResourceCalendar() {
     if (!activeRow?.dragGroup || !overRow?.dragGroup || activeRow.dragGroup !== overRow.dragGroup) return
 
     const group = activeRow.dragGroup
+    const kind = activeRow.dragKind!
     const ids = rows.filter((r) => r.dragGroup === group).map((r) => r.dragId!)
     const oldIndex = ids.indexOf(activeRow.dragId!)
     const newIndex = ids.indexOf(overRow.dragId!)
@@ -365,9 +395,7 @@ export function ResourceCalendar() {
 
     try {
       await Promise.all(
-        reordered.map((id, index) =>
-          group === 'qpaint' ? updateTeam(id, { displayOrder: index }) : updateContractor(id, { displayOrder: index }),
-        ),
+        reordered.map((id, index) => (kind === 'team' ? updateTeam(id, { displayOrder: index }) : updateContractor(id, { displayOrder: index }))),
       )
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to save the new order')
