@@ -171,6 +171,9 @@ export const contractors = pgTable('contractors', {
   active: text('active'),
   lastUpdated: date('last_updated'),
   nickname: text('nickname'),
+  // Manual drag-to-sort position among contractor groups on the Scheduler — see teams.displayOrder
+  // for the equivalent on the QPaint-teams side.
+  displayOrder: integer('display_order'),
 })
 
 export const teams = pgTable(
@@ -183,6 +186,9 @@ export const teams = pgTable(
     headcount: integer('headcount'),
     standardHoursPerWeek: numeric('standard_hours_per_week', { mode: 'number' }),
     color: text('color'),
+    // Manual drag-to-sort position among sibling QPaint teams on the Scheduler — null means "never
+    // dragged", falling back to whatever order it already rendered in.
+    displayOrder: integer('display_order'),
   },
   (table) => [
     check(

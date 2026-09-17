@@ -128,6 +128,9 @@ export interface Team {
    * or directly on the Calendar; falls back to a deterministic default (see lib/teamColors.ts)
    * when unset. */
   color?: string
+  /** Drag-to-sort position among sibling QPaint teams on the Scheduler — undefined/null means
+   * "never dragged", falling back to whatever order it already rendered in. */
+  displayOrder?: number
 }
 
 export type WorkerType = 'Internal' | 'Contractor'
@@ -193,6 +196,9 @@ export interface Contractor {
   approved?: string
   active?: string
   lastUpdated?: string // ISO date
+  /** Drag-to-sort position among contractor groups on the Scheduler — see Team.displayOrder for
+   * the equivalent on the QPaint-teams side. */
+  displayOrder?: number
 }
 
 export type CredentialType =

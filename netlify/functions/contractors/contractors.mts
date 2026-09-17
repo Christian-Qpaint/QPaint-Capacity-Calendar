@@ -34,6 +34,7 @@ function toValues(body: Record<string, unknown>) {
     approved: (body.approved as string | undefined) ?? null,
     active: (body.active as string | undefined) ?? null,
     lastUpdated: (body.lastUpdated as string | undefined) ?? null,
+    displayOrder: (body.displayOrder as number | undefined) ?? null,
   }
 }
 

@@ -13,6 +13,7 @@ function toValues(body: Record<string, unknown>) {
     headcount: (body.headcount as number | undefined) ?? null,
     standardHoursPerWeek: (body.standardHoursPerWeek as number | undefined) ?? null,
     color: (body.color as string | undefined) ?? null,
+    displayOrder: (body.displayOrder as number | undefined) ?? null,
   }
 }
 

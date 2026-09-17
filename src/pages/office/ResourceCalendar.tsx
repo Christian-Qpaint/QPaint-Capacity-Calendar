@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useData } from '@/context/DataContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
 import { usePersistedState } from '@/hooks/usePersistedState'
@@ -48,6 +51,7 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  GripVertical,
   ListFilter,
   Target,
   TrendingDown,
@@ -136,10 +140,83 @@ interface Row {
   indent: boolean
   teamId: string | null
   sectionHeader?: boolean
+  /** Which drag-to-sort group this row belongs to — undefined for section headers and
+   * second-level rows under a multi-crew contractor (reordering those isn't supported yet, just
+   * the crews and each top-level contractor group relative to their own siblings). */
+  dragGroup?: 'qpaint' | 'contractor'
+  /** The id whose displayOrder gets persisted when this row is dragged — a team id for a QPaint
+   * row, but a *contractor* id for a contractor-group row (even the single-crew case, where the
+   * row's teamId is set for click-to-add purposes but the order that's actually being changed is
+   * the contractor's position among other contractors, not that one team's). */
+  dragId?: string
+}
+
+function byDisplayOrder(a: { displayOrder?: number }, b: { displayOrder?: number }): number {
+  return (a.displayOrder ?? Number.MAX_SAFE_INTEGER) - (b.displayOrder ?? Number.MAX_SAFE_INTEGER)
+}
+
+/** One row in the frozen label column. Only rows with a `dragGroup` (crews, and each contractor
+ * group's top row) get a grip handle and actually respond to dragging — useSortable's `disabled`
+ * option keeps every other row (section headers, second-level contractor sub-teams) inert without
+ * needing a structurally different component for them. */
+function SortableLabelRow({
+  row,
+  color,
+  onColorChange,
+}: {
+  row: Row
+  color: string | null
+  onColorChange: (color: string) => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: row.dragId ?? row.key,
+    disabled: !row.dragGroup,
+  })
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ height: ROW_HEIGHT, transform: CSS.Transform.toString(transform), transition }}
+      className={cn(
+        'flex items-center gap-1.5 border-t border-border/60 pr-2 pl-2 text-sm',
+        isDragging && 'relative z-30 bg-card shadow-md',
+        // Rows with no teamId (section dividers + multi-crew contractor company rows) can't be
+        // clicked to add a phase — a muted band across the whole row (label + grid, see the
+        // row-background block below) makes that obvious instead of looking just like any other
+        // crew row.
+        !row.teamId && 'bg-muted/40',
+        row.sectionHeader
+          ? 'border-t-2 border-t-foreground/20 text-xs font-semibold tracking-wide text-muted-foreground uppercase'
+          : row.indent
+            ? 'pl-8 text-muted-foreground'
+            : row.teamId
+              ? 'font-medium'
+              : 'font-medium text-muted-foreground',
+      )}
+    >
+      {row.dragGroup ? (
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          className="cursor-grab touch-none text-muted-foreground/50 hover:text-muted-foreground active:cursor-grabbing"
+          aria-label={`Reorder ${row.label}`}
+        >
+          <GripVertical className="size-3.5" />
+        </button>
+      ) : (
+        <span className="size-3.5 shrink-0" />
+      )}
+      {!row.sectionHeader && row.teamId && color && (
+        <ColorSwatchInput value={color} onChange={onColorChange} title="Change crew color" />
+      )}
+      <span className="truncate">{row.label}</span>
+    </div>
+  )
 }
 
 export function ResourceCalendar() {
-  const { teams, contractors, scheduleBlocks, jobs, monthlyTargets, updateTeam, updateScheduleBlock } = useData()
+  const { teams, contractors, scheduleBlocks, jobs, monthlyTargets, updateTeam, updateContractor, updateScheduleBlock } = useData()
   const da = useDataAccess()
   const [viewMode, setViewMode] = usePersistedState<ViewMode>('qpaint:calendar:viewMode', 'week')
   const [anchor, setAnchor] = usePersistedState<Date>('qpaint:calendar:anchor', new Date(), {
@@ -231,22 +308,30 @@ export function ResourceCalendar() {
 
   const rows = useMemo<Row[]>(() => {
     const result: Row[] = []
-    const qpaintTeams = teams.filter((t) => t.type === 'QPaint' && effectiveSelected.includes(t.id))
+    const qpaintTeams = teams.filter((t) => t.type === 'QPaint' && effectiveSelected.includes(t.id)).sort(byDisplayOrder)
     if (qpaintTeams.length > 0) {
       result.push({ key: 'section-qpaint', label: 'QPaint Teams', indent: false, teamId: null, sectionHeader: true })
-      for (const t of qpaintTeams) result.push({ key: t.id, label: t.name, indent: true, teamId: t.id })
+      for (const t of qpaintTeams) result.push({ key: t.id, label: t.name, indent: true, teamId: t.id, dragGroup: 'qpaint', dragId: t.id })
     }
 
     const contractorRows: Row[] = []
-    for (const c of contractors) {
+    const sortedContractors = [...contractors].sort(byDisplayOrder)
+    for (const c of sortedContractors) {
       const cTeams = teams.filter((t) => t.contractorId === c.id && effectiveSelected.includes(t.id))
       if (cTeams.length === 0) continue
       const allContractorTeams = teams.filter((t) => t.contractorId === c.id)
       if (allContractorTeams.length > 1) {
-        contractorRows.push({ key: c.id, label: c.nickname || c.name, indent: false, teamId: null })
+        contractorRows.push({ key: c.id, label: c.nickname || c.name, indent: false, teamId: null, dragGroup: 'contractor', dragId: c.id })
         for (const t of cTeams) contractorRows.push({ key: t.id, label: t.name, indent: true, teamId: t.id })
       } else {
-        contractorRows.push({ key: cTeams[0].id, label: c.nickname || c.name, indent: false, teamId: cTeams[0].id })
+        contractorRows.push({
+          key: cTeams[0].id,
+          label: c.nickname || c.name,
+          indent: false,
+          teamId: cTeams[0].id,
+          dragGroup: 'contractor',
+          dragId: c.id,
+        })
       }
     }
     if (contractorRows.length > 0) {
@@ -256,6 +341,38 @@ export function ResourceCalendar() {
     return result
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teams, contractors, selectedTeamIds])
+
+  // Drag-to-sort for the label column. One shared DndContext + SortableContext covers both groups
+  // (QPaint crews and contractor groups) since dnd-kit doesn't need physically separate containers
+  // to track order — handleRowDragEnd itself refuses to reorder across groups, so dragging a crew
+  // into the Contractors list (or back) just snaps back rather than actually moving anything.
+  const dragSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
+  const draggableRowIds = useMemo(() => rows.filter((r) => r.dragGroup).map((r) => r.dragId!), [rows])
+
+  async function handleRowDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const activeRow = rows.find((r) => r.dragId === active.id)
+    const overRow = rows.find((r) => r.dragId === over.id)
+    if (!activeRow?.dragGroup || !overRow?.dragGroup || activeRow.dragGroup !== overRow.dragGroup) return
+
+    const group = activeRow.dragGroup
+    const ids = rows.filter((r) => r.dragGroup === group).map((r) => r.dragId!)
+    const oldIndex = ids.indexOf(activeRow.dragId!)
+    const newIndex = ids.indexOf(overRow.dragId!)
+    if (oldIndex === -1 || newIndex === -1) return
+    const reordered = arrayMove(ids, oldIndex, newIndex)
+
+    try {
+      await Promise.all(
+        reordered.map((id, index) =>
+          group === 'qpaint' ? updateTeam(id, { displayOrder: index }) : updateContractor(id, { displayOrder: index }),
+        ),
+      )
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to save the new order')
+    }
+  }
 
   function dayColumn(d: Date): number {
     const offset = Math.round((d.getTime() - windowStart.getTime()) / 86400000)
@@ -667,36 +784,18 @@ export function ResourceCalendar() {
           style={{ top: HEADER_HEIGHT, bottom: 0, width: LABEL_COL_WIDTH }}
           className="absolute left-0 z-20 overflow-hidden border-r border-border bg-card"
         >
-          {rows.map((row) => (
-            <div
-              key={`label-${row.key}`}
-              style={{ height: ROW_HEIGHT }}
-              className={cn(
-                'flex items-center gap-2 border-t border-border/60 pr-2 pl-4 text-sm',
-                // Rows with no teamId (section dividers + multi-crew contractor company rows)
-                // can't be clicked to add a phase — a muted band across the whole row (label +
-                // grid, see the row-background block below) makes that obvious instead of looking
-                // just like any other crew row.
-                !row.teamId && 'bg-muted/40',
-                row.sectionHeader
-                  ? 'border-t-2 border-t-foreground/20 text-xs font-semibold tracking-wide text-muted-foreground uppercase'
-                  : row.indent
-                    ? 'pl-8 text-muted-foreground'
-                    : row.teamId
-                      ? 'font-medium'
-                      : 'font-medium text-muted-foreground',
-              )}
-            >
-              {!row.sectionHeader && row.teamId && (
-                <ColorSwatchInput
-                  value={getTeamColors(teams.find((t) => t.id === row.teamId)!).bg}
-                  onChange={(v) => updateTeam(row.teamId!, { color: v })}
-                  title="Change crew color"
+          <DndContext sensors={dragSensors} onDragEnd={handleRowDragEnd}>
+            <SortableContext items={draggableRowIds} strategy={verticalListSortingStrategy}>
+              {rows.map((row) => (
+                <SortableLabelRow
+                  key={`label-${row.key}`}
+                  row={row}
+                  color={row.teamId ? getTeamColors(teams.find((t) => t.id === row.teamId)!).bg : null}
+                  onColorChange={(v) => updateTeam(row.teamId!, { color: v })}
                 />
-              )}
-              <span className="truncate">{row.label}</span>
-            </div>
-          ))}
+              ))}
+            </SortableContext>
+          </DndContext>
         </div>
 
         {/* scrollable body — the only real scrollbar; header + label panes mirror this via JS */}
