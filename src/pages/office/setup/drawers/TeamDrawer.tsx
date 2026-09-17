@@ -31,7 +31,7 @@ export function TeamDrawer({
   /** null = create mode */
   team: Team | null
 }) {
-  const { workers, teamMemberships, addTeam, updateTeam, deleteTeam, addTeamMembership, deleteTeamMembership } = useData()
+  const { workers, teamMemberships, contractors, addTeam, updateTeam, deleteTeam, addTeamMembership, deleteTeamMembership } = useData()
   const isEdit = !!team
 
   const [name, setName] = useState('')
@@ -46,6 +46,8 @@ export function TeamDrawer({
   const [floatWorkerId, setFloatWorkerId] = useState('')
   const [floatStart, setFloatStart] = useState(todayIso())
   const [floatEnd, setFloatEnd] = useState('')
+  const [moveContractorId, setMoveContractorId] = useState('')
+  const [moving, setMoving] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -54,6 +56,7 @@ export function TeamDrawer({
     setFloatWorkerId('')
     setFloatStart(todayIso())
     setFloatEnd('')
+    setMoveContractorId('')
     if (team) {
       setName(team.name)
       setHeadcount(String(team.headcount ?? ''))
@@ -127,6 +130,24 @@ export function TeamDrawer({
       toast.success('Removed')
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to remove')
+    }
+  }
+
+  // Reclassifies this exact team row (type + contractorId only) — schedule_blocks reference the
+  // team by id, which never changes here, so every phase already assigned to it (past, current,
+  // or future) stays exactly where it is. No delete/recreate involved.
+  async function handleMoveToContractor() {
+    if (!team || !moveContractorId) return
+    setMoving(true)
+    setError(null)
+    try {
+      await updateTeam(team.id, { type: 'Contractor', contractorId: moveContractorId })
+      toast.success(`${team.name} moved to Contractors`)
+      onOpenChange(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to move team')
+    } finally {
+      setMoving(false)
     }
   }
 
@@ -247,6 +268,31 @@ export function TeamDrawer({
                   <Input type="date" placeholder="End date" value={floatEnd} onChange={(e) => setFloatEnd(e.target.value)} />
                   <Button size="sm" onClick={handleAddFloating} disabled={!floatWorkerId}>Add floating</Button>
                 </div>
+              </div>
+
+              <div className="space-y-2 border-t border-border pt-4">
+                <p className="text-sm font-medium">Move to Contractors</p>
+                <p className="text-xs text-muted-foreground">
+                  Reclassifies this exact team as a contractor's crew — it keeps its name, color, and every phase
+                  already scheduled on it (past and future). Only its category and contractor company change.
+                </p>
+                {contractors.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No contractors yet — add one from the Contractors tab first.</p>
+                ) : (
+                  <div className="flex gap-2">
+                    <Select value={moveContractorId} onValueChange={(v) => setMoveContractorId(v ?? '')}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue>{(v: string | null) => contractors.find((c) => c.id === v)?.name ?? 'Select contractor'}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {contractors.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Button size="sm" variant="outline" onClick={handleMoveToContractor} disabled={!moveContractorId || moving}>
+                      {moving ? 'Moving…' : 'Move'}
+                    </Button>
+                  </div>
+                )}
               </div>
             </>
           )}
