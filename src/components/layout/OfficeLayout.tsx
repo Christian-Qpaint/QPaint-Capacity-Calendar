@@ -1,18 +1,20 @@
+import type { ComponentType } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+import { Gauge, Handshake, CalendarRange, Megaphone, Settings as SettingsIcon, TrendingUp, Trophy } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AccountMenu } from '@/components/AccountMenu'
 import { NotificationBell } from '@/components/NotificationBell'
 import { ImportProgressIndicator } from '@/components/ImportProgressIndicator'
 import { usePermissions } from '@/context/PermissionsContext'
 
-const NAV_ITEMS: { to: string; label: string; permissionKey: string }[] = [
-  { to: '/deals', label: 'Deals', permissionKey: 'crm.view' },
-  { to: '/jobs', label: 'Won', permissionKey: 'jobs.view' },
-  { to: '/calendar', label: 'Scheduler', permissionKey: 'scheduler.view' },
-  { to: '/sales', label: 'Sales', permissionKey: 'sales.view_availability' },
-  { to: '/capacity', label: 'Production', permissionKey: 'production.view' },
-  { to: '/marketing', label: 'Marketing', permissionKey: 'marketing.view' },
-  { to: '/setup', label: 'Settings', permissionKey: 'settings.view' },
+const NAV_ITEMS: { to: string; label: string; permissionKey: string; icon: ComponentType<{ className?: string }> }[] = [
+  { to: '/marketing', label: 'Marketing', permissionKey: 'marketing.view', icon: Megaphone },
+  { to: '/sales', label: 'Sales', permissionKey: 'sales.view_availability', icon: TrendingUp },
+  { to: '/deals', label: 'Deals', permissionKey: 'crm.view', icon: Handshake },
+  { to: '/jobs', label: 'Won', permissionKey: 'jobs.view', icon: Trophy },
+  { to: '/calendar', label: 'Scheduler', permissionKey: 'scheduler.view', icon: CalendarRange },
+  { to: '/capacity', label: 'Production', permissionKey: 'production.view', icon: Gauge },
+  { to: '/setup', label: 'Settings', permissionKey: 'settings.view', icon: SettingsIcon },
 ]
 
 export function OfficeLayout() {
@@ -37,11 +39,12 @@ export function OfficeLayout() {
                   to={item.to}
                   className={({ isActive }) =>
                     cn(
-                      'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                      'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
                       isActive ? 'bg-secondary text-secondary-foreground' : 'text-muted-foreground hover:text-foreground',
                     )
                   }
                 >
+                  <item.icon className="size-4" />
                   {item.label}
                 </NavLink>
               ))}
