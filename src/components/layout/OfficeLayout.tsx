@@ -1,20 +1,24 @@
 import type { ComponentType } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { Gauge, Handshake, CalendarRange, Megaphone, Settings as SettingsIcon, TrendingUp, Trophy } from 'lucide-react'
+import { Gauge, Handshake, CalendarRange, Landmark, Megaphone, Settings as SettingsIcon, TrendingUp, Trophy } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AccountMenu } from '@/components/AccountMenu'
 import { NotificationBell } from '@/components/NotificationBell'
 import { ImportProgressIndicator } from '@/components/ImportProgressIndicator'
 import { usePermissions } from '@/context/PermissionsContext'
 
-const NAV_ITEMS: { to: string; label: string; permissionKey: string; icon: ComponentType<{ className?: string }> }[] = [
-  { to: '/marketing', label: 'Marketing', permissionKey: 'marketing.view', icon: Megaphone },
-  { to: '/sales', label: 'Sales', permissionKey: 'sales.view_availability', icon: TrendingUp },
-  { to: '/deals', label: 'Deals', permissionKey: 'crm.view', icon: Handshake },
-  { to: '/jobs', label: 'Won', permissionKey: 'jobs.view', icon: Trophy },
-  { to: '/calendar', label: 'Scheduler', permissionKey: 'scheduler.view', icon: CalendarRange },
-  { to: '/capacity', label: 'Production', permissionKey: 'production.view', icon: Gauge },
-  { to: '/setup', label: 'Settings', permissionKey: 'settings.view', icon: SettingsIcon },
+// iconColor is a full static class string (not built from a variable) — Tailwind's build-time
+// scanner can't see dynamically-interpolated class names, so each one has to appear literally
+// somewhere for it to end up in the generated CSS.
+const NAV_ITEMS: { to: string; label: string; permissionKey: string; icon: ComponentType<{ className?: string }>; iconColor: string }[] = [
+  { to: '/marketing', label: 'Marketing', permissionKey: 'marketing.view', icon: Megaphone, iconColor: 'text-fuchsia-600 dark:text-fuchsia-400' },
+  { to: '/sales', label: 'Sales', permissionKey: 'sales.view_availability', icon: TrendingUp, iconColor: 'text-blue-600 dark:text-blue-400' },
+  { to: '/deals', label: 'Deals', permissionKey: 'crm.view', icon: Handshake, iconColor: 'text-amber-600 dark:text-amber-400' },
+  { to: '/jobs', label: 'Won', permissionKey: 'jobs.view', icon: Trophy, iconColor: 'text-yellow-500 dark:text-yellow-400' },
+  { to: '/calendar', label: 'Scheduler', permissionKey: 'scheduler.view', icon: CalendarRange, iconColor: 'text-cyan-600 dark:text-cyan-400' },
+  { to: '/capacity', label: 'Production', permissionKey: 'production.view', icon: Gauge, iconColor: 'text-indigo-600 dark:text-indigo-400' },
+  { to: '/finance', label: 'Finance', permissionKey: 'finance.view', icon: Landmark, iconColor: 'text-emerald-600 dark:text-emerald-400' },
+  { to: '/setup', label: 'Settings', permissionKey: 'settings.view', icon: SettingsIcon, iconColor: 'text-slate-500 dark:text-slate-400' },
 ]
 
 export function OfficeLayout() {
@@ -44,7 +48,7 @@ export function OfficeLayout() {
                     )
                   }
                 >
-                  <item.icon className="size-4" />
+                  <item.icon className={cn('size-4', item.iconColor)} />
                   {item.label}
                 </NavLink>
               ))}

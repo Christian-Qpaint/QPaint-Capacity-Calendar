@@ -7,13 +7,17 @@
 /** Parses a "YYYY-MM-DD" string as local midnight — bare `new Date(iso)` parses as UTC, which
  * shifts the date by a day in any timezone away from UTC+0. Use this everywhere a stored ISO date
  * string needs comparing against other local Date objects (e.g. calendar window bounds). */
-/** Today's date as a local "YYYY-MM-DD" string — see toDate() above for why not toISOString(). */
-export function todayIso(): string {
-  const d = new Date()
+/** Formats any local Date as "YYYY-MM-DD" — see toDate() above for why not toISOString(). */
+export function toIsoDate(d: Date): string {
   const y = d.getFullYear()
   const mo = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${mo}-${day}`
+}
+
+/** Today's date as a local "YYYY-MM-DD" string. */
+export function todayIso(): string {
+  return toIsoDate(new Date())
 }
 
 export function toDate(iso: string): Date {
