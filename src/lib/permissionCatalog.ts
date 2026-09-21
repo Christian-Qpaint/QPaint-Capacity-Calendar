@@ -23,7 +23,7 @@ export interface PermissionDef {
   defaultForRole: (role: Role) => boolean
 }
 
-export const PERMISSION_PAGES = ['Deals', 'Won', 'Scheduler', 'Sales', 'Production', 'Marketing', 'Settings', 'Field'] as const
+export const PERMISSION_PAGES = ['Deals', 'Won', 'Scheduler', 'Sales', 'Production', 'Marketing', 'Finance', 'Settings', 'Field'] as const
 
 export const PERMISSION_CATALOG: PermissionDef[] = [
   // Won (view-only production tracking, at /jobs — job records themselves are now managed from
@@ -66,6 +66,11 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: 'marketing.import', page: 'Marketing', label: 'Manage Ad Spend (server-side)', description: 'Also enforced server-side for adding/editing/deleting Ad Spend entries.', defaultForRole: canAccessMarketing },
   { key: 'marketing.manage_ad_spend', page: 'Marketing', label: 'Manage Ad Spend', description: 'Add, edit, or delete monthly ad spend entries.', defaultForRole: canAccessMarketing },
   { key: 'marketing.export', page: 'Marketing', label: 'Print / export report', description: 'Use the Print / Export button to generate a report.', defaultForRole: canAccessMarketing },
+
+  // Finance — a small Xero-sourced summary (receivables, payables, gross profit) built for Tas;
+  // owner-only by default since it's company-wide financial data, tighter than the general
+  // hasFinancialAccess check other $ figures use elsewhere in the app.
+  { key: 'finance.view', page: 'Finance', label: 'View Finance page', description: 'Open the Finance overview (receivables, payables, gross profit).', defaultForRole: (role) => role === 'owner' },
 
   // Settings
   { key: 'settings.view', page: 'Settings', label: 'View Settings page', description: 'Open Settings (Teams / Contractors / Workers) at all.', defaultForRole: isOfficeRole },
