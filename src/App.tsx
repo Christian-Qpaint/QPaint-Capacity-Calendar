@@ -13,6 +13,7 @@ import { ResourceCalendar } from '@/pages/office/ResourceCalendar'
 import { SalesAvailability } from '@/pages/office/SalesAvailability'
 import { TeamsContractorsSetup } from '@/pages/office/TeamsContractorsSetup'
 import { MarketingDashboard } from '@/pages/office/marketing/MarketingDashboard'
+import { MetaAdSpendTest } from '@/pages/office/marketing/MetaAdSpendTest'
 import { FinanceOverview } from '@/pages/office/FinanceOverview'
 import { CrmBoard } from '@/pages/office/deals/CrmBoard'
 import { CrmConfig } from '@/pages/office/deals/CrmConfig'
@@ -71,6 +72,10 @@ function App() {
 
           <Route element={<RequirePermission permissionKey="marketing.view" />}>
             <Route path="/marketing" element={<MarketingDashboard />} />
+          </Route>
+
+          <Route element={<RequirePermission permissionKey="marketing.test_meta_ads" />}>
+            <Route path="/marketing/meta-test" element={<MetaAdSpendTest />} />
           </Route>
 
           <Route element={<RequirePermission permissionKey="finance.view" />}>
