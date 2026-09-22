@@ -66,8 +66,8 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: 'marketing.import', page: 'Marketing', label: 'Manage Ad Spend (server-side)', description: 'Also enforced server-side for adding/editing/deleting Ad Spend entries.', defaultForRole: canAccessMarketing },
   { key: 'marketing.manage_ad_spend', page: 'Marketing', label: 'Manage Ad Spend', description: 'Add, edit, or delete monthly ad spend entries.', defaultForRole: canAccessMarketing },
   { key: 'marketing.export', page: 'Marketing', label: 'Print / export report', description: 'Use the Print / Export button to generate a report.', defaultForRole: canAccessMarketing },
-  // Internal, owner-only diagnostic — not linked from the main nav. Lets us see exactly what the
-  // Meta Marketing API returns before deciding how campaigns map onto referral sources.
+  // Internal, owner-only diagnostic. Lets us see exactly what the Meta Marketing API returns
+  // before deciding how campaigns map onto referral sources.
   { key: 'marketing.test_meta_ads', page: 'Marketing', label: 'Meta Ads test page', description: 'Open the internal raw Meta Ads fetch/test page.', defaultForRole: (role) => role === 'owner' },
 
   // Finance — a small Xero-sourced summary (receivables, payables, gross profit) built for Tas;

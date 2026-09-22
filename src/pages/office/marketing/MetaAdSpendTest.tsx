@@ -7,11 +7,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { api } from '@/lib/apiClient'
 import { Info, RefreshCw } from 'lucide-react'
 
-// Diagnostic-only page — not linked from the main nav (see marketing.test_meta_ads in
-// permissionCatalog.ts). Fetches raw data straight from Meta's Marketing API via
-// meta-ad-spend-test.mts so we can see exactly what comes back before deciding how campaigns map
-// onto QPaint's referral sources. Manual "Fetch" button only — no scheduled sync, nothing written
-// to the ad_spend table.
+// Diagnostic-only page (owner-only, see marketing.test_meta_ads in permissionCatalog.ts). Fetches
+// raw data straight from Meta's Marketing API via meta-ad-spend-test.mts so we can see exactly
+// what comes back before deciding how campaigns map onto QPaint's referral sources. Manual
+// "Fetch" button only — no scheduled sync, nothing written to the ad_spend table.
 interface MetaEntry {
   campaignId: string
   source: string
@@ -72,7 +71,7 @@ export function MetaAdSpendTest() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-medium">Meta Ads — Test Fetch</h1>
-          <p className="text-sm text-muted-foreground">Raw data straight from the Meta Marketing API. Internal diagnostic, not linked from the nav.</p>
+          <p className="text-sm text-muted-foreground">Raw data straight from the Meta Marketing API. Internal diagnostic, owner-only.</p>
         </div>
         <Button onClick={handleFetch} disabled={loading}>
           <RefreshCw className={loading ? 'size-4 animate-spin' : 'size-4'} /> {loading ? 'Fetching…' : 'Fetch from Meta'}

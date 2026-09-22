@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { Gauge, Handshake, CalendarRange, Landmark, Megaphone, Settings as SettingsIcon, TrendingUp, Trophy } from 'lucide-react'
+import { FlaskConical, Gauge, Handshake, CalendarRange, Landmark, Megaphone, Settings as SettingsIcon, TrendingUp, Trophy } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AccountMenu } from '@/components/AccountMenu'
 import { NotificationBell } from '@/components/NotificationBell'
@@ -12,6 +12,7 @@ import { usePermissions } from '@/context/PermissionsContext'
 // somewhere for it to end up in the generated CSS.
 const NAV_ITEMS: { to: string; label: string; permissionKey: string; icon: ComponentType<{ className?: string }>; iconColor: string }[] = [
   { to: '/marketing', label: 'Marketing', permissionKey: 'marketing.view', icon: Megaphone, iconColor: 'text-fuchsia-600 dark:text-fuchsia-400' },
+  { to: '/marketing/meta-test', label: 'Meta Test', permissionKey: 'marketing.test_meta_ads', icon: FlaskConical, iconColor: 'text-sky-600 dark:text-sky-400' },
   { to: '/sales', label: 'Sales', permissionKey: 'sales.view_availability', icon: TrendingUp, iconColor: 'text-blue-600 dark:text-blue-400' },
   { to: '/deals', label: 'Deals', permissionKey: 'crm.view', icon: Handshake, iconColor: 'text-amber-600 dark:text-amber-400' },
   { to: '/jobs', label: 'Won', permissionKey: 'jobs.view', icon: Trophy, iconColor: 'text-yellow-500 dark:text-yellow-400' },
