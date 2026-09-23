@@ -3,7 +3,7 @@
 // (platform, month) pair. Triggered by the Ads Management page's "Fetch" button and by its month
 // navigation (see AdsManagement.tsx) — both call this the same way, since "fetch the month you're
 // looking at" is the whole point of both actions.
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { HttpError, requireOwnerRole, withErrorHandling } from '../_shared/authz.js'
 import { parseJsonBody } from '../_shared/http.js'
@@ -57,6 +57,29 @@ export default withErrorHandling(async (req: Request) => {
           updatedAt: new Date().toISOString(),
         })),
       )
+      // The delete above already clears out this exact (platform, month) slice, so a conflict
+      // here should be rare — but two syncs firing back to back (a double-click, or React
+      // StrictMode's dev-only double effect invocation) can genuinely race between the delete and
+      // insert. Falling back to "last write wins" here means that races into a 500 instead.
+      .onConflictDoUpdate({
+        target: [adPlatformCampaigns.platform, adPlatformCampaigns.month, adPlatformCampaigns.campaignId],
+        set: {
+          source: sql`excluded.source`,
+          spend: sql`excluded.spend`,
+          impressions: sql`excluded.impressions`,
+          reach: sql`excluded.reach`,
+          frequency: sql`excluded.frequency`,
+          clicks: sql`excluded.clicks`,
+          cpc: sql`excluded.cpc`,
+          ctr: sql`excluded.ctr`,
+          cpm: sql`excluded.cpm`,
+          leads: sql`excluded.leads`,
+          currency: sql`excluded.currency`,
+          dateStart: sql`excluded.date_start`,
+          dateStop: sql`excluded.date_stop`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+      })
       .returning()
   })
 
