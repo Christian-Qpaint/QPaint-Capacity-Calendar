@@ -637,3 +637,40 @@ export const notifications = pgTable('notifications', {
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
   createdBy: uuid('created_by').references(() => users.id),
 }, (table) => [index('notifications_recipient_idx').on(table.recipientId, table.read, table.createdAt)])
+
+// ============================================================================
+// Ads Management (raw per-campaign data pulled from each ad platform's own API)
+// ============================================================================
+// One row per (platform, month, campaign) — a sync always deletes the existing rows for the
+// (platform, month) it just re-fetched, then inserts the fresh pull, so a month's numbers are
+// always a full replacement rather than an accumulating/duplicating history. This is deliberate:
+// ad platforms revise conversion/attribution numbers (and occasionally spend) for a window after a
+// month closes, so "re-sync overwrites" is the correct behavior, not a bug to guard against with
+// upsert-by-row. Other months are untouched by a sync, which is what keeps history consolidated.
+export const adPlatformCampaigns = pgTable(
+  'ad_platform_campaigns',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    platform: text('platform').notNull(), // 'meta' | 'google' | ... — text, not an enum, so a new platform tab needs no migration
+    month: text('month').notNull(), // 'YYYY-MM', the calendar month this row represents
+    campaignId: text('campaign_id').notNull(),
+    source: text('source').notNull(), // campaign name, shown as "Source (campaign)" in the table
+    spend: numeric('spend', { mode: 'number' }).notNull().default(0),
+    impressions: integer('impressions').notNull().default(0),
+    reach: integer('reach'),
+    frequency: numeric('frequency', { mode: 'number' }),
+    clicks: integer('clicks').notNull().default(0),
+    cpc: numeric('cpc', { mode: 'number' }),
+    ctr: numeric('ctr', { mode: 'number' }),
+    cpm: numeric('cpm', { mode: 'number' }),
+    leads: integer('leads'), // on-platform lead-form submissions only (see meta-ad-sync.mts)
+    currency: text('currency').notNull().default('AUD'),
+    dateStart: date('date_start', { mode: 'string' }).notNull(),
+    dateStop: date('date_stop', { mode: 'string' }).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('ad_platform_campaigns_platform_month_campaign_key').on(table.platform, table.month, table.campaignId),
+    index('ad_platform_campaigns_platform_month_idx').on(table.platform, table.month),
+  ],
+)

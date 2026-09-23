@@ -66,9 +66,10 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: 'marketing.import', page: 'Marketing', label: 'Manage Ad Spend (server-side)', description: 'Also enforced server-side for adding/editing/deleting Ad Spend entries.', defaultForRole: canAccessMarketing },
   { key: 'marketing.manage_ad_spend', page: 'Marketing', label: 'Manage Ad Spend', description: 'Add, edit, or delete monthly ad spend entries.', defaultForRole: canAccessMarketing },
   { key: 'marketing.export', page: 'Marketing', label: 'Print / export report', description: 'Use the Print / Export button to generate a report.', defaultForRole: canAccessMarketing },
-  // Internal, owner-only diagnostic. Lets us see exactly what the Meta Marketing API returns
-  // before deciding how campaigns map onto referral sources.
-  { key: 'marketing.test_meta_ads', page: 'Marketing', label: 'Meta Ads test page', description: 'Open the internal raw Meta Ads fetch/test page.', defaultForRole: (role) => role === 'owner' },
+  // Owner-only — raw per-platform ad campaign data (Meta now, Google Ads later), synced on demand
+  // straight from each platform's own API, ahead of/separate from the manual monthly ad_spend
+  // totals above.
+  { key: 'marketing.ads_management', page: 'Marketing', label: 'Ads Management page', description: 'Open Ads Management — per-platform campaign data synced from each ad platform’s API.', defaultForRole: (role) => role === 'owner' },
 
   // Finance — a small Xero-sourced summary (receivables, payables, gross profit) built for Tas;
   // owner-only by default since it's company-wide financial data, tighter than the general
