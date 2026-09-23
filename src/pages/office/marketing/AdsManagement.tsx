@@ -368,10 +368,37 @@ function PlatformPanel({
     }
   }
 
-  // Every month navigation (and the initial mount) pulls the latest for that month automatically —
-  // the "Fetch" button below is a manual re-run of the exact same sync, just with its own toast.
+  // Cache-first for any month other than the current one: a closed month's numbers are settled
+  // enough that re-hitting the live API on every visit is just wasted quota, so only sync it the
+  // first time (i.e. when nothing's saved for it yet). The current month is still actively
+  // accumulating spend all day, so it always gets a fresh live pull. The "Fetch" button always
+  // forces a real sync regardless of month, since clicking it is an explicit ask for the latest.
   useEffect(() => {
-    sync(true)
+    let cancelled = false
+    const isCurrentMonth = month === toIsoDate(new Date()).slice(0, 7)
+
+    async function loadOrSync() {
+      if (!isCurrentMonth) {
+        try {
+          const data = await api.get<{ rows: CampaignRow[] }>(`/api/ad-platform-campaigns?month=${month}&platform=${platform}`)
+          if (cancelled) return
+          if (data.rows.length > 0) {
+            setRows(data.rows)
+            setCurrency(data.rows[0].currency)
+            setAccountName(null)
+            return
+          }
+        } catch {
+          // Fall through to a live sync if the cache check itself fails.
+        }
+      }
+      if (!cancelled) await sync(true)
+    }
+
+    loadOrSync()
+    return () => {
+      cancelled = true
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [platform, month])
 
