@@ -438,7 +438,7 @@ export function MarketingDashboard() {
 
           <section className="space-y-3 break-inside-avoid">
             <h2 className="text-sm font-medium text-muted-foreground">Performance Summary</h2>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 print:grid-cols-4 print:gap-2">
               <KpiCard
                 label="Total Leads"
                 value={summary.totalLeads.toLocaleString()}
@@ -493,7 +493,7 @@ export function MarketingDashboard() {
 
           <section className="space-y-3 break-inside-avoid">
             <h2 className="text-sm font-medium text-muted-foreground">Marketing Analysis</h2>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7 print:grid-cols-4 print:gap-2">
               <KpiCard
                 label="Cost Per Lead"
                 value={formatCurrency(summary.cpl)}
@@ -547,9 +547,11 @@ export function MarketingDashboard() {
             </div>
           </section>
 
-          <PeriodComparisonCard baseFilters={filters} deals={deals} adSpend={adSpend} allSources={allSources} />
+          <div className="print:hidden">
+            <PeriodComparisonCard baseFilters={filters} deals={deals} adSpend={adSpend} allSources={allSources} />
+          </div>
 
-          <Card className="gap-3 p-4 break-inside-avoid">
+          <Card className="gap-3 p-4 break-inside-avoid print:hidden">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <LineChartIcon className="size-4 text-muted-foreground" />
@@ -637,7 +639,12 @@ export function MarketingDashboard() {
                     interval="preserveStartEnd"
                     tickFormatter={(k) => bucketLabel(String(k), effectiveGranularity)}
                   />
-                  <YAxis tickLine={false} axisLine={false} width={56} tickFormatter={(v) => formatTrendValue(Number(v), compareMetric)} />
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    width={trendMetricFormat(compareMetric) === 'currency' ? 80 : 56}
+                    tickFormatter={(v) => formatTrendValue(Number(v), compareMetric)}
+                  />
                   <ChartTooltip
                     content={
                       <ChartTooltipContent
@@ -665,7 +672,7 @@ export function MarketingDashboard() {
             )}
           </Card>
 
-          <Card className="gap-3 p-4 break-inside-avoid">
+          <Card className="gap-3 p-4 break-inside-avoid print:hidden">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <DollarSign className="size-4 text-muted-foreground" />
@@ -738,7 +745,7 @@ export function MarketingDashboard() {
             )}
           </Card>
 
-          <Card className="gap-3 p-4 break-inside-avoid">
+          <Card className="gap-3 p-4 break-inside-avoid print:hidden">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <BarChart3 className="size-4 text-muted-foreground" />
@@ -795,7 +802,7 @@ export function MarketingDashboard() {
             )}
           </Card>
 
-          <Card className="gap-3 p-4 break-inside-avoid">
+          <Card className="gap-3 p-4 break-inside-avoid print:hidden">
             <h3 className="text-sm font-medium">Referral Source Breakdown</h3>
             <p className="text-xs text-muted-foreground">{describeActiveFilters()}</p>
             {bySource.length === 0 ? (

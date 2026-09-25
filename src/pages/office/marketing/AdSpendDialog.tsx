@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { DollarSign, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { DollarSign, Megaphone, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -15,9 +15,17 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { api } from '@/lib/apiClient'
 import { formatCurrency } from '@/lib/formulas'
 import { monthKeyNow, monthsBetweenKeys } from '@/lib/marketingDataAccess'
 import type { AdSpendEntry } from '@/types'
+
+const SYNCED_PLATFORM_LABELS: Record<string, string> = { meta: 'Meta' }
+
+interface SyncedCampaignRow {
+  platform: string
+  spend: number
+}
 
 export function AdSpendDialog({
   adSpend,
@@ -37,6 +45,30 @@ export function AdSpendDialog({
   const [amount, setAmount] = useState('')
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [syncedTotals, setSyncedTotals] = useState<Record<string, number>>({})
+
+  // Reference only — pulled from whatever Ads Management has already synced for the current month
+  // (never triggers a live platform fetch itself). Owner-only endpoint, so a 'marketing'-role user
+  // without owner access just sees no panel rather than an error, since this is a convenience, not
+  // a core function of this dialog.
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    api
+      .get<{ rows: SyncedCampaignRow[] }>(`/api/ad-platform-campaigns?month=${monthKeyNow()}`)
+      .then((data) => {
+        if (cancelled) return
+        const totals: Record<string, number> = {}
+        for (const row of data.rows) totals[row.platform] = (totals[row.platform] ?? 0) + row.spend
+        setSyncedTotals(totals)
+      })
+      .catch(() => {
+        if (!cancelled) setSyncedTotals({})
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open])
 
   const sorted = useMemo(
     () => [...adSpend].sort((a, b) => b.month.localeCompare(a.month) || a.referralSource.localeCompare(b.referralSource)),
@@ -103,6 +135,33 @@ export function AdSpendDialog({
             saving again for the same pair updates it.
           </DialogDescription>
         </DialogHeader>
+
+        {Object.keys(syncedTotals).length > 0 && (
+          <div className="space-y-1.5 rounded-lg border border-info/30 bg-info-bg/60 p-3">
+            <p className="flex items-center gap-1.5 text-xs font-medium text-info">
+              <Megaphone className="size-3.5" /> From Ads Management — {monthKeyNow()}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(syncedTotals).map(([platform, total]) => (
+                <div key={platform} className="flex items-center gap-2 rounded-md bg-card px-2.5 py-1.5 text-xs">
+                  <span className="font-medium">{SYNCED_PLATFORM_LABELS[platform] ?? platform}</span>
+                  <span className="text-muted-foreground">{formatCurrency(total)}</span>
+                  <button
+                    type="button"
+                    className="text-info underline-offset-2 hover:underline"
+                    onClick={() => {
+                      setAmount(total.toFixed(2))
+                      setFromMonth(monthKeyNow())
+                      setToMonth(monthKeyNow())
+                    }}
+                  >
+                    Use amount
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="space-y-2">
           <div className="grid grid-cols-2 gap-2">

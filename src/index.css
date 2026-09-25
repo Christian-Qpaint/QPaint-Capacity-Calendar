@@ -194,3 +194,14 @@
   border: none;
   border-radius: 9999px;
 }
+
+/* Browsers drop background colors/images by default when printing (a plain "save ink" default),
+   which is why printed KPI cards elsewhere in the app (Marketing, Finance) come out as washed-out
+   white boxes instead of the colored badges/accent bars they show on screen. Forcing this globally
+   is safe — it only affects @media print, never the normal on-screen appearance. */
+@media print {
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

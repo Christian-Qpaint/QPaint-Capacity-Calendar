@@ -199,7 +199,10 @@ export function PeriodComparisonCard({
           </defs>
           <CartesianGrid vertical={false} />
           <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} interval="preserveStartEnd" />
-          <YAxis tickLine={false} axisLine={false} width={48} tickFormatter={(v) => (isCurrency ? formatCurrency(Number(v)) : String(v))} />
+          {/* Currency ticks (e.g. "$120,000") run wider than Recharts' default axis width, which
+              clipped the leading digits for money metrics like Jobs Won Value — count metrics
+              stay narrow since they're always short. */}
+          <YAxis tickLine={false} axisLine={false} width={isCurrency ? 80 : 48} tickFormatter={(v) => (isCurrency ? formatCurrency(Number(v)) : String(v))} />
           <ChartTooltip
             cursor={{ fill: 'var(--muted)', opacity: 0.4 }}
             content={<ChartTooltipContent formatter={(value) => (isCurrency ? formatCurrency(Number(value)) : String(value))} />}
