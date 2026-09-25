@@ -255,7 +255,13 @@ export function AdSpendDialog({
             <TabsTrigger value="by-source">By Source</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="all" className="flex min-h-0 flex-col">
+          {/* [&[inert]]:hidden: base-ui's Tabs.Panel only fully unmounts an inactive panel once its
+              CSS transition/animation "finishes" — with no transition defined here, that
+              completion event doesn't reliably fire, so the outgoing panel can stay rendered
+              (inert, but still display:flex) and keep claiming a flex-1 share of height right
+              alongside the active one. `inert` is set correctly and immediately regardless, so
+              forcing display:none off that attribute directly sidesteps the timing entirely. */}
+          <TabsContent value="all" className="flex min-h-0 flex-col [&[inert]]:hidden">
             <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border">
               <Table>
                 <TableHeader>
@@ -296,12 +302,22 @@ export function AdSpendDialog({
             </div>
           </TabsContent>
 
-          <TabsContent value="by-source" className="flex min-h-0 flex-col">
+          <TabsContent value="by-source" className="flex min-h-0 flex-col [&[inert]]:hidden">
             {groupedBySource.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">No ad spend recorded yet.</p>
             ) : (
               <Tabs defaultValue={groupedBySource[0].source} orientation="vertical" className="min-h-0 flex-1 gap-3">
-                <TabsList className="h-full w-48 shrink-0 items-stretch justify-start gap-0.5 overflow-y-auto p-1">
+                {/* h-auto! overrides TabsList's own vertical-orientation styling
+                    (group-data-vertical/tabs:h-fit → height:fit-content) back to `auto`, which is
+                    what actually lets the parent row's default align-items:stretch size this item —
+                    a percentage height (h-full) looked more direct but is circular here (this flex
+                    item's own height is itself derived from the flex algorithm, so 100% of it doesn't
+                    resolve the way you'd expect) and silently fell back to content size instead.
+                    min-h-0! overrides flexbox's default min-height:auto floor, which otherwise stops
+                    a flex item shrinking below its content's natural height regardless of the above.
+                    Tailwind v4's important modifier is a TRAILING `!` (h-auto!), not v3's leading
+                    `!h-auto` — the leading form silently produces no CSS at all. */}
+                <TabsList className="h-auto! min-h-0! w-48 shrink-0 items-stretch justify-start gap-0.5 overflow-y-auto p-1">
                   {groupedBySource.map((group) => (
                     <TabsTrigger key={group.source} value={group.source} className="justify-start px-2 py-1.5 text-left">
                       <span className="truncate">{group.source}</span>
@@ -309,7 +325,7 @@ export function AdSpendDialog({
                   ))}
                 </TabsList>
                 {groupedBySource.map((group) => (
-                  <TabsContent key={group.source} value={group.source} className="flex min-w-0 min-h-0 flex-col">
+                  <TabsContent key={group.source} value={group.source} className="flex min-w-0 min-h-0 flex-col [&[inert]]:hidden">
                     <div className="mb-2 flex items-center justify-between text-sm">
                       <span className="font-medium">{group.source}</span>
                       <span className="font-semibold">{formatCurrency(group.total)}</span>
