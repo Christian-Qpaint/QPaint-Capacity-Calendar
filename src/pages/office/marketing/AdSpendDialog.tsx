@@ -35,6 +35,19 @@ function campaignKey(platform: string, campaignId: string): string {
   return `${platform}:${campaignId}`
 }
 
+// Every date in this dialog is a whole month (entries are per-month, campaigns are keyed by the
+// month they were synced for) — no real day-of-month to show, so "Sep 2026" is the honest version
+// of the requested "Sep 04, 2026" style rather than a fabricated day.
+//
+// Built manually rather than via toLocaleDateString(..., { month: 'short' }) — en-AU's ICU data
+// inconsistently spells out "June"/"July" in full instead of abbreviating them like every other
+// month, which a manual lookup sidesteps entirely.
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+function formatMonthKey(key: string): string {
+  const [year, month] = key.split('-').map(Number)
+  return `${MONTH_ABBR[month - 1]} ${year}`
+}
+
 export function AdSpendDialog({
   adSpend,
   knownReferralSources,
@@ -236,7 +249,7 @@ export function AdSpendDialog({
                 <SelectContent>
                   {unmapped.map((c) => (
                     <SelectItem key={campaignKey(c.platform, c.campaignId)} value={campaignKey(c.platform, c.campaignId)}>
-                      {SYNCED_PLATFORM_LABELS[c.platform] ?? c.platform} — {c.source} ({formatCurrency(c.spend)}, {c.month})
+                      {SYNCED_PLATFORM_LABELS[c.platform] ?? c.platform} — {c.source} ({formatCurrency(c.spend)}, {formatMonthKey(c.month)})
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -282,7 +295,7 @@ export function AdSpendDialog({
                   )}
                   {sorted.map((entry) => (
                     <TableRow key={entry.id}>
-                      <TableCell>{entry.month.slice(0, 7)}</TableCell>
+                      <TableCell>{formatMonthKey(entry.month.slice(0, 7))}</TableCell>
                       <TableCell>{entry.referralSource}</TableCell>
                       <TableCell className="text-right">{formatCurrency(entry.amount)}</TableCell>
                       <TableCell>
@@ -342,7 +355,7 @@ export function AdSpendDialog({
                         <TableBody>
                           {group.entries.map((entry) => (
                             <TableRow key={entry.id}>
-                              <TableCell>{entry.month.slice(0, 7)}</TableCell>
+                              <TableCell>{formatMonthKey(entry.month.slice(0, 7))}</TableCell>
                               <TableCell className="text-right">{formatCurrency(entry.amount)}</TableCell>
                               <TableCell>
                                 <Button
