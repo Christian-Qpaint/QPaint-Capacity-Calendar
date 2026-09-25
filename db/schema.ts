@@ -674,3 +674,21 @@ export const adPlatformCampaigns = pgTable(
     index('ad_platform_campaigns_platform_month_idx').on(table.platform, table.month),
   ],
 )
+
+// One row per ad-platform campaign that's been explicitly linked to a QPaint referral source —
+// campaign names (Meta's, eventually Google's) don't match Pipedrive referral source names, so
+// there's nothing to auto-match on; this is the manual mapping a person makes once per campaign
+// from the Ad Spend dialog. Keyed on (platform, campaign_id) — a campaign maps to exactly one
+// referral source, checked once and then remembered, not re-asked every month.
+export const adCampaignSourceMappings = pgTable(
+  'ad_campaign_source_mappings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    platform: text('platform').notNull(),
+    campaignId: text('campaign_id').notNull(),
+    source: text('source').notNull(), // campaign name, snapshotted at mapping time for display
+    referralSource: text('referral_source').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+  },
+  (table) => [unique('ad_campaign_source_mappings_platform_campaign_key').on(table.platform, table.campaignId)],
+)
