@@ -154,7 +154,7 @@ export function AdSpendDialog({
         <DollarSign className="size-4" />
         Ad Spend
       </DialogTrigger>
-      <DialogContent className="sm:max-w-4xl">
+      <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>Monthly Ad Spend</DialogTitle>
           <DialogDescription>
@@ -164,6 +164,11 @@ export function AdSpendDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {/* The dialog shell is a 3-row grid (header/1fr/footer); wrapping everything between header
+            and footer in one flex-col column gives it that single 1fr slot, and flex-1 + min-h-0 on
+            each nested level below lets the source list and its table actually grow to fill the
+            modal's height instead of being capped at an arbitrary fixed height. */}
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
         <div className="space-y-2">
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
@@ -244,14 +249,14 @@ export function AdSpendDialog({
           )}
         </div>
 
-        <Tabs defaultValue="all" className="min-w-0 gap-2">
+        <Tabs defaultValue="all" className="min-h-0 min-w-0 flex-1 gap-2">
           <TabsList>
             <TabsTrigger value="all">All</TabsTrigger>
             <TabsTrigger value="by-source">By Source</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="all">
-            <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
+          <TabsContent value="all" className="flex min-h-0 flex-col">
+            <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -291,12 +296,12 @@ export function AdSpendDialog({
             </div>
           </TabsContent>
 
-          <TabsContent value="by-source">
+          <TabsContent value="by-source" className="flex min-h-0 flex-col">
             {groupedBySource.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">No ad spend recorded yet.</p>
             ) : (
-              <Tabs defaultValue={groupedBySource[0].source} orientation="vertical" className="gap-3">
-                <TabsList className="h-auto w-48 shrink-0 items-stretch justify-start gap-0.5 overflow-y-auto p-1">
+              <Tabs defaultValue={groupedBySource[0].source} orientation="vertical" className="min-h-0 flex-1 gap-3">
+                <TabsList className="h-full w-48 shrink-0 items-stretch justify-start gap-0.5 overflow-y-auto p-1">
                   {groupedBySource.map((group) => (
                     <TabsTrigger key={group.source} value={group.source} className="justify-start px-2 py-1.5 text-left">
                       <span className="truncate">{group.source}</span>
@@ -304,12 +309,12 @@ export function AdSpendDialog({
                   ))}
                 </TabsList>
                 {groupedBySource.map((group) => (
-                  <TabsContent key={group.source} value={group.source} className="min-w-0">
+                  <TabsContent key={group.source} value={group.source} className="flex min-w-0 min-h-0 flex-col">
                     <div className="mb-2 flex items-center justify-between text-sm">
                       <span className="font-medium">{group.source}</span>
                       <span className="font-semibold">{formatCurrency(group.total)}</span>
                     </div>
-                    <div className="max-h-60 overflow-y-auto rounded-lg border border-border">
+                    <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border">
                       <Table>
                         <TableHeader>
                           <TableRow>
@@ -344,6 +349,7 @@ export function AdSpendDialog({
             )}
           </TabsContent>
         </Tabs>
+        </div>
 
         <DialogFooter>
           <DialogClose render={<Button variant="outline" />}>Close</DialogClose>
