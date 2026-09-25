@@ -692,3 +692,43 @@ export const adCampaignSourceMappings = pgTable(
   },
   (table) => [unique('ad_campaign_source_mappings_platform_campaign_key').on(table.platform, table.campaignId)],
 )
+
+// ============================================================================
+// Finance — Aged Payables (imported from Xero's "Aged Payables Detail" export)
+// ============================================================================
+// One row per import, keyed by the report's "as at" date — re-importing the same date replaces
+// that report's lines wholesale (see finance-aged-payables.mts) rather than accumulating, since a
+// re-upload is a correction of the same snapshot, not a new one. Multiple distinct as_at_date
+// reports can coexist (each import date is its own snapshot); the Finance page shows the latest.
+export const agedPayablesReports = pgTable(
+  'aged_payables_reports',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    asAtDate: date('as_at_date', { mode: 'string' }).notNull(),
+    grandTotal: numeric('grand_total', { mode: 'number' }).notNull().default(0),
+    importedAt: timestamp('imported_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+  },
+  (table) => [unique('aged_payables_reports_as_at_date_key').on(table.asAtDate)],
+)
+
+// Bucket columns mirror Xero's own layout: the current month, the 3 months before it, and
+// "Older" for anything beyond that — bucket0 is always the as_at_date's own month, so which
+// calendar month each column represents is computed from the report's as_at_date, not stored
+// per line (avoids re-storing the same 4 month labels on every one of hundreds of rows).
+export const agedPayablesLines = pgTable('aged_payables_lines', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  reportId: uuid('report_id')
+    .notNull()
+    .references(() => agedPayablesReports.id, { onDelete: 'cascade' }),
+  sortOrder: integer('sort_order').notNull(),
+  vendorName: text('vendor_name').notNull(),
+  invoiceDate: date('invoice_date', { mode: 'string' }),
+  dueDate: date('due_date', { mode: 'string' }),
+  invoiceReference: text('invoice_reference'),
+  bucket0: numeric('bucket_0', { mode: 'number' }).notNull().default(0),
+  bucket1: numeric('bucket_1', { mode: 'number' }).notNull().default(0),
+  bucket2: numeric('bucket_2', { mode: 'number' }).notNull().default(0),
+  bucket3: numeric('bucket_3', { mode: 'number' }).notNull().default(0),
+  bucketOlder: numeric('bucket_older', { mode: 'number' }).notNull().default(0),
+  total: numeric('total', { mode: 'number' }).notNull().default(0),
+})

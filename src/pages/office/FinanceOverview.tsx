@@ -1,4 +1,4 @@
-import { useMemo, useState, type ComponentType } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import * as XLSX from 'xlsx'
 import { toast } from 'sonner'
 import { Card } from '@/components/ui/card'
@@ -8,18 +8,22 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { usePersistedState } from '@/hooks/usePersistedState'
+import { api } from '@/lib/apiClient'
 import { formatCurrency } from '@/lib/formulas'
 import { cn } from '@/lib/utils'
+import { buildAgedPayablesWorkbook, parseAgedPayablesFile, type ParsedAgedPayablesLine } from '@/lib/agedPayablesParser'
 import {
   addDays,
   addMonths,
   formatDateRange,
   formatFullDate,
+  formatMonthAbbr,
   formatMonthLabel,
   formatMonthRangeLabel,
   formatYearLabel,
   monthEnd,
   monthStart,
+  toDate,
   toIsoDate,
   weekEnd,
   weekStart,
@@ -27,9 +31,11 @@ import {
   yearStart,
 } from '@/lib/schedule'
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Building2,
   ChevronLeft,
   ChevronRight,
   FileDown,
@@ -56,6 +62,8 @@ interface FinanceEntry {
   when: string // ISO date
 }
 
+// Payables now come from real imported Aged Payables reports (see below) — only Receivable mock
+// entries remain here, since Receivables aren't wired to a real source yet.
 const MOCK_ENTRIES: FinanceEntry[] = [
   { id: '1', type: 'Receivable', who: 'Wightman Properties', amount: 12480, when: '2026-09-18' },
   { id: '2', type: 'Receivable', who: 'Department of Housing and Public Works', amount: 34290, when: '2026-09-15' },
@@ -63,13 +71,20 @@ const MOCK_ENTRIES: FinanceEntry[] = [
   { id: '4', type: 'Receivable', who: 'QBUILD SEQ MRC', amount: 21760, when: '2026-09-08' },
   { id: '5', type: 'Receivable', who: 'Aussie Residential Group Pty Ltd', amount: 15600, when: '2026-08-29' },
   { id: '6', type: 'Receivable', who: 'Civium Strata', amount: 9870, when: '2026-08-22' },
-  { id: '7', type: 'Payable', who: 'Brisbane Contract Painters', amount: 6420, when: '2026-09-19' },
-  { id: '8', type: 'Payable', who: 'CS Painting', amount: 3180, when: '2026-09-17' },
-  { id: '9', type: 'Payable', who: 'Ebi _ Subbie', amount: 4750, when: '2026-09-14' },
-  { id: '10', type: 'Payable', who: 'Resene Paints', amount: 2890, when: '2026-09-10' },
-  { id: '11', type: 'Payable', who: 'Dulux Trade', amount: 5340, when: '2026-09-05' },
-  { id: '12', type: 'Payable', who: 'Applied Painting', amount: 3960, when: '2026-08-27' },
 ]
+
+interface AgedPayablesReport {
+  id: string
+  asAtDate: string
+  grandTotal: number
+  importedAt: string
+}
+
+interface AgedPayablesLine extends ParsedAgedPayablesLine {
+  id: string
+}
+
+const AGED_OLDER_LABEL = 'Older'
 
 // Not derived from the entries above — real Gross Profit comes from Xero's P&L (revenue minus
 // cost of goods sold) for whatever period is selected, not from timing which invoices happen to
@@ -245,6 +260,95 @@ export function FinanceOverview() {
     deserialize: (s) => new Date(s),
   })
 
+  const [agedReport, setAgedReport] = useState<AgedPayablesReport | null>(null)
+  const [agedLines, setAgedLines] = useState<AgedPayablesLine[]>([])
+  const [agedLoaded, setAgedLoaded] = useState(false)
+  const [agedImporting, setAgedImporting] = useState(false)
+  const [agedSearch, setAgedSearch] = useState('')
+  const agedFileInputRef = useRef<HTMLInputElement>(null)
+
+  // Real payables data, once imported — read-only fetch on mount; importing/re-importing is the
+  // only thing that writes to it (see handleAgedImport below).
+  useEffect(() => {
+    let cancelled = false
+    api
+      .get<{ report: AgedPayablesReport | null; lines: AgedPayablesLine[] }>('/api/finance-aged-payables')
+      .then((data) => {
+        if (cancelled) return
+        setAgedReport(data.report)
+        setAgedLines(data.lines)
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setAgedLoaded(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const agedBucketLabels = useMemo(() => {
+    if (!agedReport) return ['Current', '1 Month', '2 Months', '3 Months', AGED_OLDER_LABEL]
+    const base = toDate(agedReport.asAtDate)
+    return [0, 1, 2, 3].map((i) => formatMonthAbbr(addMonths(base, -i))).concat(AGED_OLDER_LABEL)
+  }, [agedReport])
+
+  // The number Tas actually needs to react to: how much of the payables total ISN'T in the
+  // current-month bucket, i.e. genuinely overdue rather than just recently billed.
+  const agedOverdue = useMemo(
+    () => agedLines.reduce((sum, l) => sum + l.bucket1 + l.bucket2 + l.bucket3 + l.bucketOlder, 0),
+    [agedLines],
+  )
+
+  const agedGroups = useMemo(() => {
+    const q = agedSearch.trim().toLowerCase()
+    const byVendor = new Map<string, AgedPayablesLine[]>()
+    for (const line of agedLines) {
+      if (q && !line.vendorName.toLowerCase().includes(q) && !(line.invoiceReference ?? '').toLowerCase().includes(q)) continue
+      const list = byVendor.get(line.vendorName) ?? []
+      list.push(line)
+      byVendor.set(line.vendorName, list)
+    }
+    return [...byVendor.entries()]
+      .map(([vendorName, lines]) => {
+        const sortedLines = [...lines].sort((a, b) => a.sortOrder - b.sortOrder)
+        const subtotal = sortedLines.reduce(
+          (acc, l) => ({
+            bucket0: acc.bucket0 + l.bucket0,
+            bucket1: acc.bucket1 + l.bucket1,
+            bucket2: acc.bucket2 + l.bucket2,
+            bucket3: acc.bucket3 + l.bucket3,
+            bucketOlder: acc.bucketOlder + l.bucketOlder,
+            total: acc.total + l.total,
+          }),
+          { bucket0: 0, bucket1: 0, bucket2: 0, bucket3: 0, bucketOlder: 0, total: 0 },
+        )
+        return { vendorName, lines: sortedLines, subtotal, firstSortOrder: sortedLines[0]?.sortOrder ?? 0 }
+      })
+      .sort((a, b) => a.firstSortOrder - b.firstSortOrder)
+  }, [agedLines, agedSearch])
+
+  async function handleAgedImportFile(file: File) {
+    setAgedImporting(true)
+    try {
+      const parsed = await parseAgedPayablesFile(file)
+      const saved = await api.post<{ report: AgedPayablesReport; lines: AgedPayablesLine[] }>('/api/finance-aged-payables', parsed)
+      setAgedReport(saved.report)
+      setAgedLines(saved.lines)
+      toast.success(`Imported ${saved.lines.length} invoice(s) as at ${formatWhen(saved.report.asAtDate)}`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Import failed')
+    } finally {
+      setAgedImporting(false)
+    }
+  }
+
+  function handleAgedExport() {
+    if (!agedReport) return
+    const workbook = buildAgedPayablesWorkbook(agedReport.asAtDate, agedBucketLabels, agedLines)
+    XLSX.writeFile(workbook, `aged-payables-detail-${agedReport.asAtDate}.xlsx`)
+  }
+
   const range = useMemo(() => getRange(period, anchor), [period, anchor])
   const grossProfit = MOCK_MONTHLY_GROSS_PROFIT * monthsInPeriod(period)
 
@@ -368,7 +472,7 @@ export function FinanceOverview() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           label="Receivables"
           value={formatCurrency(totals.receivables)}
@@ -378,10 +482,17 @@ export function FinanceOverview() {
         />
         <KpiCard
           label="Payables"
-          value={formatCurrency(totals.payables)}
+          value={formatCurrency(agedReport ? agedReport.grandTotal : totals.payables)}
           icon={Receipt}
           tone="danger"
-          hint={`Owed by you to suppliers — ${range.label}`}
+          hint={agedReport ? `As at ${formatWhen(agedReport.asAtDate)}` : `Owed by you to suppliers — ${range.label}`}
+        />
+        <KpiCard
+          label="Overdue Payables"
+          value={formatCurrency(agedOverdue)}
+          icon={AlertTriangle}
+          tone={agedOverdue > 0 ? 'danger' : 'success'}
+          hint={agedReport ? `Older than ${agedBucketLabels[0]}` : 'Import Aged Payables to see this'}
         />
         <KpiCard
           label="Gross Profit"
@@ -392,8 +503,115 @@ export function FinanceOverview() {
         />
       </div>
 
-      <Card className="gap-3 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
+      <Card className="gap-3 p-4 print:hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-medium">Aged Payables Detail</h3>
+            <p className="text-xs text-muted-foreground">
+              {agedReport
+                ? `As at ${formatWhen(agedReport.asAtDate)} · ${agedLines.length} invoice(s) across ${agedGroups.length} supplier(s)`
+                : agedLoaded
+                  ? 'No report imported yet — import a Xero "Aged Payables Detail" export (.xlsx) to get started.'
+                  : 'Loading…'}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={agedFileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (file) handleAgedImportFile(file)
+                e.target.value = ''
+              }}
+            />
+            <Button variant="outline" onClick={() => agedFileInputRef.current?.click()} disabled={agedImporting}>
+              <Upload className={agedImporting ? 'size-4 animate-pulse' : 'size-4'} /> {agedImporting ? 'Importing…' : 'Import'}
+            </Button>
+            <Button variant="outline" onClick={handleAgedExport} disabled={!agedReport}>
+              <FileDown className="size-4" /> Export
+            </Button>
+          </div>
+        </div>
+
+        {agedReport && (
+          <>
+            <div className="relative w-full max-w-xs">
+              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={agedSearch}
+                onChange={(e) => setAgedSearch(e.target.value)}
+                placeholder="Search supplier or invoice…"
+                className="pl-8"
+              />
+            </div>
+
+            <div className="max-h-[32rem] overflow-y-auto rounded-lg border border-border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Invoice Date</TableHead>
+                    <TableHead>Due Date</TableHead>
+                    <TableHead>Invoice Reference</TableHead>
+                    {agedBucketLabels.map((label) => (
+                      <TableHead key={label} className="text-right">
+                        {label}
+                      </TableHead>
+                    ))}
+                    <TableHead className="text-right">Total</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {agedGroups.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={9} className="py-8 text-center text-sm text-muted-foreground">
+                        No suppliers match your search.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {agedGroups.map((group) => (
+                    <Fragment key={group.vendorName}>
+                      <TableRow className="bg-muted/40">
+                        <TableCell colSpan={9} className="flex items-center gap-1.5 font-medium">
+                          <Building2 className="size-3.5 text-muted-foreground" />
+                          {group.vendorName}
+                        </TableCell>
+                      </TableRow>
+                      {group.lines.map((line) => (
+                        <TableRow key={line.id}>
+                          <TableCell className="text-muted-foreground">{line.invoiceDate ? formatWhen(line.invoiceDate) : '—'}</TableCell>
+                          <TableCell className="text-muted-foreground">{line.dueDate ? formatWhen(line.dueDate) : '—'}</TableCell>
+                          <TableCell>{line.invoiceReference ?? '—'}</TableCell>
+                          <TableCell className="text-right">{line.bucket0 ? formatCurrency(line.bucket0) : '—'}</TableCell>
+                          <TableCell className="text-right">{line.bucket1 ? formatCurrency(line.bucket1) : '—'}</TableCell>
+                          <TableCell className="text-right">{line.bucket2 ? formatCurrency(line.bucket2) : '—'}</TableCell>
+                          <TableCell className="text-right">{line.bucket3 ? formatCurrency(line.bucket3) : '—'}</TableCell>
+                          <TableCell className="text-right">{line.bucketOlder ? formatCurrency(line.bucketOlder) : '—'}</TableCell>
+                          <TableCell className="text-right font-medium">{formatCurrency(line.total)}</TableCell>
+                        </TableRow>
+                      ))}
+                      <TableRow className="border-b-2 border-border bg-muted/20 text-sm font-medium">
+                        <TableCell colSpan={3}>Total {group.vendorName}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(group.subtotal.bucket0)}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(group.subtotal.bucket1)}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(group.subtotal.bucket2)}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(group.subtotal.bucket3)}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(group.subtotal.bucketOlder)}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(group.subtotal.total)}</TableCell>
+                      </TableRow>
+                    </Fragment>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </>
+        )}
+      </Card>
+
+      <Card className="gap-3 p-4 print:hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-sm font-medium">Detail</h3>
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative w-full max-w-xs">

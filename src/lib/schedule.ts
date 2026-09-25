@@ -140,6 +140,14 @@ export function formatMonthLabel(d: Date): string {
   return d.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' })
 }
 
+// Built manually rather than via toLocaleDateString(..., { month: 'short' }) — en-AU's ICU data
+// inconsistently spells out "June"/"July" in full instead of abbreviating them like every other
+// month, which a manual lookup sidesteps entirely.
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+export function formatMonthAbbr(d: Date): string {
+  return `${MONTH_ABBR[d.getMonth()]} ${d.getFullYear()}`
+}
+
 export function formatFullDate(d: Date): string {
   return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
 }
