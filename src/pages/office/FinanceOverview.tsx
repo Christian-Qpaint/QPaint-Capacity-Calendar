@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import * as XLSX from 'xlsx'
 import { toast } from 'sonner'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -43,6 +44,7 @@ import {
   Info,
   Receipt,
   Search,
+  Trash2,
   TrendingDown,
   TrendingUp,
   Upload,
@@ -264,6 +266,8 @@ export function FinanceOverview() {
   const [agedLines, setAgedLines] = useState<AgedPayablesLine[]>([])
   const [agedLoaded, setAgedLoaded] = useState(false)
   const [agedImporting, setAgedImporting] = useState(false)
+  const [agedDeleting, setAgedDeleting] = useState(false)
+  const [agedConfirmDelete, setAgedConfirmDelete] = useState(false)
   const [agedSearch, setAgedSearch] = useState('')
   const agedFileInputRef = useRef<HTMLInputElement>(null)
 
@@ -347,6 +351,21 @@ export function FinanceOverview() {
     if (!agedReport) return
     const workbook = buildAgedPayablesWorkbook(agedReport.asAtDate, agedBucketLabels, agedLines)
     XLSX.writeFile(workbook, `aged-payables-detail-${agedReport.asAtDate}.xlsx`)
+  }
+
+  async function handleAgedDelete() {
+    if (!agedReport) return
+    setAgedDeleting(true)
+    try {
+      await api.delete(`/api/finance-aged-payables?id=${agedReport.id}`)
+      setAgedReport(null)
+      setAgedLines([])
+      toast.success('Aged Payables report deleted')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Delete failed')
+    } finally {
+      setAgedDeleting(false)
+    }
   }
 
   const range = useMemo(() => getRange(period, anchor), [period, anchor])
@@ -533,6 +552,11 @@ export function FinanceOverview() {
             <Button variant="outline" onClick={handleAgedExport} disabled={!agedReport}>
               <FileDown className="size-4" /> Export
             </Button>
+            {agedReport && (
+              <Button variant="outline" onClick={() => setAgedConfirmDelete(true)} disabled={agedDeleting}>
+                <Trash2 className="size-4 text-danger" /> {agedDeleting ? 'Deleting…' : 'Delete'}
+              </Button>
+            )}
           </div>
         </div>
 
@@ -665,6 +689,17 @@ export function FinanceOverview() {
           </Table>
         </div>
       </Card>
+
+      {agedReport && (
+        <ConfirmDialog
+          open={agedConfirmDelete}
+          onOpenChange={setAgedConfirmDelete}
+          title="Delete Aged Payables report?"
+          description={`This removes all ${agedLines.length} imported invoice(s) as at ${formatWhen(agedReport.asAtDate)} — this can't be undone.`}
+          confirmLabel="Delete"
+          onConfirm={handleAgedDelete}
+        />
+      )}
     </div>
   )
 }

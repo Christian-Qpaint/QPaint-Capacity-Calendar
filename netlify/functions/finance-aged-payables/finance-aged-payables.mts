@@ -1,6 +1,7 @@
 // Owner-only — stores and serves the Finance page's imported "Aged Payables Detail" reports
 // (from Xero). GET returns the latest report by as_at_date; POST saves a freshly-parsed import,
-// replacing that exact date's lines wholesale if it's a re-upload of the same snapshot.
+// replacing that exact date's lines wholesale if it's a re-upload of the same snapshot; DELETE
+// removes a report entirely (lines cascade via the FK), letting the page revert to no-data state.
 import { desc, eq } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { HttpError, requireOwnerRole, withErrorHandling } from '../_shared/authz.js'
@@ -80,6 +81,13 @@ export default withErrorHandling(async (req: Request) => {
 
     result.lines.sort((a, b) => a.sortOrder - b.sortOrder)
     return Response.json({ report: stripNullsAll([result.report])[0], lines: stripNullsAll(result.lines) })
+  }
+
+  if (req.method === 'DELETE') {
+    const id = new URL(req.url).searchParams.get('id')
+    if (!id) throw new HttpError(400, 'Missing id')
+    await db.delete(agedPayablesReports).where(eq(agedPayablesReports.id, id))
+    return Response.json({ ok: true })
   }
 
   throw new HttpError(405, 'Method not allowed')
