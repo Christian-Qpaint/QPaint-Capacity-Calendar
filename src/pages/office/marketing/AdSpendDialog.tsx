@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { api } from '@/lib/apiClient'
@@ -93,6 +93,24 @@ export function AdSpendDialog({
     () => [...adSpend].sort((a, b) => b.month.localeCompare(a.month) || a.referralSource.localeCompare(b.referralSource)),
     [adSpend],
   )
+
+  // Grouped by the month each campaign was last synced for, newest month first, with the
+  // campaigns inside each group sorted alphabetically — the flat list this replaced gave no sense
+  // of how far back an unmapped campaign went without reading the "(month)" suffix on every row.
+  const unmappedByMonth = useMemo(() => {
+    const byMonth = new Map<string, UnmappedCampaign[]>()
+    for (const c of unmapped) {
+      const list = byMonth.get(c.month) ?? []
+      list.push(c)
+      byMonth.set(c.month, list)
+    }
+    return [...byMonth.entries()]
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([month, campaigns]) => ({
+        month,
+        campaigns: [...campaigns].sort((a, b) => a.source.localeCompare(b.source)),
+      }))
+  }, [unmapped])
 
   const groupedBySource = useMemo(() => {
     const bySource = new Map<string, AdSpendEntry[]>()
@@ -247,10 +265,15 @@ export function AdSpendDialog({
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {unmapped.map((c) => (
-                    <SelectItem key={campaignKey(c.platform, c.campaignId)} value={campaignKey(c.platform, c.campaignId)}>
-                      {SYNCED_PLATFORM_LABELS[c.platform] ?? c.platform} — {c.source} ({formatCurrency(c.spend)}, {formatMonthKey(c.month)})
-                    </SelectItem>
+                  {unmappedByMonth.map((group) => (
+                    <SelectGroup key={group.month}>
+                      <SelectLabel>{formatMonthKey(group.month)}</SelectLabel>
+                      {group.campaigns.map((c) => (
+                        <SelectItem key={campaignKey(c.platform, c.campaignId)} value={campaignKey(c.platform, c.campaignId)}>
+                          {SYNCED_PLATFORM_LABELS[c.platform] ?? c.platform} — {c.source} ({formatCurrency(c.spend)})
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
                   ))}
                 </SelectContent>
               </Select>
