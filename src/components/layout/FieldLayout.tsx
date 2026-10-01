@@ -2,10 +2,12 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { AccountMenu } from '@/components/AccountMenu'
 import { useCurrentUser } from '@/context/AuthContext'
+import { usePermissions } from '@/context/PermissionsContext'
 import { canAccessUpdateProgress } from '@/lib/permissions'
 
 export function FieldLayout() {
   const currentUser = useCurrentUser()
+  const { hasPermission } = usePermissions()
 
   return (
     <div className="min-h-svh bg-background">
@@ -38,6 +40,19 @@ export function FieldLayout() {
                 }
               >
                 Update Progress
+              </NavLink>
+            )}
+            {hasPermission('field.view_production') && (
+              <NavLink
+                to="/my-production"
+                className={({ isActive }) =>
+                  cn(
+                    'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                    isActive ? 'bg-secondary text-secondary-foreground' : 'text-muted-foreground hover:text-foreground',
+                  )
+                }
+              >
+                Production
               </NavLink>
             )}
           </nav>

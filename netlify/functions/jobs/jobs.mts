@@ -1,10 +1,10 @@
-import { asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
-import { requireOfficeRole, requireCrmAccess, canAccessCrm, withErrorHandling, HttpError } from '../_shared/authz.js'
+import { requireOfficeRole, requireCrmAccess, requireUser, isOfficeRole, canAccessCrm, withErrorHandling, HttpError } from '../_shared/authz.js'
 import { parseJsonBody } from '../_shared/http.js'
 import { stripNulls } from '../_shared/rows.js'
 import { recordStageEntry } from '../_shared/stageHistory.js'
-import { jobs, crmStages, crmDealStageHistory, crmFieldDefinitions, clients } from '../../../db/schema.js'
+import { jobs, crmStages, crmDealStageHistory, crmFieldDefinitions, clients, scheduleBlocks, teams } from '../../../db/schema.js'
 
 function toValues(body: Record<string, unknown>) {
   return {
@@ -139,7 +139,21 @@ export default withErrorHandling(async (req: Request) => {
   // Date" field (see crm-job-updated.mts / _shared/dealToJob.ts) and never editable here.
 
   if (req.method === 'PATCH' && action === 'production') {
-    await requireOfficeRole(req)
+    // Office roles can override any job. A Crew Leader (team_leader_foreperson) can also adjust
+    // Production % on this one action, but only for a job their own QPaint team is actually
+    // scheduled on — the restricted Field "my Production" page's one editable control.
+    const user = await requireUser(req)
+    if (!isOfficeRole(user)) {
+      if (user.role !== 'team_leader_foreperson' || !user.teamId) throw new HttpError(403, 'Requires office access')
+      const [team] = await db.select({ type: teams.type }).from(teams).where(eq(teams.id, user.teamId)).limit(1)
+      if (!team || team.type !== 'QPaint') throw new HttpError(403, 'Requires office access')
+      const [ownBlock] = await db
+        .select({ id: scheduleBlocks.id })
+        .from(scheduleBlocks)
+        .where(and(eq(scheduleBlocks.jobId, id), eq(scheduleBlocks.teamId, user.teamId)))
+        .limit(1)
+      if (!ownBlock) throw new HttpError(403, "Not your team's job")
+    }
     const body = await parseJsonBody(req)
     const override = body.override as number | null
     const [updated] = await db

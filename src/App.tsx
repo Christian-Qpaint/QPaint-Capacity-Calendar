@@ -19,6 +19,7 @@ import { CrmBoard } from '@/pages/office/deals/CrmBoard'
 import { CrmConfig } from '@/pages/office/deals/CrmConfig'
 import { LogHours } from '@/pages/field/LogHours'
 import { UpdateProgress } from '@/pages/field/UpdateProgress'
+import { CrewProduction } from '@/pages/field/CrewProduction'
 
 function RoleHome() {
   const { hasPermission } = usePermissions()
@@ -87,6 +88,9 @@ function App() {
           <Route path="/log-hours" element={<LogHours />} />
           <Route element={<RequirePermission permissionKey="field.update_progress" />}>
             <Route path="/update-progress" element={<UpdateProgress />} />
+          </Route>
+          <Route element={<RequirePermission permissionKey="field.view_production" />}>
+            <Route path="/my-production" element={<CrewProduction />} />
           </Route>
         </Route>
       </Route>

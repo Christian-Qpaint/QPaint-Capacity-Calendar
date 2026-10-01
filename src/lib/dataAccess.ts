@@ -239,7 +239,12 @@ export function getJobProgress(db: DB, job: Job): JobProgress {
   const phases = db.scheduleBlocks.filter((b) => b.jobId === job.id)
   const dealValue = job.totalValue
   const computedActualDollars = phases.reduce((sum, b) => sum + blockValue(b, job) * (b.percentComplete / 100), 0)
-  const computedProductionPercent = dealValue > 0 ? (computedActualDollars / dealValue) * 100 : 0
+  // Computed as the hours-weighted average of each phase's Progress%, not dollars/dealValue — the
+  // two are mathematically equivalent (each phase's $ value is itself proportional to its hours),
+  // but staying hours-based keeps this correct even when dealValue arrives masked to null (e.g.
+  // data-bootstrap.mts nulls totalValue for non-office roles).
+  const computedProductionPercent =
+    job.targetHours > 0 ? phases.reduce((sum, b) => sum + (b.phaseHours / job.targetHours) * (b.percentComplete / 100), 0) * 100 : 0
   const useOverride = job.productionPercentSource === 'manual' && job.productionPercentOverride != null
   const productionPercent = useOverride ? job.productionPercentOverride! : computedProductionPercent
   const actualDollars = useOverride ? dealValue * (productionPercent / 100) : computedActualDollars
