@@ -27,10 +27,11 @@ export function contractorDirectoryTier(role: Role): ContractorDirectoryTier {
   return 'none'
 }
 
-/** Update Progress: Foreperson-only for site entry, but office roles retain the same
- * office-fallback pattern as Daily Hours (Decision 27) — never Painter/Crew Member. */
+/** Update Progress — office roles only. Crew Leaders used to get this too (Foreperson-only site
+ * entry), but their only Field capability now is Production % on their own restricted Production
+ * page; Painter/Crew Member never had it. */
 export function canAccessUpdateProgress(role: Role): boolean {
-  return role !== 'painter_crew_member'
+  return role !== 'painter_crew_member' && role !== 'team_leader_foreperson'
 }
 
 export function isOfficeRole(role: Role): boolean {

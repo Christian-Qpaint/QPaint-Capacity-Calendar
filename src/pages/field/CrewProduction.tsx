@@ -4,11 +4,9 @@ import { useData } from '@/context/DataContext'
 import { useCurrentUser } from '@/context/AuthContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
 import { jobDisplayName } from '@/lib/jobDisplay'
-import { todayIso } from '@/lib/schedule'
 import { cn } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
 import { CategoryPill } from '@/components/StatusBadges'
@@ -17,15 +15,13 @@ import { StagePill } from '@/components/StagePill'
 import { Clock, Pencil, Percent } from 'lucide-react'
 import type { Job } from '@/types'
 
-const TODAY = todayIso()
-
 /** One job card for the restricted Crew Leader Production view — deliberately a standalone
  * component rather than reusing CapacityBoard's JobProgressCard (same "separate, minimal page"
- * pattern as SalesAvailability.tsx): no dollar figures anywhere, Production % is always editable
- * (this whole page only exists for a Crew Leader's own team), and it adds a quick-entry "Hours
- * from them" input the office Production page doesn't have. */
+ * pattern as SalesAvailability.tsx): no dollar figures anywhere, and Production % is the only
+ * editable control — Crew Leaders have no other Field capability (no Log Hours, no Update
+ * Progress). "Hours from your team" is shown as a read-only total only. */
 function CrewJobCard({ job }: { job: Job }) {
-  const { clients, jobStages, scheduleBlocks, dailyHoursEntries, updateJobProduction, addDailyHoursEntry } = useData()
+  const { clients, jobStages, scheduleBlocks, dailyHoursEntries, updateJobProduction } = useData()
   const currentUser = useCurrentUser()
   const da = useDataAccess()
   const progress = da.getJobProgress(job)
@@ -56,43 +52,17 @@ function CrewJobCard({ job }: { job: Job }) {
 
   const hoursPercent = progress.targetHours > 0 ? (progress.actualHours / progress.targetHours) * 100 : progress.actualHours > 0 ? 100 : 0
 
-  // "Hours from them" — scoped to only this team's own blocks on this job, distinct from the
-  // Pipedrive-sourced Actual Hours above. Logging writes a normal daily_hours_entries row (the
-  // same table/endpoint LogHours.tsx already uses), just as a quick-entry field right on the card
-  // instead of a separate page.
-  const blocksForJob = useMemo(
-    () => scheduleBlocks.filter((b) => b.jobId === job.id && b.teamId === currentUser.teamId),
+  // "Hours from your team" — read-only total scoped to only this team's own blocks on this job,
+  // distinct from the Pipedrive-sourced Actual Hours above. Crew Leaders can see it but no longer
+  // log hours themselves from here (or anywhere else).
+  const blockIdsForJob = useMemo(
+    () => new Set(scheduleBlocks.filter((b) => b.jobId === job.id && b.teamId === currentUser.teamId).map((b) => b.id)),
     [scheduleBlocks, job.id, currentUser.teamId],
   )
-  const blockIdsForJob = useMemo(() => new Set(blocksForJob.map((b) => b.id)), [blocksForJob])
   const loggedHours = useMemo(
     () => dailyHoursEntries.filter((e) => blockIdsForJob.has(e.scheduleBlockId)).reduce((sum, e) => sum + e.hours, 0),
     [dailyHoursEntries, blockIdsForJob],
   )
-  const activeBlock = blocksForJob.find((b) => b.startDate <= TODAY && b.endDate >= TODAY)
-
-  const [hoursInput, setHoursInput] = useState('')
-  const [loggingHours, setLoggingHours] = useState(false)
-
-  async function handleLogHours() {
-    if (!activeBlock || !hoursInput) return
-    setLoggingHours(true)
-    try {
-      await addDailyHoursEntry({
-        scheduleBlockId: activeBlock.id,
-        teamId: currentUser.teamId!,
-        enteredByUserId: currentUser.id,
-        date: TODAY,
-        hours: Number(hoursInput),
-      })
-      toast.success('Hours logged')
-      setHoursInput('')
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to log hours')
-    } finally {
-      setLoggingHours(false)
-    }
-  }
 
   return (
     <Card className="gap-3 p-4">
@@ -173,28 +143,9 @@ function CrewJobCard({ job }: { job: Job }) {
         <p className="text-[11px] text-muted-foreground">Pipedrive — locked</p>
       </div>
 
-      <div className="space-y-1.5 border-t border-border pt-3">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-medium text-muted-foreground">Hours from your team</p>
-          <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">{loggedHours} hrs logged</Badge>
-        </div>
-        {activeBlock ? (
-          <div className="flex items-center gap-1.5">
-            <Input
-              type="number"
-              step="0.5"
-              placeholder="Hours today"
-              className="h-8"
-              value={hoursInput}
-              onChange={(e) => setHoursInput(e.target.value)}
-            />
-            <Button size="sm" className="h-8 shrink-0" onClick={handleLogHours} disabled={!hoursInput || loggingHours}>
-              {loggingHours ? 'Logging…' : 'Log'}
-            </Button>
-          </div>
-        ) : (
-          <p className="text-xs text-muted-foreground">Not scheduled for your team today.</p>
-        )}
+      <div className="flex items-center justify-between border-t border-border pt-3">
+        <p className="text-xs font-medium text-muted-foreground">Hours from your team</p>
+        <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">{loggedHours} hrs logged</Badge>
       </div>
     </Card>
   )
@@ -228,7 +179,7 @@ export function CrewProduction() {
     <div className="space-y-4">
       <div>
         <h1 className="text-lg font-medium">Production — {myTeam.name}</h1>
-        <p className="text-sm text-muted-foreground">Your team's jobs — Production % and hours only, no dollar values.</p>
+        <p className="text-sm text-muted-foreground">Your team's jobs — adjust Production %, no dollar values.</p>
       </div>
 
       <div className="grid grid-cols-1 gap-3">

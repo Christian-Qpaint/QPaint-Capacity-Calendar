@@ -84,12 +84,14 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: 'settings.manage_users', page: 'Settings', label: 'Manage Users & Permissions', description: 'Open this screen — view accounts and change permissions. Owner only by default.', defaultForRole: (role) => role === 'owner' },
 
   // Field
-  { key: 'field.log_hours', page: 'Field', label: 'Log daily hours', description: 'Submit daily hours worked.', defaultForRole: () => true },
+  // Crew Leaders no longer get Log Hours / Update Progress at all — their only Field capability is
+  // Production % on their own restricted Production page below. Painter/Crew Member keeps Log Hours.
+  { key: 'field.log_hours', page: 'Field', label: 'Log daily hours', description: 'Submit daily hours worked.', defaultForRole: (role) => role !== 'team_leader_foreperson' },
   { key: 'field.update_progress', page: 'Field', label: 'Update job progress', description: 'Submit on-site production/progress updates.', defaultForRole: canAccessUpdateProgress },
   // Crew Leader-only restricted Production view — card-only, no dollars, scoped to their own
   // QPaint team's jobs. A deliberately separate page/permission from production.view (the full
   // office Capacity Board) rather than a variant of it, same pattern as sales.view_availability.
-  { key: 'field.view_production', page: 'Field', label: 'View team Production cards', description: 'Crew Leaders: view their own QPaint team\'s job cards (no dollar values), adjust Production %, and log hours.', defaultForRole: (role) => role === 'team_leader_foreperson' },
+  { key: 'field.view_production', page: 'Field', label: 'View team Production cards', description: 'Crew Leaders: view their own QPaint team\'s job cards (no dollar values) and adjust Production % — their only Field capability.', defaultForRole: (role) => role === 'team_leader_foreperson' },
 ]
 
 export function findPermission(key: string): PermissionDef | undefined {

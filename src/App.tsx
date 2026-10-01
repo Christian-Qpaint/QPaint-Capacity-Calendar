@@ -29,6 +29,9 @@ function RoleHome() {
   if (hasPermission('scheduler.view')) return <Navigate to="/calendar" replace />
   if (hasPermission('sales.view_availability')) return <Navigate to="/sales" replace />
   if (hasPermission('marketing.view')) return <Navigate to="/marketing" replace />
+  // Crew Leaders have no other permission above (no office/CRM/marketing access) and no longer
+  // have field.log_hours either — their only Field page is their restricted Production view.
+  if (hasPermission('field.view_production')) return <Navigate to="/my-production" replace />
   return <Navigate to="/log-hours" replace />
 }
 
@@ -85,7 +88,9 @@ function App() {
         </Route>
 
         <Route element={<FieldLayout />}>
-          <Route path="/log-hours" element={<LogHours />} />
+          <Route element={<RequirePermission permissionKey="field.log_hours" />}>
+            <Route path="/log-hours" element={<LogHours />} />
+          </Route>
           <Route element={<RequirePermission permissionKey="field.update_progress" />}>
             <Route path="/update-progress" element={<UpdateProgress />} />
           </Route>

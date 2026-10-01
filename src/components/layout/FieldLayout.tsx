@@ -1,12 +1,9 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { AccountMenu } from '@/components/AccountMenu'
-import { useCurrentUser } from '@/context/AuthContext'
 import { usePermissions } from '@/context/PermissionsContext'
-import { canAccessUpdateProgress } from '@/lib/permissions'
 
 export function FieldLayout() {
-  const currentUser = useCurrentUser()
   const { hasPermission } = usePermissions()
 
   return (
@@ -18,18 +15,20 @@ export function FieldLayout() {
             <AccountMenu />
           </div>
           <nav className="flex items-center gap-1">
-            <NavLink
-              to="/log-hours"
-              className={({ isActive }) =>
-                cn(
-                  'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-                  isActive ? 'bg-secondary text-secondary-foreground' : 'text-muted-foreground hover:text-foreground',
-                )
-              }
-            >
-              Log Hours
-            </NavLink>
-            {canAccessUpdateProgress(currentUser.role) && (
+            {hasPermission('field.log_hours') && (
+              <NavLink
+                to="/log-hours"
+                className={({ isActive }) =>
+                  cn(
+                    'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                    isActive ? 'bg-secondary text-secondary-foreground' : 'text-muted-foreground hover:text-foreground',
+                  )
+                }
+              >
+                Log Hours
+              </NavLink>
+            )}
+            {hasPermission('field.update_progress') && (
               <NavLink
                 to="/update-progress"
                 className={({ isActive }) =>
