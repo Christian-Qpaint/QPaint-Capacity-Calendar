@@ -22,19 +22,17 @@ const TONE_FILL: Record<PaceTone, string> = {
   neutral: 'bg-muted-foreground',
 }
 
-/** "Are we doing well?" is only about hours: using fewer than allotted just means the hours aren't
- * used up yet. The one red flag is working more hours than were allotted — the overage is a loss. */
+/** Hours only: the number of hours over or under the allotment. Going over is the red flag — the
+ * overage is a loss; being under just means the hours aren't used up yet. */
 function paceStatus(
   actualHours: number,
   allottedHours: number,
-): { tone: PaceTone; label: string; hint: string; icon: LucideIcon } {
-  const over = Math.round(actualHours - allottedHours)
-  if (actualHours > allottedHours && over > 0) {
-    return { tone: 'danger', label: `Red flag: ${over} hrs over allotted`, hint: 'these extra hours are a loss on the job', icon: TriangleAlert }
-  }
-  if (actualHours <= 0) return { tone: 'success', label: 'In progress', hint: 'no hours used yet', icon: CircleDashed }
-  const left = Math.max(0, Math.round(allottedHours - actualHours))
-  return { tone: 'success', label: 'Within allotted hours', hint: `${left} hrs still available`, icon: CircleCheck }
+): { tone: PaceTone; label: string; icon: LucideIcon } {
+  const diff = Math.round(actualHours - allottedHours)
+  if (diff > 0) return { tone: 'danger', label: `${diff} hrs over`, icon: TriangleAlert }
+  const icon = actualHours <= 0 ? CircleDashed : CircleCheck
+  if (diff === 0) return { tone: 'success', label: 'On the allotted hours', icon }
+  return { tone: 'success', label: `${-diff} hrs under`, icon }
 }
 
 /** One current job, for the restricted Crew Leader view — deliberately a standalone component
@@ -133,13 +131,28 @@ function CrewJobCard({ job }: { job: Job }) {
       </div>
 
       <div className="space-y-1.5">
-        <div className="relative h-5 overflow-hidden rounded-full bg-card">
-          <div className="absolute inset-y-0 left-0 rounded-full bg-muted-foreground/30" style={{ width: `${allottedPct}%` }} />
-          <div
-            className={cn('absolute inset-y-0 left-0 rounded-full', TONE_FILL[status.tone])}
-            style={{ width: `${actualPct}%`, minWidth: progress.actualHours > 0 ? undefined : 4 }}
-          />
-          {over && <div className="absolute inset-y-0 w-0.5 bg-background" style={{ left: `${allottedPct}%` }} aria-hidden="true" />}
+        <div className={cn('relative', over && 'pt-5')}>
+          {over && (
+            <MapPin
+              className="absolute top-0 size-5 -translate-x-1/2 fill-background text-foreground"
+              style={{ left: `${allottedPct}%` }}
+              aria-label="Allotted hours end here"
+            />
+          )}
+          <div className="relative h-5 overflow-hidden rounded-full bg-card">
+            <div className="absolute inset-y-0 left-0 rounded-full bg-muted-foreground/30" style={{ width: `${allottedPct}%` }} />
+            <div
+              className={cn('absolute inset-y-0 left-0 rounded-full', TONE_FILL[status.tone])}
+              style={{ width: `${actualPct}%`, minWidth: progress.actualHours > 0 ? undefined : 4 }}
+            />
+            {over && (
+              <div
+                className="absolute inset-y-0 w-1.5 -translate-x-1/2 bg-background shadow-[0_0_0_1px_rgba(0,0,0,0.35)]"
+                style={{ left: `${allottedPct}%` }}
+                aria-hidden="true"
+              />
+            )}
+          </div>
         </div>
         <div className="flex items-center justify-between text-[11px] text-muted-foreground">
           <span className="flex items-center gap-1.5"><span className="size-2 rounded-sm bg-muted-foreground/30" />Allotted {Math.round(progress.targetHours)}</span>
@@ -149,15 +162,13 @@ function CrewJobCard({ job }: { job: Job }) {
 
       <div
         className={cn(
-          'flex items-start gap-2 rounded-md px-2.5 py-2 text-xs',
+          'flex items-center gap-2 rounded-md px-2.5 py-2',
           status.tone === 'success' && 'bg-success-bg text-success',
           status.tone === 'danger' && 'bg-danger-bg text-danger',
         )}
       >
-        <StatusIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-        <p>
-          <span className="font-medium">{status.label}</span> <span className="opacity-80">— {status.hint}</span>
-        </p>
+        <StatusIcon className="size-4 shrink-0" aria-hidden="true" />
+        <p className="text-sm font-semibold">{status.label}</p>
       </div>
 
       <div className="space-y-1.5 border-t border-border pt-3">
