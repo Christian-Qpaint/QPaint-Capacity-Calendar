@@ -1,7 +1,5 @@
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { Bar, BarChart, Cell, LabelList, XAxis, YAxis } from 'recharts'
-import { ChartContainer } from '@/components/ui/chart'
 import { useData } from '@/context/DataContext'
 import { useCurrentUser } from '@/context/AuthContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
@@ -11,20 +9,19 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
-import { CategoryPill } from '@/components/StatusBadges'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ClientTypeIcon } from '@/components/ClientTypeIcon'
 import { StagePill } from '@/components/StagePill'
-import { TeamColorDot } from '@/components/TeamColorDot'
-import { ChartColumn, CircleCheck, CircleDashed, Clock, Flag, Lock, MapPin, Pencil, Percent, TriangleAlert, Users, type LucideIcon } from 'lucide-react'
-import type { Job, Team } from '@/types'
+import { ChartColumn, CircleCheck, CircleDashed, Flag, Pencil, Percent, TriangleAlert, type LucideIcon } from 'lucide-react'
+import type { Job } from '@/types'
 
 type PaceTone = 'success' | 'warning' | 'danger' | 'neutral'
 
 const TONE_FILL: Record<PaceTone, string> = {
-  success: 'var(--success-fill)',
-  warning: 'var(--warning-fill)',
-  danger: 'var(--danger-fill)',
-  neutral: 'var(--muted-foreground)',
+  success: 'bg-success-fill',
+  warning: 'bg-warning-fill',
+  danger: 'bg-danger-fill',
+  neutral: 'bg-muted-foreground',
 }
 
 /** "Are we doing well?" is only about hours: using fewer than allotted just means the hours aren't
@@ -42,12 +39,10 @@ function paceStatus(
   return { tone: 'success', label: 'Within allotted hours', hint: `${left} hrs still available`, icon: CircleCheck }
 }
 
-/** One job card for the restricted Crew Leader Production view — deliberately a standalone
- * component rather than reusing CapacityBoard's JobProgressCard (same "separate, minimal page"
- * pattern as SalesAvailability.tsx): no dollar figures anywhere, and Production % is the only
- * editable control — Crew Leaders have no other Field capability (no Log Hours, no Update
- * Progress). "Hours from your team" is shown as a read-only total only. */
-function CrewJobCard({ job, team }: { job: Job; team: Team }) {
+/** One row of the Crew Leader's jobs table. Production % is the only editable cell — Crew Leaders
+ * have no other Field capability. Allotted/Actual hours are Pipedrive-sourced and read-only, and
+ * "Logged" is the team's own logged-hours total, also read-only. */
+function CrewJobRow({ job }: { job: Job }) {
   const { clients, jobStages, scheduleBlocks, dailyHoursEntries, updateJobProduction } = useData()
   const currentUser = useCurrentUser()
   const da = useDataAccess()
@@ -77,11 +72,6 @@ function CrewJobCard({ job, team }: { job: Job; team: Team }) {
     }
   }
 
-  const hoursPercent = progress.targetHours > 0 ? (progress.actualHours / progress.targetHours) * 100 : progress.actualHours > 0 ? 100 : 0
-
-  // "Hours from your team" — read-only total scoped to only this team's own blocks on this job,
-  // distinct from the Pipedrive-sourced Actual Hours above. Crew Leaders can see it but no longer
-  // log hours themselves from here (or anywhere else).
   const blockIdsForJob = useMemo(
     () => new Set(scheduleBlocks.filter((b) => b.jobId === job.id && b.teamId === currentUser.teamId).map((b) => b.id)),
     [scheduleBlocks, job.id, currentUser.teamId],
@@ -91,81 +81,27 @@ function CrewJobCard({ job, team }: { job: Job; team: Team }) {
     [dailyHoursEntries, blockIdsForJob],
   )
 
-  const status = paceStatus(progress.actualHours, progress.targetHours)
-  const StatusIcon = status.icon
+  const over = progress.isOverBudget
+  const overBy = Math.round(progress.actualHours - progress.targetHours)
 
   return (
-    <Card
-      className={cn(
-        'gap-3 border-l-4 p-4 transition hover:shadow-md',
-        status.tone === 'success' && 'border-l-success-fill',
-        status.tone === 'warning' && 'border-l-warning',
-        status.tone === 'danger' && 'border-l-danger',
-        status.tone === 'neutral' && 'border-l-transparent',
-      )}
-    >
-      <div className="space-y-2">
-        <div className="min-w-0 space-y-0.5">
-          <p className="flex items-center gap-1.5 text-sm font-semibold">
-            <MapPin className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-            <span className="truncate">{jobDisplayName(job)}</span>
-          </p>
-          <p className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
-            {client && <ClientTypeIcon type={client.type} />}
-            {client?.name ?? 'Unknown client'}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <CategoryPill category={job.category} />
-          {stage && <StagePill stage={stage} />}
-          {team && (
-            <span className="flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-              <TeamColorDot team={team} />
-              {team.name}
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div
-        className={cn(
-          'flex items-start gap-2 rounded-md px-2.5 py-2 text-xs',
-          status.tone === 'success' && 'bg-success-bg text-success',
-          status.tone === 'warning' && 'bg-warning-bg text-warning',
-          status.tone === 'danger' && 'bg-danger-bg text-danger',
-          status.tone === 'neutral' && 'bg-muted text-muted-foreground',
-        )}
-      >
-        <StatusIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-        <p>
-          <span className="font-medium">{status.label}</span> <span className="opacity-80">— {status.hint}</span>
+    <TableRow className={cn('align-top', over && 'bg-danger-bg/30 hover:bg-danger-bg/40')}>
+      <TableCell className="min-w-44 max-w-64 whitespace-normal">
+        <p className="line-clamp-2 text-sm font-medium">{jobDisplayName(job)}</p>
+        <p className="mt-0.5 flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+          {client && <ClientTypeIcon type={client.type} />}
+          {client?.name ?? 'Unknown client'}
         </p>
-      </div>
-
-      <div className="space-y-1.5 border-t border-border pt-3">
-        <div className="flex items-center justify-between">
-          <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-            <Percent className="size-3.5" /> Production
-          </p>
-          {!editingProduction && (
-            <div className="flex items-center gap-1.5">
-              <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">
-                {job.productionPercentSource === 'manual' ? 'Manual' : 'Computed'}
-              </Badge>
-              <button
-                onClick={openEditProduction}
-                aria-label="Edit production percent"
-                className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <Pencil className="size-3.5" />
-              </button>
-            </div>
-          )}
-        </div>
-
+        {stage && (
+          <div className="mt-1.5">
+            <StagePill stage={stage} />
+          </div>
+        )}
+      </TableCell>
+      <TableCell className="min-w-36 whitespace-normal">
         {editingProduction ? (
           <div className="space-y-2">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               <Slider
                 value={[productionValue]}
                 min={0}
@@ -174,7 +110,7 @@ function CrewJobCard({ job, team }: { job: Job; team: Team }) {
                 onValueChange={(v) => setProductionValue(Array.isArray(v) ? v[0] : v)}
                 className="flex-1"
               />
-              <span className="w-12 shrink-0 text-right text-sm font-medium">{productionValue}%</span>
+              <span className="w-10 shrink-0 text-right text-sm font-medium">{productionValue}%</span>
             </div>
             <div className="flex items-center gap-1.5">
               <Button size="sm" className="h-7" onClick={handleSaveProduction} disabled={savingProduction}>Save</Button>
@@ -182,56 +118,42 @@ function CrewJobCard({ job, team }: { job: Job; team: Team }) {
             </div>
           </div>
         ) : (
-          <div className="flex items-center gap-3">
-            <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-success-fill transition-[width]"
-                style={{ width: `${Math.min(100, Math.max(0, progress.productionPercent))}%` }}
-              />
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-16 shrink-0 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-success-fill"
+                  style={{ width: `${Math.min(100, Math.max(0, progress.productionPercent))}%` }}
+                />
+              </div>
+              <span className="text-sm font-semibold">{Math.round(progress.productionPercent)}%</span>
+              <button
+                onClick={openEditProduction}
+                aria-label="Edit production percent"
+                className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <Pencil className="size-3.5" />
+              </button>
             </div>
-            <span className="w-12 shrink-0 text-right text-sm font-semibold">{Math.round(progress.productionPercent)}%</span>
+            <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">
+              {job.productionPercentSource === 'manual' ? 'Manual' : 'Computed'}
+            </Badge>
           </div>
         )}
-      </div>
-
-      <div className="space-y-1.5 border-t border-border pt-3">
-        <div className="flex items-center justify-between">
-          <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-            <Clock className="size-3.5" /> Hours
-          </p>
-          {progress.isOverBudget ? (
-            <span className="flex items-center gap-1 rounded-md bg-danger-bg px-1.5 py-0.5 text-xs font-medium text-danger animate-pulse">
-              <Flag className="size-3" /> Over allotted
-            </span>
-          ) : (
-            <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-              <Lock className="size-3" aria-hidden="true" /> Pipedrive
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
-            <div
-              className={cn('h-full rounded-full transition-[width]', progress.isOverBudget ? 'bg-danger-fill' : 'bg-info-fill')}
-              style={{ width: `${Math.min(100, Math.max(0, hoursPercent))}%` }}
-            />
-          </div>
-          <span className={cn('w-12 shrink-0 text-right text-sm font-semibold', progress.isOverBudget && 'text-danger')}>
-            {Math.round(hoursPercent)}%
+      </TableCell>
+      <TableCell className="text-right text-sm tabular-nums">{Math.round(progress.targetHours)}</TableCell>
+      <TableCell className="text-right">
+        <span className={cn('text-sm tabular-nums', over ? 'font-semibold text-danger' : 'font-medium')}>
+          {Math.round(progress.actualHours)}
+        </span>
+        {over && (
+          <span className="mt-0.5 flex items-center justify-end gap-1 text-[11px] font-medium text-danger">
+            <Flag className="size-3" /> +{overBy} over
           </span>
-        </div>
-        <p className={cn('text-xs', progress.isOverBudget ? 'font-medium text-danger' : 'text-muted-foreground')}>
-          {Math.round(progress.actualHours)} <span className={progress.isOverBudget ? '' : 'text-muted-foreground/60'}>of</span> {progress.targetHours} hrs allotted
-        </p>
-      </div>
-
-      <div className="flex items-center justify-between border-t border-border pt-3">
-        <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <Users className="size-3.5" /> Hours from your team
-        </p>
-        <Badge variant="secondary" className="text-xs font-medium">{loggedHours} hrs logged</Badge>
-      </div>
-    </Card>
+        )}
+      </TableCell>
+      <TableCell className="text-right text-sm tabular-nums text-muted-foreground">{loggedHours}</TableCell>
+    </TableRow>
   )
 }
 
@@ -239,9 +161,9 @@ const FINISHED_STAGE_PATTERN = /completed/i
 const IN_PROGRESS_STAGE_PATTERN = /in progress/i
 const FINISHED_HIDE_AFTER_MS = 28 * 86_400_000
 
-/** Crew Leader's own restricted Production view — cards only, for their own QPaint team's jobs
- * only, no dollar figures anywhere. Same "deliberately minimal, standalone page" pattern as
- * SalesAvailability.tsx rather than branching the full office CapacityBoard. */
+/** Crew Leader's own restricted Production view — for their own QPaint team's jobs only, no dollar
+ * figures anywhere. Same "deliberately minimal, standalone page" pattern as SalesAvailability.tsx
+ * rather than branching the full office CapacityBoard. */
 export function CrewProduction() {
   const { jobs, teams, scheduleBlocks, jobStages } = useData()
   const currentUser = useCurrentUser()
@@ -272,10 +194,12 @@ export function CrewProduction() {
     let totalHours = 0
     let usedHours = 0
     let jobsOver = 0
+    let weightedProduction = 0
     for (const job of myJobs) {
       const progress = da.getJobProgress(job)
       totalHours += progress.targetHours
       usedHours += progress.actualHours
+      weightedProduction += Math.min(100, Math.max(0, progress.productionPercent)) * progress.targetHours
       if (progress.actualHours > progress.targetHours) jobsOver += 1
     }
     let status = paceStatus(usedHours, totalHours)
@@ -288,16 +212,18 @@ export function CrewProduction() {
         icon: TriangleAlert,
       }
     }
-    return { totalHours, usedHours, status }
+    // Overall progress across the team's jobs, weighted by each job's allotted hours.
+    const production = totalHours > 0 ? weightedProduction / totalHours : 0
+    return { totalHours, usedHours, status, production }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myJobs, da.db])
 
-  const totalOver = summary.usedHours > summary.totalHours
   const SummaryIcon = summary.status.icon
-  const hoursChartData = [
-    { name: 'Allotted', hours: Math.round(summary.totalHours), fill: 'var(--muted-foreground)', opacity: 0.4 },
-    { name: 'Actual', hours: Math.round(summary.usedHours), fill: TONE_FILL[summary.status.tone], opacity: 1 },
-  ]
+  const totalOver = summary.usedHours > summary.totalHours
+  // One shared scale so the actual bar can overlap the allotted bar and still spill past it when over.
+  const scaleMax = Math.max(summary.totalHours, summary.usedHours, 1)
+  const allottedPct = (summary.totalHours / scaleMax) * 100
+  const actualPct = (summary.usedHours / scaleMax) * 100
 
   if (!myTeam || myTeam.type !== 'QPaint') {
     return (
@@ -332,6 +258,7 @@ export function CrewProduction() {
             <p className="text-xs text-muted-foreground">Allotted vs actual — all {myJobs.length} jobs combined</p>
           </div>
         </div>
+
         <div className="grid grid-cols-2 gap-2">
           <div className="rounded-lg bg-card px-3 py-2 shadow-xs">
             <p className="text-[11px] text-muted-foreground">Allotted hours</p>
@@ -342,18 +269,24 @@ export function CrewProduction() {
             <p className={cn('text-2xl font-bold tracking-tight', totalOver && 'text-danger')}>{Math.round(summary.usedHours)}</p>
           </div>
         </div>
-        <ChartContainer config={{}} className="h-24 w-full">
-          <BarChart data={hoursChartData} layout="vertical" barCategoryGap={10} margin={{ left: 0, right: 40, top: 0, bottom: 0 }}>
-            <XAxis type="number" hide domain={[0, 'dataMax']} />
-            <YAxis type="category" dataKey="name" width={60} tickLine={false} axisLine={false} fontSize={12} />
-            <Bar dataKey="hours" radius={4} maxBarSize={26} minPointSize={3} isAnimationActive={false}>
-              {hoursChartData.map((d) => (
-                <Cell key={d.name} fill={d.fill} fillOpacity={d.opacity} />
-              ))}
-              <LabelList dataKey="hours" position="right" fontSize={13} fontWeight={600} fill="currentColor" />
-            </Bar>
-          </BarChart>
-        </ChartContainer>
+
+        <div className="space-y-1.5">
+          <div className="relative h-5 overflow-hidden rounded-full bg-card">
+            <div className="absolute inset-y-0 left-0 rounded-full bg-muted-foreground/30" style={{ width: `${allottedPct}%` }} />
+            <div
+              className={cn('absolute inset-y-0 left-0 rounded-full', TONE_FILL[summary.status.tone])}
+              style={{ width: `${actualPct}%`, minWidth: summary.usedHours > 0 ? undefined : 4 }}
+            />
+            {totalOver && (
+              <div className="absolute inset-y-0 w-0.5 bg-background" style={{ left: `${allottedPct}%` }} aria-hidden="true" />
+            )}
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+            <span className="flex items-center gap-1.5"><span className="size-2 rounded-sm bg-muted-foreground/30" />Allotted {Math.round(summary.totalHours)}</span>
+            <span className="flex items-center gap-1.5"><span className={cn('size-2 rounded-sm', TONE_FILL[summary.status.tone])} />Actual {Math.round(summary.usedHours)}</span>
+          </div>
+        </div>
+
         <div
           className={cn(
             'flex items-start gap-2 rounded-md px-2.5 py-2 text-xs',
@@ -369,6 +302,22 @@ export function CrewProduction() {
             <span className="opacity-80">— {summary.status.hint}</span>
           </p>
         </div>
+
+        <div className="space-y-1.5 border-t border-border pt-3">
+          <div className="flex items-center justify-between">
+            <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <Percent className="size-3.5" /> Production
+            </p>
+            <span className="text-lg font-bold tracking-tight">{Math.round(summary.production)}%</span>
+          </div>
+          <div className="h-5 overflow-hidden rounded-full bg-card">
+            <div
+              className="h-full rounded-full bg-success-fill transition-[width]"
+              style={{ width: `${summary.production}%`, minWidth: summary.production > 0 ? undefined : 4 }}
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground">Overall progress across your jobs, weighted by allotted hours</p>
+        </div>
       </Card>
 
       <div className="flex items-center gap-2 pt-2">
@@ -377,15 +326,30 @@ export function CrewProduction() {
         <span className="h-px flex-1 bg-border" />
       </div>
 
-      <div className="grid grid-cols-1 gap-3">
-        {myJobs.length === 0 && (
-          <p className="rounded-md border border-dashed border-border py-8 text-center text-sm text-muted-foreground">
-            No in-progress or recently completed jobs for your team.
-          </p>
-        )}
-        {myJobs.map((job) => (
-          <CrewJobCard key={job.id} job={job} team={myTeam} />
-        ))}
+      <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Job</TableHead>
+              <TableHead>Production</TableHead>
+              <TableHead className="text-right">Allotted hrs</TableHead>
+              <TableHead className="text-right">Actual hrs</TableHead>
+              <TableHead className="text-right">Logged hrs</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {myJobs.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
+                  No in-progress or recently completed jobs for your team.
+                </TableCell>
+              </TableRow>
+            )}
+            {myJobs.map((job) => (
+              <CrewJobRow key={job.id} job={job} />
+            ))}
+          </TableBody>
+        </Table>
       </div>
     </div>
   )
