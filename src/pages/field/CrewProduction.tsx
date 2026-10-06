@@ -20,6 +20,13 @@ import type { Job, Team } from '@/types'
 
 type PaceTone = 'success' | 'warning' | 'danger' | 'neutral'
 
+const TONE_FILL: Record<PaceTone, string> = {
+  success: 'var(--success-fill)',
+  warning: 'var(--warning-fill)',
+  danger: 'var(--danger-fill)',
+  neutral: 'var(--muted-foreground)',
+}
+
 /** A quiet "are we doing well?" read — compares how much of the allotted hours are used against
  * how much of the job is done. Hours running ahead of progress is the early warning; actual over
  * allotted is the hard red flag. */
@@ -270,27 +277,29 @@ export function CrewProduction() {
   }, [jobs, scheduleBlocks, jobStages, myTeam])
 
   const summary = useMemo(() => {
-    const stageById = new Map(jobStages.map((s) => [s.id, s]))
     let totalHours = 0
     let usedHours = 0
-    const done: { name: string; total: number; used: number; over: boolean }[] = []
+    const rows: { id: string; name: string; allotted: number; used: number; tone: PaceTone; label: string }[] = []
+    const counts: Record<PaceTone, number> = { success: 0, warning: 0, danger: 0, neutral: 0 }
     for (const job of myJobs) {
       const progress = da.getJobProgress(job)
       totalHours += progress.targetHours
       usedHours += progress.actualHours
-      const stageName = job.stageId ? stageById.get(job.stageId)?.name : undefined
-      if (stageName && FINISHED_STAGE_PATTERN.test(stageName)) {
-        done.push({
-          name: shortJobName(job.address),
-          total: Math.round(progress.targetHours),
-          used: Math.round(progress.actualHours),
-          over: progress.isOverBudget,
-        })
-      }
+      const hoursPercent = progress.targetHours > 0 ? (progress.actualHours / progress.targetHours) * 100 : progress.actualHours > 0 ? 100 : 0
+      const status = paceStatus(progress.productionPercent, hoursPercent, progress.actualHours, progress.isOverBudget)
+      counts[status.tone] += 1
+      rows.push({
+        id: job.id,
+        name: shortJobName(job.address),
+        allotted: Math.round(progress.targetHours),
+        used: Math.round(progress.actualHours),
+        tone: status.tone,
+        label: status.label,
+      })
     }
-    return { totalHours, usedHours, done }
+    return { totalHours, usedHours, rows, counts }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myJobs, jobStages, da.db])
+  }, [myJobs, da.db])
 
   const totalOver = summary.usedHours > summary.totalHours
 
@@ -328,24 +337,36 @@ export function CrewProduction() {
         )}
 
         <div className="space-y-1.5 border-t border-border pt-3">
-          <p className="text-xs font-medium text-muted-foreground">Finished jobs — hours used vs total</p>
-          {summary.done.length === 0 ? (
-            <p className="py-4 text-center text-xs text-muted-foreground">No finished jobs in the last 4 weeks.</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-medium text-muted-foreground">Hours used vs allotted — every job</p>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-success-fill" />{summary.counts.success} on track</span>
+              <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-warning-fill" />{summary.counts.warning} watch</span>
+              <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-danger-fill" />{summary.counts.danger} over / behind</span>
+            </div>
+          </div>
+          {summary.rows.length === 0 ? (
+            <p className="py-4 text-center text-xs text-muted-foreground">No jobs to chart yet.</p>
           ) : (
-            <ChartContainer config={{}} className="w-full" style={{ height: summary.done.length * 44 + 24 }}>
-              <BarChart data={summary.done} layout="vertical" barCategoryGap={8} margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
-                <CartesianGrid horizontal={false} strokeDasharray="3 3" />
-                <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} />
-                <YAxis type="category" dataKey="name" width={110} tickLine={false} axisLine={false} fontSize={11} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Bar dataKey="total" name="Total hrs" fill="var(--muted-foreground)" fillOpacity={0.35} radius={3} maxBarSize={12} isAnimationActive={false} />
-                <Bar dataKey="used" name="Used hrs" radius={3} maxBarSize={12} isAnimationActive={false}>
-                  {summary.done.map((d) => (
-                    <Cell key={d.name} fill={d.over ? 'var(--danger-fill)' : 'var(--info-fill)'} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ChartContainer>
+            <>
+              <ChartContainer config={{}} className="w-full" style={{ height: summary.rows.length * 44 + 24 }}>
+                <BarChart data={summary.rows} layout="vertical" barCategoryGap={8} margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
+                  <CartesianGrid horizontal={false} strokeDasharray="3 3" />
+                  <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} />
+                  <YAxis type="category" dataKey="name" width={110} tickLine={false} axisLine={false} fontSize={11} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="allotted" name="Allotted hrs" fill="var(--muted-foreground)" fillOpacity={0.3} radius={3} maxBarSize={12} isAnimationActive={false} />
+                  <Bar dataKey="used" name="Used hrs" radius={3} maxBarSize={12} isAnimationActive={false}>
+                    {summary.rows.map((r) => (
+                      <Cell key={r.id} fill={TONE_FILL[r.tone]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ChartContainer>
+              <p className="text-[11px] text-muted-foreground">
+                Grey bar = hours allotted. Coloured bar = hours used so far — green is fine, amber means keep an eye on it, red means over the allotted hours or well behind on progress.
+              </p>
+            </>
           )}
         </div>
       </Card>
