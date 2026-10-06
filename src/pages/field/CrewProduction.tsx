@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
 import { ClientTypeIcon } from '@/components/ClientTypeIcon'
-import { StagePill } from '@/components/StagePill'
 import { CircleCheck, CircleDashed, MapPin, Pencil, Percent, TriangleAlert, Users, type LucideIcon } from 'lucide-react'
 import type { Job } from '@/types'
 
@@ -33,7 +32,7 @@ function paceStatus(
   if (actualHours > allottedHours && over > 0) {
     return { tone: 'danger', label: `Red flag: ${over} hrs over allotted`, hint: 'these extra hours are a loss on the job', icon: TriangleAlert }
   }
-  if (actualHours <= 0) return { tone: 'neutral', label: 'Not started', hint: 'no hours used yet', icon: CircleDashed }
+  if (actualHours <= 0) return { tone: 'success', label: 'In progress', hint: 'no hours used yet', icon: CircleDashed }
   const left = Math.max(0, Math.round(allottedHours - actualHours))
   return { tone: 'success', label: 'Within allotted hours', hint: `${left} hrs still available`, icon: CircleCheck }
 }
@@ -94,8 +93,8 @@ function CrewJobCard({ job }: { job: Job }) {
     <Card
       className={cn(
         'gap-4 border-2 bg-muted/50 p-4 shadow-sm',
-        status.tone === 'success' && 'border-success-fill/60',
-        status.tone === 'danger' && 'border-danger-fill/70',
+        status.tone === 'success' && 'border-success-fill',
+        status.tone === 'danger' && 'border-danger-fill',
       )}
     >
       <div className="flex items-start gap-2.5">
@@ -108,7 +107,17 @@ function CrewJobCard({ job }: { job: Job }) {
             {client && <ClientTypeIcon type={client.type} />}
             {client?.name ?? 'Unknown client'}
           </p>
-          {stage && <StagePill stage={stage} />}
+          {stage && (
+            <span
+              className={cn(
+                'inline-flex w-fit items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium',
+                over ? 'bg-danger-bg text-danger' : 'bg-success-bg text-success',
+              )}
+            >
+              <span className={cn('size-1.5 rounded-full', over ? 'bg-danger-fill' : 'bg-success-fill')} />
+              {stage.name}
+            </span>
+          )}
         </div>
       </div>
 
@@ -143,7 +152,6 @@ function CrewJobCard({ job }: { job: Job }) {
           'flex items-start gap-2 rounded-md px-2.5 py-2 text-xs',
           status.tone === 'success' && 'bg-success-bg text-success',
           status.tone === 'danger' && 'bg-danger-bg text-danger',
-          status.tone === 'neutral' && 'bg-muted text-muted-foreground',
         )}
       >
         <StatusIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
