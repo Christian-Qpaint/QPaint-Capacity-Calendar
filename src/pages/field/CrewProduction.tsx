@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from 'recharts'
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
+import { Bar, BarChart, Cell, LabelList, XAxis, YAxis } from 'recharts'
+import { ChartContainer } from '@/components/ui/chart'
 import { useData } from '@/context/DataContext'
 import { useCurrentUser } from '@/context/AuthContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
@@ -242,11 +242,6 @@ const FINISHED_STAGE_PATTERN = /completed/i
 const IN_PROGRESS_STAGE_PATTERN = /in progress/i
 const FINISHED_HIDE_AFTER_MS = 28 * 86_400_000
 
-function shortJobName(address: string): string {
-  const street = address.split(',')[0].trim()
-  return street.length > 20 ? `${street.slice(0, 19)}…` : street
-}
-
 /** Crew Leader's own restricted Production view — cards only, for their own QPaint team's jobs
  * only, no dollar figures anywhere. Same "deliberately minimal, standalone page" pattern as
  * SalesAvailability.tsx rather than branching the full office CapacityBoard. */
@@ -279,29 +274,27 @@ export function CrewProduction() {
   const summary = useMemo(() => {
     let totalHours = 0
     let usedHours = 0
-    const rows: { id: string; name: string; allotted: number; used: number; tone: PaceTone; label: string }[] = []
-    const counts: Record<PaceTone, number> = { success: 0, warning: 0, danger: 0, neutral: 0 }
+    let weightedProduction = 0
     for (const job of myJobs) {
       const progress = da.getJobProgress(job)
       totalHours += progress.targetHours
       usedHours += progress.actualHours
-      const hoursPercent = progress.targetHours > 0 ? (progress.actualHours / progress.targetHours) * 100 : progress.actualHours > 0 ? 100 : 0
-      const status = paceStatus(progress.productionPercent, hoursPercent, progress.actualHours, progress.isOverBudget)
-      counts[status.tone] += 1
-      rows.push({
-        id: job.id,
-        name: shortJobName(job.address),
-        allotted: Math.round(progress.targetHours),
-        used: Math.round(progress.actualHours),
-        tone: status.tone,
-        label: status.label,
-      })
+      weightedProduction += progress.productionPercent * progress.targetHours
     }
-    return { totalHours, usedHours, rows, counts }
+    // Overall pace across the whole team: hours-weighted average progress vs share of hours used.
+    const production = totalHours > 0 ? weightedProduction / totalHours : 0
+    const hoursPercent = totalHours > 0 ? (usedHours / totalHours) * 100 : usedHours > 0 ? 100 : 0
+    const status = paceStatus(production, hoursPercent, usedHours, usedHours > totalHours)
+    return { totalHours, usedHours, status }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myJobs, da.db])
 
   const totalOver = summary.usedHours > summary.totalHours
+  const SummaryIcon = summary.status.icon
+  const hoursChartData = [
+    { name: 'Allotted', hours: Math.round(summary.totalHours), fill: 'var(--muted-foreground)', opacity: 0.4 },
+    { name: 'Actual', hours: Math.round(summary.usedHours), fill: TONE_FILL[summary.status.tone], opacity: 1 },
+  ]
 
   if (!myTeam || myTeam.type !== 'QPaint') {
     return (
@@ -320,54 +313,33 @@ export function CrewProduction() {
       </div>
 
       <Card className="gap-4 p-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <p className="text-xs text-muted-foreground">Total allotted hours</p>
-            <p className="text-2xl font-semibold tracking-tight">{Math.round(summary.totalHours)}</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Total actual hours</p>
-            <p className={cn('text-2xl font-semibold tracking-tight', totalOver && 'text-danger')}>{Math.round(summary.usedHours)}</p>
-          </div>
-        </div>
-        {totalOver && (
-          <p className="flex items-center gap-1.5 rounded-md bg-danger-bg px-2 py-1.5 text-xs font-medium text-danger">
-            <Flag className="size-3.5" /> Red flag: actual hours are {Math.round(summary.usedHours - summary.totalHours)} over allotted
-          </p>
-        )}
-
-        <div className="space-y-1.5 border-t border-border pt-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs font-medium text-muted-foreground">Hours used vs allotted — every job</p>
-            <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-              <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-success-fill" />{summary.counts.success} on track</span>
-              <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-warning-fill" />{summary.counts.warning} watch</span>
-              <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-danger-fill" />{summary.counts.danger} over / behind</span>
-            </div>
-          </div>
-          {summary.rows.length === 0 ? (
-            <p className="py-4 text-center text-xs text-muted-foreground">No jobs to chart yet.</p>
-          ) : (
-            <>
-              <ChartContainer config={{}} className="w-full" style={{ height: summary.rows.length * 44 + 24 }}>
-                <BarChart data={summary.rows} layout="vertical" barCategoryGap={8} margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
-                  <CartesianGrid horizontal={false} strokeDasharray="3 3" />
-                  <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} />
-                  <YAxis type="category" dataKey="name" width={110} tickLine={false} axisLine={false} fontSize={11} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="allotted" name="Allotted hrs" fill="var(--muted-foreground)" fillOpacity={0.3} radius={3} maxBarSize={12} minPointSize={3} isAnimationActive={false} />
-                  <Bar dataKey="used" name="Used hrs" radius={3} maxBarSize={12} minPointSize={3} isAnimationActive={false}>
-                    {summary.rows.map((r) => (
-                      <Cell key={r.id} fill={TONE_FILL[r.tone]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ChartContainer>
-              <p className="text-[11px] text-muted-foreground">
-                Grey bar = hours allotted. Coloured bar = hours used so far — green is fine, amber means keep an eye on it, red means over the allotted hours or well behind on progress.
-              </p>
-            </>
+        <p className="text-xs font-medium text-muted-foreground">Allotted hours vs actual hours — all jobs</p>
+        <ChartContainer config={{}} className="h-24 w-full">
+          <BarChart data={hoursChartData} layout="vertical" barCategoryGap={10} margin={{ left: 0, right: 40, top: 0, bottom: 0 }}>
+            <XAxis type="number" hide domain={[0, 'dataMax']} />
+            <YAxis type="category" dataKey="name" width={60} tickLine={false} axisLine={false} fontSize={12} />
+            <Bar dataKey="hours" radius={4} maxBarSize={26} minPointSize={3} isAnimationActive={false}>
+              {hoursChartData.map((d) => (
+                <Cell key={d.name} fill={d.fill} fillOpacity={d.opacity} />
+              ))}
+              <LabelList dataKey="hours" position="right" fontSize={13} fontWeight={600} fill="currentColor" />
+            </Bar>
+          </BarChart>
+        </ChartContainer>
+        <div
+          className={cn(
+            'flex items-start gap-2 rounded-md px-2.5 py-2 text-xs',
+            summary.status.tone === 'success' && 'bg-success-bg text-success',
+            summary.status.tone === 'warning' && 'bg-warning-bg text-warning',
+            summary.status.tone === 'danger' && 'bg-danger-bg text-danger',
+            summary.status.tone === 'neutral' && 'bg-muted text-muted-foreground',
           )}
+        >
+          <SummaryIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          <p>
+            <span className="font-medium">{totalOver ? `Red flag: ${Math.round(summary.usedHours - summary.totalHours)} hrs over allotted` : summary.status.label}</span>{' '}
+            <span className="opacity-80">— {summary.status.hint}</span>
+          </p>
         </div>
       </Card>
 
