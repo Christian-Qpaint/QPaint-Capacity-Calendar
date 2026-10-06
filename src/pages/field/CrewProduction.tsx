@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { CategoryPill } from '@/components/StatusBadges'
 import { ClientTypeIcon } from '@/components/ClientTypeIcon'
 import { StagePill } from '@/components/StagePill'
-import { Clock, Pencil, Percent } from 'lucide-react'
+import { Clock, Flag, Pencil, Percent } from 'lucide-react'
 import type { Job } from '@/types'
 
 /** One job card for the restricted Crew Leader Production view — deliberately a standalone
@@ -128,9 +128,16 @@ function CrewJobCard({ job }: { job: Job }) {
       </div>
 
       <div className="space-y-1.5 border-t border-border pt-3">
-        <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <Clock className="size-3.5" /> Hours
-        </p>
+        <div className="flex items-center justify-between">
+          <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <Clock className="size-3.5" /> Hours
+          </p>
+          {progress.isOverBudget && (
+            <span className="flex items-center gap-1 rounded-md bg-danger-bg px-1.5 py-0.5 text-xs font-medium text-danger">
+              <Flag className="size-3" /> Over allotted
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-3">
           <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
             <div
@@ -138,7 +145,7 @@ function CrewJobCard({ job }: { job: Job }) {
               style={{ width: `${Math.min(100, Math.max(0, hoursPercent))}%` }}
             />
           </div>
-          <span className="w-20 shrink-0 text-right text-xs text-muted-foreground">
+          <span className={cn('w-24 shrink-0 text-right text-xs', progress.isOverBudget ? 'font-medium text-danger' : 'text-muted-foreground')}>
             {Math.round(progress.actualHours)} / {progress.targetHours} hrs
           </span>
         </div>
@@ -214,6 +221,8 @@ export function CrewProduction() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myJobs, jobStages, da.db])
 
+  const totalOver = summary.usedHours > summary.totalHours
+
   if (!myTeam || myTeam.type !== 'QPaint') {
     return (
       <div className="space-y-1">
@@ -233,14 +242,19 @@ export function CrewProduction() {
       <Card className="gap-4 p-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <p className="text-xs text-muted-foreground">Total hours</p>
+            <p className="text-xs text-muted-foreground">Total allotted hours</p>
             <p className="text-2xl font-semibold tracking-tight">{Math.round(summary.totalHours)}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Total used hours</p>
-            <p className="text-2xl font-semibold tracking-tight">{Math.round(summary.usedHours)}</p>
+            <p className="text-xs text-muted-foreground">Total actual hours</p>
+            <p className={cn('text-2xl font-semibold tracking-tight', totalOver && 'text-danger')}>{Math.round(summary.usedHours)}</p>
           </div>
         </div>
+        {totalOver && (
+          <p className="flex items-center gap-1.5 rounded-md bg-danger-bg px-2 py-1.5 text-xs font-medium text-danger">
+            <Flag className="size-3.5" /> Red flag: actual hours are {Math.round(summary.usedHours - summary.totalHours)} over allotted
+          </p>
+        )}
 
         <div className="space-y-1.5 border-t border-border pt-3">
           <p className="text-xs font-medium text-muted-foreground">Finished jobs — hours used vs total</p>
