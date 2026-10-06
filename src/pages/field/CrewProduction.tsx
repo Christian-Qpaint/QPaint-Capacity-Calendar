@@ -15,7 +15,7 @@ import { CategoryPill } from '@/components/StatusBadges'
 import { ClientTypeIcon } from '@/components/ClientTypeIcon'
 import { StagePill } from '@/components/StagePill'
 import { TeamColorDot } from '@/components/TeamColorDot'
-import { ChartColumn, CircleCheck, CircleDashed, Clock, Flag, Lock, MapPin, Pencil, Percent, TrendingDown, TrendingUp, TriangleAlert, Users, type LucideIcon } from 'lucide-react'
+import { ChartColumn, CircleCheck, CircleDashed, Clock, Flag, Lock, MapPin, Pencil, Percent, TriangleAlert, Users, type LucideIcon } from 'lucide-react'
 import type { Job, Team } from '@/types'
 
 type PaceTone = 'success' | 'warning' | 'danger' | 'neutral'
@@ -27,22 +27,19 @@ const TONE_FILL: Record<PaceTone, string> = {
   neutral: 'var(--muted-foreground)',
 }
 
-/** A quiet "are we doing well?" read — compares how much of the allotted hours are used against
- * how much of the job is done. Hours running ahead of progress is the early warning; actual over
- * allotted is the hard red flag. */
+/** "Are we doing well?" is only about hours: using fewer than allotted just means the hours aren't
+ * used up yet. The one red flag is working more hours than were allotted — the overage is a loss. */
 function paceStatus(
-  production: number,
-  hoursPercent: number,
   actualHours: number,
-  overBudget: boolean,
+  allottedHours: number,
 ): { tone: PaceTone; label: string; hint: string; icon: LucideIcon } {
-  if (overBudget) return { tone: 'danger', label: 'Over allotted hours', hint: 'more hours used than were allotted', icon: TriangleAlert }
-  if (production >= 100) return { tone: 'success', label: 'Complete', hint: 'finished within allotted hours', icon: CircleCheck }
-  if (actualHours <= 0 && production <= 0) return { tone: 'neutral', label: 'Not started', hint: 'no hours used yet', icon: CircleDashed }
-  const gap = hoursPercent - production
-  if (gap <= 10) return { tone: 'success', label: 'On track', hint: 'progress is keeping pace with hours used', icon: TrendingUp }
-  if (gap <= 25) return { tone: 'warning', label: 'Slightly behind', hint: 'hours are running ahead of progress', icon: TrendingDown }
-  return { tone: 'danger', label: 'Behind', hint: 'hours used well ahead of progress', icon: TrendingDown }
+  const over = Math.round(actualHours - allottedHours)
+  if (actualHours > allottedHours && over > 0) {
+    return { tone: 'danger', label: `Red flag: ${over} hrs over allotted`, hint: 'these extra hours are a loss on the job', icon: TriangleAlert }
+  }
+  if (actualHours <= 0) return { tone: 'neutral', label: 'Not started', hint: 'no hours used yet', icon: CircleDashed }
+  const left = Math.max(0, Math.round(allottedHours - actualHours))
+  return { tone: 'success', label: 'Within allotted hours', hint: `${left} hrs still available`, icon: CircleCheck }
 }
 
 /** One job card for the restricted Crew Leader Production view — deliberately a standalone
@@ -94,7 +91,7 @@ function CrewJobCard({ job, team }: { job: Job; team: Team }) {
     [dailyHoursEntries, blockIdsForJob],
   )
 
-  const status = paceStatus(progress.productionPercent, hoursPercent, progress.actualHours, progress.isOverBudget)
+  const status = paceStatus(progress.actualHours, progress.targetHours)
   const StatusIcon = status.icon
 
   return (
@@ -274,17 +271,23 @@ export function CrewProduction() {
   const summary = useMemo(() => {
     let totalHours = 0
     let usedHours = 0
-    let weightedProduction = 0
+    let jobsOver = 0
     for (const job of myJobs) {
       const progress = da.getJobProgress(job)
       totalHours += progress.targetHours
       usedHours += progress.actualHours
-      weightedProduction += progress.productionPercent * progress.targetHours
+      if (progress.actualHours > progress.targetHours) jobsOver += 1
     }
-    // Overall pace across the whole team: hours-weighted average progress vs share of hours used.
-    const production = totalHours > 0 ? weightedProduction / totalHours : 0
-    const hoursPercent = totalHours > 0 ? (usedHours / totalHours) * 100 : usedHours > 0 ? 100 : 0
-    const status = paceStatus(production, hoursPercent, usedHours, usedHours > totalHours)
+    let status = paceStatus(usedHours, totalHours)
+    // Under the allotted total overall, but an individual job can still be over — worth a heads-up.
+    if (status.tone === 'success' && jobsOver > 0) {
+      status = {
+        tone: 'warning',
+        label: `${jobsOver} ${jobsOver === 1 ? 'job is' : 'jobs are'} over allotted hours`,
+        hint: 'overall hours are still within the allotment — check the flagged jobs below',
+        icon: TriangleAlert,
+      }
+    }
     return { totalHours, usedHours, status }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myJobs, da.db])
@@ -362,7 +365,7 @@ export function CrewProduction() {
         >
           <SummaryIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           <p>
-            <span className="font-medium">{totalOver ? `Red flag: ${Math.round(summary.usedHours - summary.totalHours)} hrs over allotted` : summary.status.label}</span>{' '}
+            <span className="font-medium">{summary.status.label}</span>{' '}
             <span className="opacity-80">— {summary.status.hint}</span>
           </p>
         </div>
