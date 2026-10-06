@@ -13,13 +13,11 @@ import { ClientTypeIcon } from '@/components/ClientTypeIcon'
 import { CircleCheck, CircleDashed, MapPin, Pencil, Percent, TriangleAlert, Users, type LucideIcon } from 'lucide-react'
 import type { Job } from '@/types'
 
-type PaceTone = 'success' | 'warning' | 'danger' | 'neutral'
+type PaceTone = 'success' | 'warning'
 
 const TONE_FILL: Record<PaceTone, string> = {
   success: 'bg-success-fill',
   warning: 'bg-warning-fill',
-  danger: 'bg-danger-fill',
-  neutral: 'bg-muted-foreground',
 }
 
 /** Hours only: the number of hours over or under the allotment. Going over is the red flag — the
@@ -29,7 +27,7 @@ function paceStatus(
   allottedHours: number,
 ): { tone: PaceTone; label: string; icon: LucideIcon } {
   const diff = Math.round(actualHours - allottedHours)
-  if (diff > 0) return { tone: 'danger', label: `${diff} hrs over`, icon: TriangleAlert }
+  if (diff > 0) return { tone: 'warning', label: `${diff} hrs over`, icon: TriangleAlert }
   const icon = actualHours <= 0 ? CircleDashed : CircleCheck
   if (diff === 0) return { tone: 'success', label: 'On the allotted hours', icon }
   return { tone: 'success', label: `${-diff} hrs under`, icon }
@@ -80,7 +78,7 @@ function CrewJobCard({ job }: { job: Job }) {
 
   const status = paceStatus(progress.actualHours, progress.targetHours)
   const StatusIcon = status.icon
-  const over = status.tone === 'danger'
+  const over = status.tone === 'warning'
   // One shared scale so the actual bar overlaps the allotted bar and still spills past it when over.
   const scaleMax = Math.max(progress.targetHours, progress.actualHours, 1)
   const allottedPct = (progress.targetHours / scaleMax) * 100
@@ -92,7 +90,7 @@ function CrewJobCard({ job }: { job: Job }) {
       className={cn(
         'gap-4 border-2 bg-muted/50 p-4 shadow-sm',
         status.tone === 'success' && 'border-success-fill',
-        status.tone === 'danger' && 'border-danger-fill',
+        status.tone === 'warning' && 'border-warning-fill',
       )}
     >
       <div className="flex items-start gap-2.5">
@@ -109,10 +107,10 @@ function CrewJobCard({ job }: { job: Job }) {
             <span
               className={cn(
                 'inline-flex w-fit items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium',
-                over ? 'bg-danger-bg text-danger' : 'bg-success-bg text-success',
+                over ? 'bg-warning-bg text-warning' : 'bg-success-bg text-success',
               )}
             >
-              <span className={cn('size-1.5 rounded-full', over ? 'bg-danger-fill' : 'bg-success-fill')} />
+              <span className={cn('size-1.5 rounded-full', over ? 'bg-warning-fill' : 'bg-success-fill')} />
               {stage.name}
             </span>
           )}
@@ -126,7 +124,7 @@ function CrewJobCard({ job }: { job: Job }) {
         </div>
         <div className="rounded-lg bg-card px-3 py-2 shadow-xs">
           <p className="text-[11px] text-muted-foreground">Actual hours</p>
-          <p className={cn('text-2xl font-bold tracking-tight', over && 'text-danger')}>{Math.round(progress.actualHours)}</p>
+          <p className={cn('text-2xl font-bold tracking-tight', over && 'text-warning')}>{Math.round(progress.actualHours)}</p>
         </div>
       </div>
 
@@ -134,7 +132,7 @@ function CrewJobCard({ job }: { job: Job }) {
         <div className={cn('relative', over && 'pt-5')}>
           {over && (
             <MapPin
-              className="absolute top-0 size-5 -translate-x-1/2 fill-background text-foreground"
+              className="absolute top-0 size-5 -translate-x-1/2 fill-warning-bg text-warning"
               style={{ left: `${allottedPct}%` }}
               aria-label="Allotted hours end here"
             />
@@ -164,7 +162,7 @@ function CrewJobCard({ job }: { job: Job }) {
         className={cn(
           'flex items-center gap-2 rounded-md px-2.5 py-2',
           status.tone === 'success' && 'bg-success-bg text-success',
-          status.tone === 'danger' && 'bg-danger-bg text-danger',
+          status.tone === 'warning' && 'bg-warning-bg text-warning',
         )}
       >
         <StatusIcon className="size-4 shrink-0" aria-hidden="true" />
