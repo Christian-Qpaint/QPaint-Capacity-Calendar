@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from 'recharts'
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { useData } from '@/context/DataContext'
 import { useCurrentUser } from '@/context/AuthContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
@@ -151,20 +153,66 @@ function CrewJobCard({ job }: { job: Job }) {
   )
 }
 
+const FINISHED_STAGE_PATTERN = /completed/i
+const IN_PROGRESS_STAGE_PATTERN = /in progress/i
+const FINISHED_HIDE_AFTER_MS = 28 * 86_400_000
+
+function shortJobName(address: string): string {
+  const street = address.split(',')[0].trim()
+  return street.length > 20 ? `${street.slice(0, 19)}…` : street
+}
+
 /** Crew Leader's own restricted Production view — cards only, for their own QPaint team's jobs
  * only, no dollar figures anywhere. Same "deliberately minimal, standalone page" pattern as
  * SalesAvailability.tsx rather than branching the full office CapacityBoard. */
 export function CrewProduction() {
-  const { jobs, teams, scheduleBlocks } = useData()
+  const { jobs, teams, scheduleBlocks, jobStages } = useData()
   const currentUser = useCurrentUser()
+  const da = useDataAccess()
 
   const myTeam = teams.find((t) => t.id === currentUser.teamId)
 
+  // Only jobs in the In Progress or Completed stage appear here. A Completed job drops off after
+  // 4 weeks in that stage; one with no recorded stage-entry time can't be aged, so it stays visible.
   const myJobs = useMemo(() => {
     if (!myTeam || myTeam.type !== 'QPaint') return []
     const jobIds = new Set(scheduleBlocks.filter((b) => b.teamId === myTeam.id).map((b) => b.jobId))
-    return jobs.filter((j) => jobIds.has(j.id)).sort((a, b) => a.address.localeCompare(b.address))
-  }, [jobs, scheduleBlocks, myTeam])
+    const stageById = new Map(jobStages.map((s) => [s.id, s]))
+    const cutoff = Date.now() - FINISHED_HIDE_AFTER_MS
+    return jobs
+      .filter((j) => {
+        if (!jobIds.has(j.id)) return false
+        const stageName = j.stageId ? stageById.get(j.stageId)?.name : undefined
+        if (!stageName) return false
+        if (IN_PROGRESS_STAGE_PATTERN.test(stageName)) return true
+        if (!FINISHED_STAGE_PATTERN.test(stageName)) return false
+        return !j.stageEnteredAt || new Date(j.stageEnteredAt).getTime() >= cutoff
+      })
+      .sort((a, b) => a.address.localeCompare(b.address))
+  }, [jobs, scheduleBlocks, jobStages, myTeam])
+
+  const summary = useMemo(() => {
+    const stageById = new Map(jobStages.map((s) => [s.id, s]))
+    let totalHours = 0
+    let usedHours = 0
+    const done: { name: string; total: number; used: number; over: boolean }[] = []
+    for (const job of myJobs) {
+      const progress = da.getJobProgress(job)
+      totalHours += progress.targetHours
+      usedHours += progress.actualHours
+      const stageName = job.stageId ? stageById.get(job.stageId)?.name : undefined
+      if (stageName && FINISHED_STAGE_PATTERN.test(stageName)) {
+        done.push({
+          name: shortJobName(job.address),
+          total: Math.round(progress.targetHours),
+          used: Math.round(progress.actualHours),
+          over: progress.isOverBudget,
+        })
+      }
+    }
+    return { totalHours, usedHours, done }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myJobs, jobStages, da.db])
 
   if (!myTeam || myTeam.type !== 'QPaint') {
     return (
@@ -182,10 +230,45 @@ export function CrewProduction() {
         <p className="text-sm text-muted-foreground">Your team's jobs — adjust Production %, no dollar values.</p>
       </div>
 
+      <Card className="gap-4 p-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <p className="text-xs text-muted-foreground">Total hours</p>
+            <p className="text-2xl font-semibold tracking-tight">{Math.round(summary.totalHours)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Total used hours</p>
+            <p className="text-2xl font-semibold tracking-tight">{Math.round(summary.usedHours)}</p>
+          </div>
+        </div>
+
+        <div className="space-y-1.5 border-t border-border pt-3">
+          <p className="text-xs font-medium text-muted-foreground">Finished jobs — hours used vs total</p>
+          {summary.done.length === 0 ? (
+            <p className="py-4 text-center text-xs text-muted-foreground">No finished jobs in the last 4 weeks.</p>
+          ) : (
+            <ChartContainer config={{}} className="w-full" style={{ height: summary.done.length * 44 + 24 }}>
+              <BarChart data={summary.done} layout="vertical" barCategoryGap={8} margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
+                <CartesianGrid horizontal={false} strokeDasharray="3 3" />
+                <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} />
+                <YAxis type="category" dataKey="name" width={110} tickLine={false} axisLine={false} fontSize={11} />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Bar dataKey="total" name="Total hrs" fill="var(--muted-foreground)" fillOpacity={0.35} radius={3} maxBarSize={12} isAnimationActive={false} />
+                <Bar dataKey="used" name="Used hrs" radius={3} maxBarSize={12} isAnimationActive={false}>
+                  {summary.done.map((d) => (
+                    <Cell key={d.name} fill={d.over ? 'var(--danger-fill)' : 'var(--info-fill)'} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ChartContainer>
+          )}
+        </div>
+      </Card>
+
       <div className="grid grid-cols-1 gap-3">
         {myJobs.length === 0 && (
           <p className="rounded-md border border-dashed border-border py-8 text-center text-sm text-muted-foreground">
-            No jobs currently scheduled for your team.
+            No in-progress or recently completed jobs for your team.
           </p>
         )}
         {myJobs.map((job) => (
