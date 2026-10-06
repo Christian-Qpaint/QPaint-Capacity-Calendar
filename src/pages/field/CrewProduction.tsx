@@ -15,7 +15,7 @@ import { CategoryPill } from '@/components/StatusBadges'
 import { ClientTypeIcon } from '@/components/ClientTypeIcon'
 import { StagePill } from '@/components/StagePill'
 import { TeamColorDot } from '@/components/TeamColorDot'
-import { CircleCheck, CircleDashed, Clock, Flag, Lock, MapPin, Pencil, Percent, TrendingDown, TrendingUp, TriangleAlert, Users, type LucideIcon } from 'lucide-react'
+import { ChartColumn, CircleCheck, CircleDashed, Clock, Flag, Lock, MapPin, Pencil, Percent, TrendingDown, TrendingUp, TriangleAlert, Users, type LucideIcon } from 'lucide-react'
 import type { Job, Team } from '@/types'
 
 type PaceTone = 'success' | 'warning' | 'danger' | 'neutral'
@@ -312,8 +312,33 @@ export function CrewProduction() {
         <p className="text-sm text-muted-foreground">Your team's jobs — adjust Production % on each job.</p>
       </div>
 
-      <Card className="gap-4 p-4">
-        <p className="text-xs font-medium text-muted-foreground">Allotted hours vs actual hours — all jobs</p>
+      <Card
+        className={cn(
+          'gap-4 border-2 bg-muted/50 p-4 shadow-sm',
+          summary.status.tone === 'success' && 'border-success-fill/60',
+          summary.status.tone === 'warning' && 'border-warning-fill/70',
+          summary.status.tone === 'danger' && 'border-danger-fill/70',
+        )}
+      >
+        <div className="flex items-center gap-2.5">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-foreground text-background">
+            <ChartColumn className="size-4.5" aria-hidden="true" />
+          </span>
+          <div>
+            <p className="text-sm font-semibold leading-tight">Team hours summary</p>
+            <p className="text-xs text-muted-foreground">Allotted vs actual — all {myJobs.length} jobs combined</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-lg bg-card px-3 py-2 shadow-xs">
+            <p className="text-[11px] text-muted-foreground">Allotted hours</p>
+            <p className="text-2xl font-bold tracking-tight">{Math.round(summary.totalHours)}</p>
+          </div>
+          <div className="rounded-lg bg-card px-3 py-2 shadow-xs">
+            <p className="text-[11px] text-muted-foreground">Actual hours</p>
+            <p className={cn('text-2xl font-bold tracking-tight', totalOver && 'text-danger')}>{Math.round(summary.usedHours)}</p>
+          </div>
+        </div>
         <ChartContainer config={{}} className="h-24 w-full">
           <BarChart data={hoursChartData} layout="vertical" barCategoryGap={10} margin={{ left: 0, right: 40, top: 0, bottom: 0 }}>
             <XAxis type="number" hide domain={[0, 'dataMax']} />
@@ -342,6 +367,12 @@ export function CrewProduction() {
           </p>
         </div>
       </Card>
+
+      <div className="flex items-center gap-2 pt-2">
+        <h2 className="text-sm font-semibold">Your jobs</h2>
+        <Badge variant="secondary">{myJobs.length}</Badge>
+        <span className="h-px flex-1 bg-border" />
+      </div>
 
       <div className="grid grid-cols-1 gap-3">
         {myJobs.length === 0 && (
