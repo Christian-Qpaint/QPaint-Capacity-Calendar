@@ -214,9 +214,9 @@ function CrewJobCard({ job, team }: { job: Job; team: Team }) {
           <BarChart data={hoursChartData} layout="vertical" barCategoryGap={10} margin={{ left: 0, right: 36, top: 0, bottom: 0 }}>
             <XAxis type="number" hide domain={[0, 'dataMax']} />
             <YAxis type="category" dataKey="name" width={52} tickLine={false} axisLine={false} fontSize={11} />
-            <Bar dataKey="hours" radius={4} maxBarSize={22} isAnimationActive={false}>
+            <Bar dataKey="hours" radius={4} maxBarSize={22} minPointSize={3} isAnimationActive={false}>
               {hoursChartData.map((d) => (
-                <Cell key={d.name} fill={d.fill} />
+                <Cell key={d.name} fill={d.fill} fillOpacity={d.name === 'Target' ? 0.4 : 1} />
               ))}
               <LabelList dataKey="hours" position="right" fontSize={12} fontWeight={600} fill="currentColor" />
             </Bar>
