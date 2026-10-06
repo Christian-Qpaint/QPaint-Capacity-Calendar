@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { Bar, BarChart, Cell, LabelList, XAxis, YAxis } from 'recharts'
-import { ChartContainer } from '@/components/ui/chart'
+import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from 'recharts'
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { useData } from '@/context/DataContext'
 import { useCurrentUser } from '@/context/AuthContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
@@ -20,6 +20,12 @@ import type { Job, Team } from '@/types'
 
 type PaceTone = 'success' | 'warning' | 'danger' | 'neutral'
 
+const TONE_FILL: Record<PaceTone, string> = {
+  success: 'var(--success-fill)',
+  warning: 'var(--warning-fill)',
+  danger: 'var(--danger-fill)',
+  neutral: 'var(--muted-foreground)',
+}
 
 /** A quiet "are we doing well?" read — compares how much of the allotted hours are used against
  * how much of the job is done. Hours running ahead of progress is the early warning; actual over
@@ -88,10 +94,6 @@ function CrewJobCard({ job, team }: { job: Job; team: Team }) {
     [dailyHoursEntries, blockIdsForJob],
   )
 
-  const hoursChartData = [
-    { name: 'Target', hours: Math.round(progress.targetHours), fill: 'var(--muted-foreground)' },
-    { name: 'Actual', hours: Math.round(progress.actualHours), fill: progress.isOverBudget ? 'var(--danger-fill)' : 'var(--info-fill)' },
-  ]
   const status = paceStatus(progress.productionPercent, hoursPercent, progress.actualHours, progress.isOverBudget)
   const StatusIcon = status.icon
 
@@ -210,18 +212,20 @@ function CrewJobCard({ job, team }: { job: Job; team: Team }) {
             </span>
           )}
         </div>
-        <ChartContainer config={{}} className="h-24 w-full">
-          <BarChart data={hoursChartData} layout="vertical" barCategoryGap={10} margin={{ left: 0, right: 36, top: 0, bottom: 0 }}>
-            <XAxis type="number" hide domain={[0, 'dataMax']} />
-            <YAxis type="category" dataKey="name" width={52} tickLine={false} axisLine={false} fontSize={11} />
-            <Bar dataKey="hours" radius={4} maxBarSize={22} minPointSize={3} isAnimationActive={false}>
-              {hoursChartData.map((d) => (
-                <Cell key={d.name} fill={d.fill} fillOpacity={d.name === 'Target' ? 0.4 : 1} />
-              ))}
-              <LabelList dataKey="hours" position="right" fontSize={12} fontWeight={600} fill="currentColor" />
-            </Bar>
-          </BarChart>
-        </ChartContainer>
+        <div className="flex items-center gap-3">
+          <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
+            <div
+              className={cn('h-full rounded-full transition-[width]', progress.isOverBudget ? 'bg-danger-fill' : 'bg-info-fill')}
+              style={{ width: `${Math.min(100, Math.max(0, hoursPercent))}%` }}
+            />
+          </div>
+          <span className={cn('w-12 shrink-0 text-right text-sm font-semibold', progress.isOverBudget && 'text-danger')}>
+            {Math.round(hoursPercent)}%
+          </span>
+        </div>
+        <p className={cn('text-xs', progress.isOverBudget ? 'font-medium text-danger' : 'text-muted-foreground')}>
+          {Math.round(progress.actualHours)} <span className={progress.isOverBudget ? '' : 'text-muted-foreground/60'}>of</span> {progress.targetHours} hrs allotted
+        </p>
       </div>
 
       <div className="flex items-center justify-between border-t border-border pt-3">
@@ -237,6 +241,11 @@ function CrewJobCard({ job, team }: { job: Job; team: Team }) {
 const FINISHED_STAGE_PATTERN = /completed/i
 const IN_PROGRESS_STAGE_PATTERN = /in progress/i
 const FINISHED_HIDE_AFTER_MS = 28 * 86_400_000
+
+function shortJobName(address: string): string {
+  const street = address.split(',')[0].trim()
+  return street.length > 20 ? `${street.slice(0, 19)}…` : street
+}
 
 /** Crew Leader's own restricted Production view — cards only, for their own QPaint team's jobs
  * only, no dollar figures anywhere. Same "deliberately minimal, standalone page" pattern as
@@ -270,12 +279,25 @@ export function CrewProduction() {
   const summary = useMemo(() => {
     let totalHours = 0
     let usedHours = 0
+    const rows: { id: string; name: string; allotted: number; used: number; tone: PaceTone; label: string }[] = []
+    const counts: Record<PaceTone, number> = { success: 0, warning: 0, danger: 0, neutral: 0 }
     for (const job of myJobs) {
       const progress = da.getJobProgress(job)
       totalHours += progress.targetHours
       usedHours += progress.actualHours
+      const hoursPercent = progress.targetHours > 0 ? (progress.actualHours / progress.targetHours) * 100 : progress.actualHours > 0 ? 100 : 0
+      const status = paceStatus(progress.productionPercent, hoursPercent, progress.actualHours, progress.isOverBudget)
+      counts[status.tone] += 1
+      rows.push({
+        id: job.id,
+        name: shortJobName(job.address),
+        allotted: Math.round(progress.targetHours),
+        used: Math.round(progress.actualHours),
+        tone: status.tone,
+        label: status.label,
+      })
     }
-    return { totalHours, usedHours }
+    return { totalHours, usedHours, rows, counts }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myJobs, da.db])
 
@@ -313,6 +335,40 @@ export function CrewProduction() {
             <Flag className="size-3.5" /> Red flag: actual hours are {Math.round(summary.usedHours - summary.totalHours)} over allotted
           </p>
         )}
+
+        <div className="space-y-1.5 border-t border-border pt-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-medium text-muted-foreground">Hours used vs allotted — every job</p>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-success-fill" />{summary.counts.success} on track</span>
+              <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-warning-fill" />{summary.counts.warning} watch</span>
+              <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-danger-fill" />{summary.counts.danger} over / behind</span>
+            </div>
+          </div>
+          {summary.rows.length === 0 ? (
+            <p className="py-4 text-center text-xs text-muted-foreground">No jobs to chart yet.</p>
+          ) : (
+            <>
+              <ChartContainer config={{}} className="w-full" style={{ height: summary.rows.length * 44 + 24 }}>
+                <BarChart data={summary.rows} layout="vertical" barCategoryGap={8} margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
+                  <CartesianGrid horizontal={false} strokeDasharray="3 3" />
+                  <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} />
+                  <YAxis type="category" dataKey="name" width={110} tickLine={false} axisLine={false} fontSize={11} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="allotted" name="Allotted hrs" fill="var(--muted-foreground)" fillOpacity={0.3} radius={3} maxBarSize={12} minPointSize={3} isAnimationActive={false} />
+                  <Bar dataKey="used" name="Used hrs" radius={3} maxBarSize={12} minPointSize={3} isAnimationActive={false}>
+                    {summary.rows.map((r) => (
+                      <Cell key={r.id} fill={TONE_FILL[r.tone]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ChartContainer>
+              <p className="text-[11px] text-muted-foreground">
+                Grey bar = hours allotted. Coloured bar = hours used so far — green is fine, amber means keep an eye on it, red means over the allotted hours or well behind on progress.
+              </p>
+            </>
+          )}
+        </div>
       </Card>
 
       <div className="grid grid-cols-1 gap-3">
