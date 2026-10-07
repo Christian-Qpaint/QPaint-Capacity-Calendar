@@ -186,7 +186,7 @@ export function WorkerDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="p-0 sm:max-w-lg">
+      <SheetContent className="p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-3xl">
         <SheetHeader>
           <SheetTitle>{isEdit ? `${worker!.firstName} ${worker!.lastName}` : 'Add Worker'}</SheetTitle>
           <SheetDescription>Worker directory record — contact, compliance, and crew assignment.</SheetDescription>
