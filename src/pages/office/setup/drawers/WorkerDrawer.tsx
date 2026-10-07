@@ -10,6 +10,7 @@ import {
   SheetFooter,
   SheetHeader,
   SheetTitle,
+  DETAIL_DRAWER_CLASS,
 } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -186,7 +187,7 @@ export function WorkerDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-3xl">
+      <SheetContent className={DETAIL_DRAWER_CLASS}>
         <SheetHeader>
           <SheetTitle>{isEdit ? `${worker!.firstName} ${worker!.lastName}` : 'Add Worker'}</SheetTitle>
           <SheetDescription>Worker directory record — contact, compliance, and crew assignment.</SheetDescription>

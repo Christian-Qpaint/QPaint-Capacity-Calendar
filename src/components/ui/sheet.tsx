@@ -5,6 +5,11 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
 
+/** One width for every right-hand detail drawer (Worker, Team, Contractor, Deal…) so they all
+ * open the same size. The "data-[side=right]:" variants are needed to out-rank the base width
+ * rule in SheetContent below, which a plain `sm:max-w-*` class would lose to. */
+const DETAIL_DRAWER_CLASS = "p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-3xl"
+
 function Sheet({ ...props }: SheetPrimitive.Root.Props) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />
 }
@@ -125,6 +130,7 @@ function SheetDescription({
 }
 
 export {
+  DETAIL_DRAWER_CLASS,
   Sheet,
   SheetTrigger,
   SheetClose,

@@ -15,6 +15,7 @@ import {
   SheetFooter,
   SheetHeader,
   SheetTitle,
+  DETAIL_DRAWER_CLASS,
 } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -323,7 +324,7 @@ export function ContractorDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="p-0 sm:max-w-lg">
+      <SheetContent className={DETAIL_DRAWER_CLASS}>
         <SheetHeader>
           <div className="flex items-center justify-between gap-2">
             <SheetTitle>{isEdit ? contractor!.nickname || contractor!.name : 'Add Contractor'}</SheetTitle>

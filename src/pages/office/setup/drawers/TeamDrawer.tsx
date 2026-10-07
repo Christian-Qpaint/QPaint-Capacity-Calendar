@@ -10,6 +10,7 @@ import {
   SheetFooter,
   SheetHeader,
   SheetTitle,
+  DETAIL_DRAWER_CLASS,
 } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -171,7 +172,7 @@ export function TeamDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="p-0 sm:max-w-md">
+      <SheetContent className={DETAIL_DRAWER_CLASS}>
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
             {isEdit && <TeamColorDot team={team!} />}

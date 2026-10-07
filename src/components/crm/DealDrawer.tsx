@@ -5,7 +5,7 @@ import { useCrmData } from '@/context/CrmDataContext'
 import { usePermissions } from '@/context/PermissionsContext'
 import { CrmFieldInput } from '@/components/crm/CrmFieldInput'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle, DETAIL_DRAWER_CLASS } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -212,7 +212,7 @@ export function DealDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="p-0 sm:max-w-md">
+      <SheetContent className={DETAIL_DRAWER_CLASS}>
         <SheetHeader>
           <SheetTitle className="truncate">{currentDeal.title}</SheetTitle>
           <SheetDescription>
