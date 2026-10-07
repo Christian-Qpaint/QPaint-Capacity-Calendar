@@ -22,7 +22,7 @@ export default withErrorHandling(async (req: Request) => {
       type: 'access_request',
       title: `${user.name} requested access`,
       body: `Permission: ${permissionKey}`,
-      link: '/setup?tab=users',
+      link: '/settings?tab=users',
       createdBy: user.id,
     })),
   )

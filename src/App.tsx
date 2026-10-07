@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useSearchParams } from 'react-router-dom'
 import { OfficeLayout } from '@/components/layout/OfficeLayout'
 import { FieldLayout } from '@/components/layout/FieldLayout'
 import { RequireAuth, RequirePermission } from '@/components/RouteGuards'
@@ -11,7 +11,8 @@ import { JobsList } from '@/pages/office/JobsList'
 import { JobPhaseScheduling } from '@/pages/office/JobPhaseScheduling'
 import { ResourceCalendar } from '@/pages/office/ResourceCalendar'
 import { SalesAvailability } from '@/pages/office/SalesAvailability'
-import { TeamsContractorsSetup } from '@/pages/office/TeamsContractorsSetup'
+import { Workforce } from '@/pages/office/Workforce'
+import { Settings } from '@/pages/office/Settings'
 import { MarketingDashboard } from '@/pages/office/marketing/MarketingDashboard'
 import { AdsManagement } from '@/pages/office/marketing/AdsManagement'
 import { FinanceOverview } from '@/pages/office/FinanceOverview'
@@ -20,6 +21,15 @@ import { CrmConfig } from '@/pages/office/deals/CrmConfig'
 import { LogHours } from '@/pages/field/LogHours'
 import { UpdateProgress } from '@/pages/field/UpdateProgress'
 import { CrewProduction } from '@/pages/field/CrewProduction'
+
+// The old combined Settings page lived at /setup: crews/contractors/workers moved to /workforce,
+// accounts (?tab=users / invites) to /settings — keep old links and bookmarks working.
+function SetupRedirect() {
+  const [searchParams] = useSearchParams()
+  const tab = searchParams.get('tab')
+  if (tab === 'users' || tab === 'invites') return <Navigate to={`/settings?tab=${tab}`} replace />
+  return <Navigate to="/workforce" replace />
+}
 
 function RoleHome() {
   const { hasPermission } = usePermissions()
@@ -70,9 +80,15 @@ function App() {
             <Route path="/sales" element={<SalesAvailability />} />
           </Route>
 
-          <Route element={<RequirePermission permissionKey="settings.view" />}>
-            <Route path="/setup" element={<TeamsContractorsSetup />} />
+          <Route element={<RequirePermission permissionKey="workforce.view" />}>
+            <Route path="/workforce" element={<Workforce />} />
           </Route>
+
+          <Route element={<RequirePermission permissionKey="settings.manage_users" />}>
+            <Route path="/settings" element={<Settings />} />
+          </Route>
+
+          <Route path="/setup" element={<SetupRedirect />} />
 
           <Route element={<RequirePermission permissionKey="marketing.view" />}>
             <Route path="/marketing" element={<MarketingDashboard />} />

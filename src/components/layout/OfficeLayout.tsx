@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { ChevronDown, Gauge, Handshake, CalendarRange, Landmark, Megaphone, Settings as SettingsIcon, TrendingUp, Trophy } from 'lucide-react'
+import { ChevronDown, Gauge, Handshake, CalendarRange, Landmark, Megaphone, Settings as SettingsIcon, TrendingUp, Trophy, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AccountMenu } from '@/components/AccountMenu'
 import { NotificationBell } from '@/components/NotificationBell'
@@ -22,7 +22,8 @@ const NAV_ITEMS: { to: string; label: string; permissionKey: string; icon: Compo
   { to: '/calendar', label: 'Scheduler', permissionKey: 'scheduler.view', icon: CalendarRange, iconColor: 'text-cyan-600 dark:text-cyan-400' },
   { to: '/capacity', label: 'Production', permissionKey: 'production.view', icon: Gauge, iconColor: 'text-indigo-600 dark:text-indigo-400' },
   { to: '/finance', label: 'Finance', permissionKey: 'finance.view', icon: Landmark, iconColor: 'text-emerald-600 dark:text-emerald-400' },
-  { to: '/setup', label: 'Settings', permissionKey: 'settings.view', icon: SettingsIcon, iconColor: 'text-slate-500 dark:text-slate-400' },
+  { to: '/workforce', label: 'Workforce', permissionKey: 'workforce.view', icon: Users, iconColor: 'text-rose-600 dark:text-rose-400' },
+  { to: '/settings', label: 'Settings', permissionKey: 'settings.manage_users', icon: SettingsIcon, iconColor: 'text-slate-500 dark:text-slate-400' },
 ]
 
 // Marketing is a dropdown (Marketing dashboard vs Ads Management) rather than a flat NAV_ITEMS

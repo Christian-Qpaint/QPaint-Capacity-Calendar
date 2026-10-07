@@ -282,6 +282,16 @@ export const workers = pgTable(
     whiteCardNumber: text('white_card_number').notNull().default(''),
     qbuildInductionDone: boolean('qbuild_induction_done').notNull().default(false),
     qbuildInductionVerified: boolean('qbuild_induction_verified').notNull().default(false),
+    // Personal / employment / compliance detail from the "Team Info" sheet. Everything here is
+    // optional — a worker can be saved with only a name and filled in later.
+    dateOfBirth: date('date_of_birth'),
+    startDate: date('start_date'),
+    driversLicenceNumber: text('drivers_licence_number').notNull().default(''),
+    driversLicenceExpiry: date('drivers_licence_expiry'),
+    whiteCardIssueDate: date('white_card_issue_date'),
+    qbuildInductionDate: date('qbuild_induction_date'),
+    // Any other licence/ticket (Blue Card, EWP Yellow Card, High Risk Work…): [{name, number, expiryDate}]
+    otherTickets: jsonb('other_tickets').$type<{ name: string; number: string; expiryDate?: string | null }[]>().notNull().default([]),
   },
   (table) => [
     check(

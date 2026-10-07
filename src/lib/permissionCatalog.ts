@@ -23,7 +23,7 @@ export interface PermissionDef {
   defaultForRole: (role: Role) => boolean
 }
 
-export const PERMISSION_PAGES = ['Deals', 'Won', 'Scheduler', 'Sales', 'Production', 'Marketing', 'Finance', 'Settings', 'Field'] as const
+export const PERMISSION_PAGES = ['Deals', 'Won', 'Scheduler', 'Sales', 'Production', 'Marketing', 'Finance', 'Workforce', 'Settings', 'Field'] as const
 
 export const PERMISSION_CATALOG: PermissionDef[] = [
   // Won (view-only production tracking, at /jobs — job records themselves are now managed from
@@ -76,12 +76,15 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   // hasFinancialAccess check other $ figures use elsewhere in the app.
   { key: 'finance.view', page: 'Finance', label: 'View Finance page', description: 'Open the Finance overview (receivables, payables, gross profit).', defaultForRole: (role) => role === 'owner' },
 
-  // Settings
-  { key: 'settings.view', page: 'Settings', label: 'View Settings page', description: 'Open Settings (Teams / Contractors / Workers) at all.', defaultForRole: isOfficeRole },
-  { key: 'settings.manage_teams', page: 'Settings', label: 'Manage QPaint Teams', description: 'Add or edit internal crew/team records.', defaultForRole: isOfficeRole },
-  { key: 'settings.manage_contractors', page: 'Settings', label: 'Manage Contractors', description: 'Add or edit contractor company records.', defaultForRole: isOfficeRole },
-  { key: 'settings.manage_workers', page: 'Settings', label: 'Manage Workers', description: 'Add or edit the worker/staff directory.', defaultForRole: isOfficeRole },
-  { key: 'settings.manage_users', page: 'Settings', label: 'Manage Users & Permissions', description: 'Open this screen — view accounts and change permissions. Owner only by default.', defaultForRole: (role) => role === 'owner' },
+  // Workforce — crews, contractors and people (split out of Settings so office staff can manage
+  // them without also getting account administration).
+  { key: 'workforce.view', page: 'Workforce', label: 'View Workforce page', description: 'Open Workforce (QPaint Teams / Contractors / Workers) at all.', defaultForRole: isOfficeRole },
+  { key: 'settings.manage_teams', page: 'Workforce', label: 'Manage QPaint Teams', description: 'Add or edit internal crew/team records.', defaultForRole: isOfficeRole },
+  { key: 'settings.manage_contractors', page: 'Workforce', label: 'Manage Contractors', description: 'Add or edit contractor company records.', defaultForRole: isOfficeRole },
+  { key: 'settings.manage_workers', page: 'Workforce', label: 'Manage Workers', description: 'Add or edit the worker/staff directory.', defaultForRole: isOfficeRole },
+
+  // Settings — account administration only
+  { key: 'settings.manage_users', page: 'Settings', label: 'Manage Users & Permissions', description: 'Open Settings — view accounts, send invites and change permissions. Owner only by default.', defaultForRole: (role) => role === 'owner' },
 
   // Field
   // Crew Leaders no longer get Log Hours / Update Progress at all — their only Field page is

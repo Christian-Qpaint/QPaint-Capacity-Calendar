@@ -17,8 +17,17 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { TeamColorDot } from '@/components/TeamColorDot'
-import { Trash2 } from 'lucide-react'
-import type { Worker, WorkerType } from '@/types'
+import { Plus, Trash2, X } from 'lucide-react'
+import type { Worker, WorkerTicket, WorkerType } from '@/types'
+
+function SectionHeading({ children, hint }: { children: string; hint?: string }) {
+  return (
+    <div className="col-span-2 border-b border-border pb-1 pt-2">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{children}</p>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  )
+}
 
 export function WorkerDrawer({
   open,
@@ -46,6 +55,13 @@ export function WorkerDrawer({
   const [inductionDone, setInductionDone] = useState(false)
   const [inductionVerified, setInductionVerified] = useState(false)
   const [teamId, setTeamId] = useState('')
+  const [dateOfBirth, setDateOfBirth] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const [licenceNumber, setLicenceNumber] = useState('')
+  const [licenceExpiry, setLicenceExpiry] = useState('')
+  const [whiteCardIssue, setWhiteCardIssue] = useState('')
+  const [inductionDate, setInductionDate] = useState('')
+  const [tickets, setTickets] = useState<WorkerTicket[]>([])
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -71,6 +87,13 @@ export function WorkerDrawer({
       setInductionDone(worker.qbuildInductionDone)
       setInductionVerified(worker.qbuildInductionVerified)
       setTeamId(existingCoreMembership?.teamId ?? '')
+      setDateOfBirth(worker.dateOfBirth ?? '')
+      setStartDate(worker.startDate ?? '')
+      setLicenceNumber(worker.driversLicenceNumber ?? '')
+      setLicenceExpiry(worker.driversLicenceExpiry ?? '')
+      setWhiteCardIssue(worker.whiteCardIssueDate ?? '')
+      setInductionDate(worker.qbuildInductionDate ?? '')
+      setTickets(worker.otherTickets ?? [])
     } else {
       setFirstName('')
       setLastName('')
@@ -84,6 +107,13 @@ export function WorkerDrawer({
       setInductionDone(false)
       setInductionVerified(false)
       setTeamId('')
+      setDateOfBirth('')
+      setStartDate('')
+      setLicenceNumber('')
+      setLicenceExpiry('')
+      setWhiteCardIssue('')
+      setInductionDate('')
+      setTickets([])
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, worker?.id])
@@ -118,6 +148,13 @@ export function WorkerDrawer({
         whiteCardNumber: whiteCard,
         qbuildInductionDone: inductionDone,
         qbuildInductionVerified: inductionVerified,
+        dateOfBirth: dateOfBirth || undefined,
+        startDate: startDate || undefined,
+        driversLicenceNumber: licenceNumber,
+        driversLicenceExpiry: licenceExpiry || undefined,
+        whiteCardIssueDate: whiteCardIssue || undefined,
+        qbuildInductionDate: inductionDone ? inductionDate || undefined : undefined,
+        otherTickets: tickets.filter((t) => t.name.trim() || t.number.trim()),
       }
       if (isEdit && worker) {
         await updateWorker(worker.id, payload)
@@ -149,7 +186,7 @@ export function WorkerDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="p-0 sm:max-w-md">
+      <SheetContent className="p-0 sm:max-w-lg">
         <SheetHeader>
           <SheetTitle>{isEdit ? `${worker!.firstName} ${worker!.lastName}` : 'Add Worker'}</SheetTitle>
           <SheetDescription>Worker directory record — contact, compliance, and crew assignment.</SheetDescription>
@@ -157,6 +194,7 @@ export function WorkerDrawer({
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4">
           <div className="grid grid-cols-2 gap-3">
+            <SectionHeading>Personal details</SectionHeading>
             <div className="space-y-1.5">
               <Label>First name</Label>
               <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
@@ -173,10 +211,16 @@ export function WorkerDrawer({
               <Label>Email</Label>
               <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
             </div>
-            <div className="col-span-2 space-y-1.5">
+            <div className="space-y-1.5">
+              <Label>Date of birth</Label>
+              <Input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
               <Label>Address</Label>
               <Input value={address} onChange={(e) => setAddress(e.target.value)} />
             </div>
+
+            <SectionHeading hint="Who they work for and what they do.">Work</SectionHeading>
             <div className="space-y-1.5">
               <Label>Position</Label>
               <Select value={position} onValueChange={(v) => v && setPosition(v)}>
@@ -189,8 +233,8 @@ export function WorkerDrawer({
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>White Card number</Label>
-              <Input value={whiteCard} onChange={(e) => setWhiteCard(e.target.value)} />
+              <Label>Start date</Label>
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label>Type</Label>
@@ -204,7 +248,7 @@ export function WorkerDrawer({
               >
                 <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Internal">Internal</SelectItem>
+                  <SelectItem value="Internal">Internal (QPaint employee)</SelectItem>
                   <SelectItem value="Contractor">Contractor</SelectItem>
                 </SelectContent>
               </Select>
@@ -246,7 +290,7 @@ export function WorkerDrawer({
                           {t.name}
                         </span>
                       ) : (
-                        'Unassigned'
+                        'Floating — no crew yet'
                       )
                     }}
                   </SelectValue>
@@ -262,18 +306,75 @@ export function WorkerDrawer({
                   ))}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">Leave this empty and the person stays “floating” until you pick a crew.</p>
             </div>
-          </div>
 
-          <div className="flex items-center gap-4 text-sm">
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={inductionDone} onChange={(e) => setInductionDone(e.target.checked)} />
-              QBuild Induction Done
-            </label>
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={inductionVerified} onChange={(e) => setInductionVerified(e.target.checked)} />
-              Verified
-            </label>
+            <SectionHeading hint="Cards and licences, with their numbers and expiry dates.">Licences &amp; tickets</SectionHeading>
+            <div className="space-y-1.5">
+              <Label>Driver&apos;s licence number</Label>
+              <Input value={licenceNumber} onChange={(e) => setLicenceNumber(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Driver&apos;s licence expiry</Label>
+              <Input type="date" value={licenceExpiry} onChange={(e) => setLicenceExpiry(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>White Card number</Label>
+              <Input value={whiteCard} onChange={(e) => setWhiteCard(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>White Card issue date</Label>
+              <Input type="date" value={whiteCardIssue} onChange={(e) => setWhiteCardIssue(e.target.value)} />
+            </div>
+
+            <div className="col-span-2 space-y-2">
+              <Label>Other licences or tickets</Label>
+              {tickets.length === 0 && <p className="text-xs text-muted-foreground">None yet — e.g. Blue Card, EWP Yellow Card, High Risk Work.</p>}
+              {tickets.map((t, i) => (
+                <div key={i} className="grid grid-cols-[1fr_1fr_8.5rem_auto] items-center gap-2">
+                  <Input
+                    placeholder="Type (e.g. Blue Card)"
+                    value={t.name}
+                    onChange={(e) => setTickets((prev) => prev.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
+                  />
+                  <Input
+                    placeholder="Number"
+                    value={t.number}
+                    onChange={(e) => setTickets((prev) => prev.map((x, j) => (j === i ? { ...x, number: e.target.value } : x)))}
+                  />
+                  <Input
+                    type="date"
+                    aria-label="Expiry date"
+                    value={t.expiryDate ?? ''}
+                    onChange={(e) => setTickets((prev) => prev.map((x, j) => (j === i ? { ...x, expiryDate: e.target.value || null } : x)))}
+                  />
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove ticket" onClick={() => setTickets((prev) => prev.filter((_, j) => j !== i))}>
+                    <X />
+                  </Button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" onClick={() => setTickets((prev) => [...prev, { name: '', number: '', expiryDate: null }])}>
+                <Plus /> Add licence / ticket
+              </Button>
+            </div>
+
+            <SectionHeading>QBuild induction</SectionHeading>
+            <div className="col-span-2 flex flex-wrap items-center gap-4 text-sm">
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={inductionDone} onChange={(e) => setInductionDone(e.target.checked)} />
+                Induction done
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={inductionVerified} onChange={(e) => setInductionVerified(e.target.checked)} />
+                Verified
+              </label>
+            </div>
+            {inductionDone && (
+              <div className="space-y-1.5">
+                <Label>Date completed</Label>
+                <Input type="date" value={inductionDate} onChange={(e) => setInductionDate(e.target.value)} />
+              </div>
+            )}
           </div>
 
           {error && <p className="text-sm text-danger">{error}</p>}

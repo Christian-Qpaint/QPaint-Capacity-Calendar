@@ -5,6 +5,22 @@ import { parseJsonBody } from '../_shared/http.js'
 import { stripNulls } from '../_shared/rows.js'
 import { workers } from '../../../db/schema.js'
 
+function dateOrNull(v: unknown): string | null {
+  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null
+}
+
+function toTickets(v: unknown): { name: string; number: string; expiryDate: string | null }[] {
+  if (!Array.isArray(v)) return []
+  return v
+    .filter((t): t is Record<string, unknown> => !!t && typeof t === 'object')
+    .map((t) => ({
+      name: typeof t.name === 'string' ? t.name.trim() : '',
+      number: typeof t.number === 'string' ? t.number.trim() : '',
+      expiryDate: dateOrNull(t.expiryDate),
+    }))
+    .filter((t) => t.name || t.number)
+}
+
 function toValues(body: Record<string, unknown>) {
   return {
     firstName: body.firstName as string,
@@ -18,6 +34,13 @@ function toValues(body: Record<string, unknown>) {
     whiteCardNumber: (body.whiteCardNumber as string | undefined) ?? '',
     qbuildInductionDone: (body.qbuildInductionDone as boolean | undefined) ?? false,
     qbuildInductionVerified: (body.qbuildInductionVerified as boolean | undefined) ?? false,
+    dateOfBirth: dateOrNull(body.dateOfBirth),
+    startDate: dateOrNull(body.startDate),
+    driversLicenceNumber: (body.driversLicenceNumber as string | undefined) ?? '',
+    driversLicenceExpiry: dateOrNull(body.driversLicenceExpiry),
+    whiteCardIssueDate: dateOrNull(body.whiteCardIssueDate),
+    qbuildInductionDate: dateOrNull(body.qbuildInductionDate),
+    otherTickets: toTickets(body.otherTickets),
   }
 }
 

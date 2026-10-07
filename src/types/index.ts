@@ -148,6 +148,21 @@ export interface Worker {
   whiteCardNumber: string
   qbuildInductionDone: boolean
   qbuildInductionVerified: boolean
+  dateOfBirth?: string // ISO date
+  startDate?: string // ISO date — when they started with QPaint / their employer
+  driversLicenceNumber?: string
+  driversLicenceExpiry?: string // ISO date
+  whiteCardIssueDate?: string // ISO date
+  /** When the QBuild induction was completed (only meaningful when qbuildInductionDone). */
+  qbuildInductionDate?: string // ISO date
+  otherTickets?: WorkerTicket[]
+}
+
+/** Any licence/ticket beyond the White Card and driver's licence — Blue Card, EWP, High Risk Work… */
+export interface WorkerTicket {
+  name: string
+  number: string
+  expiryDate?: string | null // ISO date
 }
 
 export type MembershipType = 'Core' | 'Floating'
