@@ -1,16 +1,12 @@
-import { useMemo, useState } from 'react'
-import { toast } from 'sonner'
+import { useMemo } from 'react'
 import { useData } from '@/context/DataContext'
 import { useCurrentUser } from '@/context/AuthContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
 import { jobDisplayName } from '@/lib/jobDisplay'
 import { cn } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Slider } from '@/components/ui/slider'
-import { Badge } from '@/components/ui/badge'
 import { ClientTypeIcon } from '@/components/ClientTypeIcon'
-import { CircleCheck, CircleDashed, MapPin, Pencil, Percent, TriangleAlert, Users, type LucideIcon } from 'lucide-react'
+import { CircleCheck, CircleDashed, MapPin, Percent, TriangleAlert, Users, type LucideIcon } from 'lucide-react'
 import type { Job } from '@/types'
 
 type PaceTone = 'success' | 'warning'
@@ -35,37 +31,15 @@ function paceStatus(
 
 /** One current job, for the restricted Crew Leader view — deliberately a standalone component
  * rather than reusing CapacityBoard's card (same "separate, minimal page" pattern as
- * SalesAvailability.tsx): no dollar figures anywhere, and Production % is the only editable
- * control. Allotted/Actual hours are Pipedrive-sourced and read-only. */
+ * SalesAvailability.tsx): no dollar figures anywhere, and everything is read-only for now — Crew Leaders
+ * can view Production % and hours but not change anything. */
 function CrewJobCard({ job }: { job: Job }) {
-  const { clients, jobStages, scheduleBlocks, dailyHoursEntries, updateJobProduction } = useData()
+  const { clients, jobStages, scheduleBlocks, dailyHoursEntries } = useData()
   const currentUser = useCurrentUser()
   const da = useDataAccess()
   const progress = da.getJobProgress(job)
   const client = clients.find((c) => c.id === job.clientId)
   const stage = job.stageId ? jobStages.find((s) => s.id === job.stageId) : undefined
-
-  const [editingProduction, setEditingProduction] = useState(false)
-  const [productionValue, setProductionValue] = useState(0)
-  const [savingProduction, setSavingProduction] = useState(false)
-
-  function openEditProduction() {
-    setProductionValue(Math.round(Math.min(100, Math.max(0, progress.productionPercent))))
-    setEditingProduction(true)
-  }
-
-  async function handleSaveProduction() {
-    setSavingProduction(true)
-    try {
-      await updateJobProduction(job.id, productionValue)
-      toast.success('Production % updated')
-      setEditingProduction(false)
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to update production %')
-    } finally {
-      setSavingProduction(false)
-    }
-  }
 
   const blockIdsForJob = useMemo(
     () => new Set(scheduleBlocks.filter((b) => b.jobId === job.id && b.teamId === currentUser.teamId).map((b) => b.id)),
@@ -174,49 +148,14 @@ function CrewJobCard({ job }: { job: Job }) {
           <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             <Percent className="size-3.5" /> Production
           </p>
-          {!editingProduction && (
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">
-                {job.productionPercentSource === 'manual' ? 'Manual' : 'Computed'}
-              </Badge>
-              <span className="text-lg font-bold tracking-tight">{Math.round(progress.productionPercent)}%</span>
-              <button
-                onClick={openEditProduction}
-                aria-label="Edit production percent"
-                className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <Pencil className="size-4" />
-              </button>
-            </div>
-          )}
+          <span className="text-lg font-bold tracking-tight">{Math.round(progress.productionPercent)}%</span>
         </div>
-
-        {editingProduction ? (
-          <div className="space-y-2">
-            <div className="flex items-center gap-3">
-              <Slider
-                value={[productionValue]}
-                min={0}
-                max={100}
-                step={1}
-                onValueChange={(v) => setProductionValue(Array.isArray(v) ? v[0] : v)}
-                className="flex-1"
-              />
-              <span className="w-12 shrink-0 text-right text-lg font-bold">{productionValue}%</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Button size="sm" className="h-8" onClick={handleSaveProduction} disabled={savingProduction}>Save</Button>
-              <Button size="sm" variant="ghost" className="h-8" onClick={() => setEditingProduction(false)} disabled={savingProduction}>Cancel</Button>
-            </div>
-          </div>
-        ) : (
-          <div className="h-5 overflow-hidden rounded-full bg-card">
-            <div
-              className="h-full rounded-full bg-success-fill transition-[width]"
-              style={{ width: `${productionPct}%`, minWidth: productionPct > 0 ? undefined : 4 }}
-            />
-          </div>
-        )}
+        <div className="h-5 overflow-hidden rounded-full bg-card">
+          <div
+            className="h-full rounded-full bg-success-fill transition-[width]"
+            style={{ width: `${productionPct}%`, minWidth: productionPct > 0 ? undefined : 4 }}
+          />
+        </div>
       </div>
 
       <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -272,7 +211,7 @@ export function CrewProduction() {
     <div className="space-y-4">
       <div>
         <h1 className="text-lg font-medium">Current jobs working — {myTeam.name}</h1>
-        <p className="text-sm text-muted-foreground">Adjust Production % on each job.</p>
+        <p className="text-sm text-muted-foreground">Production % and hours for each job.</p>
       </div>
 
       <div className="grid grid-cols-1 gap-4">
