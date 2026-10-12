@@ -116,7 +116,7 @@ export function UsersPermissionsTab() {
             <Card key={page} className="gap-2 p-4">
               <h3 className="text-sm font-medium">{page}</h3>
               <div className="divide-y divide-border">
-                {PERMISSION_CATALOG.filter((p) => p.page === page).map((perm) => {
+                {PERMISSION_CATALOG.filter((p) => p.page === page && !p.disabled).map((perm) => {
                   const override = overrideFor(perm.key)
                   const effective = override ? override.granted : perm.defaultForRole(selectedUser.role)
                   return (

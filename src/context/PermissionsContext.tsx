@@ -41,8 +41,9 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
   }, [refetch])
 
   function hasPermission(key: string): boolean {
-    if (key in overrides) return overrides[key]
     const def = findPermission(key)
+    if (def?.disabled) return false
+    if (key in overrides) return overrides[key]
     return def ? def.defaultForRole(currentUser.role) : false
   }
 

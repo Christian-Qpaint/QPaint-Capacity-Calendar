@@ -3,6 +3,7 @@ import { useData } from '@/context/DataContext'
 import { useCurrentUser } from '@/context/AuthContext'
 import { useDataAccess } from '@/hooks/useDataAccess'
 import { jobDisplayName } from '@/lib/jobDisplay'
+import { LOG_HOURS_ENABLED } from '@/lib/features'
 import { cn } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
 import { ClientTypeIcon } from '@/components/ClientTypeIcon'
@@ -158,10 +159,12 @@ function CrewJobCard({ job }: { job: Job }) {
         </div>
       </div>
 
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span className="flex items-center gap-1.5"><Users className="size-3.5" /> Hours logged by your team</span>
-        <span className="font-medium text-foreground">{loggedHours} hrs</span>
-      </div>
+      {LOG_HOURS_ENABLED && (
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5"><Users className="size-3.5" /> Hours logged by your team</span>
+          <span className="font-medium text-foreground">{loggedHours} hrs</span>
+        </div>
+      )}
     </Card>
   )
 }

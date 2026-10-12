@@ -13,6 +13,7 @@
 // means splitting the existing office-role RLS policies per table), not done here.
 
 import { canAccessMarketing, canAccessUpdateProgress, canManageTargets, canSeeRawProductionRate, hasFinancialAccess, isOfficeRole } from './permissions'
+import { LOG_HOURS_ENABLED } from './features'
 import type { Role } from '@/types'
 
 export interface PermissionDef {
@@ -21,6 +22,8 @@ export interface PermissionDef {
   label: string
   description: string
   defaultForRole: (role: Role) => boolean
+  /** Switched off globally: always false (even with a per-user override) and hidden from the admin list. */
+  disabled?: boolean
 }
 
 export const PERMISSION_PAGES = ['Deals', 'Won', 'Scheduler', 'Sales', 'Production', 'Marketing', 'Finance', 'Workforce', 'Settings', 'Field'] as const
@@ -89,7 +92,7 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   // Field
   // Crew Leaders no longer get Log Hours / Update Progress at all — their only Field page is
   // their own restricted, view-only Production page below. Painter/Crew Member keeps Log Hours.
-  { key: 'field.log_hours', page: 'Field', label: 'Log daily hours', description: 'Submit daily hours worked.', defaultForRole: (role) => role !== 'team_leader_foreperson' },
+  { key: 'field.log_hours', page: 'Field', label: 'Log daily hours', description: 'Submit daily hours worked.', defaultForRole: (role) => role !== 'team_leader_foreperson', disabled: !LOG_HOURS_ENABLED },
   { key: 'field.update_progress', page: 'Field', label: 'Update job progress', description: 'Submit on-site production/progress updates.', defaultForRole: canAccessUpdateProgress },
   // Crew Leader-only restricted Production view — card-only, no dollars, scoped to their own
   // QPaint team's jobs. A deliberately separate page/permission from production.view (the full

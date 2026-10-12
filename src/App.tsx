@@ -21,6 +21,7 @@ import { CrmConfig } from '@/pages/office/deals/CrmConfig'
 import { LogHours } from '@/pages/field/LogHours'
 import { UpdateProgress } from '@/pages/field/UpdateProgress'
 import { CrewProduction } from '@/pages/field/CrewProduction'
+import { FieldHome } from '@/pages/field/FieldHome'
 
 // The old combined Settings page lived at /setup: crews/contractors/workers moved to /workforce,
 // accounts (?tab=users / invites) to /settings — keep old links and bookmarks working.
@@ -42,7 +43,7 @@ function RoleHome() {
   // Crew Leaders have no other permission above (no office/CRM/marketing access) and no longer
   // have field.log_hours either — their only Field page is their restricted Production view.
   if (hasPermission('field.view_production')) return <Navigate to="/my-production" replace />
-  return <Navigate to="/log-hours" replace />
+  return <Navigate to="/field-home" replace />
 }
 
 function App() {
@@ -104,6 +105,7 @@ function App() {
         </Route>
 
         <Route element={<FieldLayout />}>
+          <Route path="/field-home" element={<FieldHome />} />
           <Route element={<RequirePermission permissionKey="field.log_hours" />}>
             <Route path="/log-hours" element={<LogHours />} />
           </Route>
