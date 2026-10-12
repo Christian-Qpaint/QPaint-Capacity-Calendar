@@ -32,8 +32,11 @@ export function inviteRoleForWorker(w: { workerType: string; position: string })
   return null
 }
 
+/** The address the page was opened from (same as the Copy link button), so the emailed link always
+ * points at the site the invite was made on; Netlify's URL variable is only a fallback. */
 export function siteBaseUrl(req: Request): string {
-  return (process.env.URL ?? new URL(req.url).origin).replace(/\/$/, '')
+  const origin = new URL(req.url).origin
+  return (origin.startsWith('http') ? origin : process.env.URL ?? origin).replace(/\/$/, '')
 }
 
 function escapeHtml(s: string): string {
