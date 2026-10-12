@@ -156,7 +156,12 @@ export interface Worker {
   /** When the QBuild induction was completed (only meaningful when qbuildInductionDone). */
   qbuildInductionDate?: string // ISO date
   otherTickets?: WorkerTicket[]
+  /** Only present on the response to creating a worker: what happened to the automatic invite. */
+  inviteStatus?: WorkerInviteStatus
+  inviteError?: string
 }
+
+export type WorkerInviteStatus = 'emailed' | 'email_failed' | 'already_has_account' | 'already_invited' | 'no_email' | 'not_eligible'
 
 /** Any licence/ticket beyond the White Card and driver's licence — Blue Card, EWP, High Risk Work… */
 export interface WorkerTicket {
@@ -441,6 +446,11 @@ export interface UserInvite {
   expiresAt: string
   usedAt: string | null
   createdAt: string
+  workerId?: string | null
+  /** When the invite email went out; absent if it never has. */
+  emailSentAt?: string | null
+  /** Why the last email attempt failed (e.g. email isn't set up), if it did. */
+  emailError?: string | null
 }
 
 /** A persistent, per-recipient notification (distinct from sonner's transient action-result

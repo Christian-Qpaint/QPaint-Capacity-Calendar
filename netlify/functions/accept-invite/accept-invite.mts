@@ -3,12 +3,12 @@
 // POST actually creates the account and consumes the invite. Replaces the old open
 // auth-signup.mts entirely: there's no other path to a new account anymore.
 import bcrypt from 'bcryptjs'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, desc, eq, isNull } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { withSessionCookie } from '../_shared/auth.js'
 import { parseJsonBody } from '../_shared/http.js'
 import { toClientUser } from '../_shared/userMapper.js'
-import { userInvites, users } from '../../../db/schema.js'
+import { teamMemberships, userInvites, users } from '../../../db/schema.js'
 
 const BCRYPT_ROUNDS = 12
 
@@ -52,10 +52,23 @@ export default async (req: Request): Promise<Response> => {
     const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, invite.email)).limit(1)
     if (existing) return jsonError('An account with that email already exists.', 409)
 
+    // An invite made for a worker links the new login to that worker and to their Core crew, which
+    // is what scopes a Crew Leader's Production page to their own team.
+    let teamId: string | null = null
+    if (invite.workerId) {
+      const [core] = await db
+        .select({ teamId: teamMemberships.teamId })
+        .from(teamMemberships)
+        .where(and(eq(teamMemberships.workerId, invite.workerId), eq(teamMemberships.membershipType, 'Core')))
+        .orderBy(desc(teamMemberships.startDate))
+        .limit(1)
+      teamId = core?.teamId ?? null
+    }
+
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS)
     const [created] = await db
       .insert(users)
-      .values({ email: invite.email, passwordHash, name, role: invite.role })
+      .values({ email: invite.email, passwordHash, name, role: invite.role, workerId: invite.workerId ?? null, teamId })
       .returning()
     await db.update(userInvites).set({ usedAt: new Date().toISOString() }).where(eq(userInvites.id, invite.id))
 

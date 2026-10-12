@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { Copy, Send, Trash2 } from 'lucide-react'
+import { Copy, MailCheck, MailWarning, RefreshCw, Send, Trash2 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,7 +24,7 @@ function inviteStatus(usedAt: string | null, expiresAt: string): { label: string
  * email provider is wired up — generating an invite here just produces a link the owner copies
  * and sends themselves (Slack, email client, whatever). */
 export function InvitesTab() {
-  const { invites, loading, error, createInvite, revokeInvite } = useUserInvites()
+  const { invites, loading, error, createInvite, resendInvite, revokeInvite } = useUserInvites()
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<Role>('painter_crew_member')
   const [creating, setCreating] = useState(false)
@@ -35,8 +35,13 @@ export function InvitesTab() {
     setCreating(true)
     try {
       const saved = await createInvite(email.trim().toLowerCase(), role)
-      await navigator.clipboard.writeText(inviteLink(saved.token))
-      toast.success('Invite created — link copied to clipboard')
+      if (saved.emailSentAt && !saved.emailError) {
+        toast.success(`Invite emailed to ${saved.email}`)
+      } else {
+        // Email isn't set up or was refused — fall back to copying the link, as before.
+        await navigator.clipboard.writeText(inviteLink(saved.token))
+        toast.warning(`Invite created, but the email wasn't sent (${saved.emailError ?? 'unknown reason'}). The link is copied — send it yourself.`)
+      }
       setEmail('')
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to create invite')
@@ -48,6 +53,16 @@ export function InvitesTab() {
   async function handleCopy(token: string) {
     await navigator.clipboard.writeText(inviteLink(token))
     toast.success('Link copied to clipboard')
+  }
+
+  async function handleResend(id: string, address: string) {
+    try {
+      const saved = await resendInvite(id)
+      if (saved.emailSentAt && !saved.emailError) toast.success(`Invite re-sent to ${address}`)
+      else toast.warning(`The email wasn't sent (${saved.emailError ?? 'unknown reason'}). Use Copy link instead.`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to resend invite')
+    }
   }
 
   async function handleRevoke() {
@@ -86,11 +101,11 @@ export function InvitesTab() {
             </Select>
           </div>
           <Button onClick={handleCreate} disabled={creating || !email.trim()}>
-            <Send /> {creating ? 'Creating…' : 'Generate invite link'}
+            <Send /> {creating ? 'Sending…' : 'Send invite'}
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Copies the link to your clipboard automatically — send it to them yourself (no email is sent). Links expire after 7 days.
+          The invite link is emailed to them automatically. If the email can't be sent, the link is copied to your clipboard so you can send it yourself. Links expire after 7 days.
         </p>
       </Card>
 
@@ -107,8 +122,21 @@ export function InvitesTab() {
                   <p className="text-xs text-muted-foreground">
                     {ROLE_LABELS[invite.role]} · <span className={status.className}>{status.label}</span>
                   </p>
+                  {status.label !== 'Used' && (
+                    <p className={`flex items-center gap-1 text-xs ${invite.emailSentAt && !invite.emailError ? 'text-success' : 'text-warning'}`}>
+                      {invite.emailSentAt && !invite.emailError ? <MailCheck className="size-3" /> : <MailWarning className="size-3" />}
+                      {invite.emailSentAt && !invite.emailError
+                        ? `Emailed ${new Date(invite.emailSentAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}`
+                        : `Not emailed${invite.emailError ? ` — ${invite.emailError}` : ''}`}
+                    </p>
+                  )}
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
+                  {status.label !== 'Used' && (
+                    <Button variant="outline" size="sm" onClick={() => handleResend(invite.id, invite.email)}>
+                      <RefreshCw className="size-3.5" /> Resend email
+                    </Button>
+                  )}
                   {status.label === 'Pending' && (
                     <Button variant="outline" size="sm" onClick={() => handleCopy(invite.token)}>
                       <Copy className="size-3.5" /> Copy link

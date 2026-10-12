@@ -31,10 +31,16 @@ export function useUserInvites() {
     return saved
   }
 
+  async function resendInvite(id: string) {
+    const saved = await api.patch<UserInvite>(`/api/user-invites?id=${id}&action=resend`)
+    setInvites((prev) => prev.map((i) => (i.id === id ? saved : i)))
+    return saved
+  }
+
   async function revokeInvite(id: string) {
     await api.delete(`/api/user-invites?id=${id}`)
     setInvites((prev) => prev.filter((i) => i.id !== id))
   }
 
-  return { invites, loading, error, refetch, createInvite, revokeInvite }
+  return { invites, loading, error, refetch, createInvite, resendInvite, revokeInvite }
 }

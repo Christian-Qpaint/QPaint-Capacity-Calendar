@@ -1,15 +1,14 @@
 // Owner-only: generate/list/revoke one-time invite links, replacing open public self-signup.
 // Each invite bakes in the intended email + role; accept-invite.mts is the only thing that can
-// turn a valid, unexpired, unused token into a real account. No email provider is wired up here —
-// the owner copies the generated link and sends it themselves (Slack, email client, whatever).
+// turn a valid, unexpired, unused token into a real account. New invites are emailed automatically
+// (Resend — see _shared/invites.ts); the link can still be copied by hand as a backup.
 import { desc, eq } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { requireOwnerRole, withErrorHandling, HttpError } from '../_shared/authz.js'
 import { parseJsonBody } from '../_shared/http.js'
 import { stripNullsAll } from '../_shared/rows.js'
 import { userInvites, users } from '../../../db/schema.js'
-
-const INVITE_LIFETIME_DAYS = 7
+import { INVITE_LIFETIME_DAYS, createInvite, deliverInvite, siteBaseUrl } from '../_shared/invites.js'
 
 export default withErrorHandling(async (req: Request) => {
   const owner = await requireOwnerRole(req)
@@ -31,12 +30,21 @@ export default withErrorHandling(async (req: Request) => {
     const [existingUser] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1)
     if (existingUser) throw new HttpError(409, 'An account with that email already exists.')
 
-    const expiresAt = new Date(Date.now() + INVITE_LIFETIME_DAYS * 86_400_000).toISOString()
-    const [created] = await db
-      .insert(userInvites)
-      .values({ email, role, token: crypto.randomUUID(), createdBy: owner.id, expiresAt })
-      .returning()
+    const created = await createInvite(db, { email, role, createdBy: owner.id, baseUrl: siteBaseUrl(req), inviterName: owner.name })
     return Response.json(stripNullsAll([created])[0])
+  }
+
+  // Re-send the email for a pending invite (and give it a fresh 7 days).
+  if (req.method === 'PATCH' && url.searchParams.get('action') === 'resend') {
+    const id = url.searchParams.get('id')
+    if (!id) throw new HttpError(400, 'Missing id')
+    const [invite] = await db.select().from(userInvites).where(eq(userInvites.id, id)).limit(1)
+    if (!invite) throw new HttpError(404, 'Invite not found')
+    if (invite.usedAt) throw new HttpError(409, 'That invite has already been used.')
+    const expiresAt = new Date(Date.now() + INVITE_LIFETIME_DAYS * 86_400_000).toISOString()
+    const [refreshed] = await db.update(userInvites).set({ expiresAt }).where(eq(userInvites.id, id)).returning()
+    const updated = await deliverInvite(db, refreshed, { baseUrl: siteBaseUrl(req), inviterName: owner.name })
+    return Response.json(stripNullsAll([updated])[0])
   }
 
   if (req.method === 'DELETE') {

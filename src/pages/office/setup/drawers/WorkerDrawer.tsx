@@ -18,8 +18,31 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { TeamColorDot } from '@/components/TeamColorDot'
-import { Plus, Trash2, X } from 'lucide-react'
-import type { Worker, WorkerTicket, WorkerType } from '@/types'
+import { api } from '@/lib/apiClient'
+import { Mail, Plus, Trash2, X } from 'lucide-react'
+import type { Worker, WorkerInviteStatus, WorkerTicket, WorkerType } from '@/types'
+
+function inviteToast(status: WorkerInviteStatus | undefined, email: string, error?: string) {
+  switch (status) {
+    case 'emailed':
+      toast.success(`Invite emailed to ${email}`)
+      break
+    case 'email_failed':
+      toast.warning(`Saved, but the invite email wasn't sent (${error ?? 'unknown reason'}). You can send it from Settings → Invites.`)
+      break
+    case 'already_has_account':
+      toast.info(`${email} already has a QPaint OS login.`)
+      break
+    case 'already_invited':
+      toast.info(`${email} has already been invited.`)
+      break
+    case 'not_eligible':
+      toast.info('Saved. No automatic invite for this position or for contractor staff — invite them from Settings → Invites if they need a login.')
+      break
+    default:
+      break
+  }
+}
 
 function SectionHeading({ children, hint }: { children: string; hint?: string }) {
   return (
@@ -65,6 +88,7 @@ export function WorkerDrawer({
   const [tickets, setTickets] = useState<WorkerTicket[]>([])
 
   const [saving, setSaving] = useState(false)
+  const [sendingInvite, setSendingInvite] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
@@ -165,12 +189,27 @@ export function WorkerDrawer({
         const created = await addWorker(payload)
         await syncCoreMembership(created.id)
         toast.success('Worker added')
+        if (email.trim()) inviteToast(created.inviteStatus, email.trim(), created.inviteError)
       }
       onOpenChange(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save worker')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleSendInvite() {
+    if (!worker) return
+    setSendingInvite(true)
+    try {
+      const res = await api.post<{ inviteStatus: WorkerInviteStatus; inviteError?: string }>(`/api/workers?id=${worker.id}&action=invite`)
+      if (res.inviteStatus === 'no_email') toast.info('Add an email address first, then save.')
+      else inviteToast(res.inviteStatus, worker.email, res.inviteError)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to send invite')
+    } finally {
+      setSendingInvite(false)
     }
   }
 
@@ -211,6 +250,7 @@ export function WorkerDrawer({
             <div className="space-y-1.5">
               <Label>Email</Label>
               <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+              {!isEdit && <p className="text-xs text-muted-foreground">If you add an email, they’re invited to QPaint OS automatically.</p>}
             </div>
             <div className="space-y-1.5">
               <Label>Date of birth</Label>
@@ -383,9 +423,14 @@ export function WorkerDrawer({
 
         <SheetFooter className="flex-row justify-between border-t border-border">
           {isEdit ? (
-            <Button variant="destructive" size="sm" onClick={() => setConfirmDelete(true)}>
-              <Trash2 /> Delete
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="destructive" size="sm" onClick={() => setConfirmDelete(true)}>
+                <Trash2 /> Delete
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleSendInvite} disabled={sendingInvite || !worker?.email}>
+                <Mail /> {sendingInvite ? 'Sending…' : 'Send QPaint OS invite'}
+              </Button>
+            </div>
           ) : (
             <span />
           )}

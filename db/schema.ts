@@ -125,6 +125,11 @@ export const userInvites = pgTable('user_invites', {
   expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'string' }).notNull(),
   usedAt: timestamp('used_at', { withTimezone: true, mode: 'string' }),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+  // Set when the invite was made for a worker record: accepting it links the new login to that
+  // worker and (via their Core crew membership) to their crew.
+  workerId: uuid('worker_id').references(() => workers.id, { onDelete: 'set null' }),
+  emailSentAt: timestamp('email_sent_at', { withTimezone: true, mode: 'string' }),
+  emailError: text('email_error'),
 })
 
 // ============================================================================
