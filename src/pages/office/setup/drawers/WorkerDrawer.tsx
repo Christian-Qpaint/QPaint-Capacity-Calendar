@@ -189,7 +189,6 @@ export function WorkerDrawer({
         const created = await addWorker(payload)
         await syncCoreMembership(created.id)
         toast.success('Worker added')
-        if (email.trim()) inviteToast(created.inviteStatus, email.trim(), created.inviteError)
       }
       onOpenChange(false)
     } catch (e) {
@@ -250,7 +249,6 @@ export function WorkerDrawer({
             <div className="space-y-1.5">
               <Label>Email</Label>
               <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-              {!isEdit && <p className="text-xs text-muted-foreground">If you add an email, they’re invited to QPaint OS automatically.</p>}
             </div>
             <div className="space-y-1.5">
               <Label>Date of birth</Label>

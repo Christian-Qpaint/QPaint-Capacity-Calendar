@@ -1,7 +1,7 @@
 // Owner-only: generate/list/revoke one-time invite links, replacing open public self-signup.
 // Each invite bakes in the intended email + role; accept-invite.mts is the only thing that can
-// turn a valid, unexpired, unused token into a real account. New invites are emailed automatically
-// (Resend — see _shared/invites.ts); the link can still be copied by hand as a backup.
+// turn a valid, unexpired, unused token into a real account. Creating an invite never sends
+// anything; the email (Resend — see _shared/invites.ts) goes out only when someone clicks Send email.
 import { desc, eq } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { requireOwnerRole, withErrorHandling, HttpError } from '../_shared/authz.js'
@@ -30,7 +30,7 @@ export default withErrorHandling(async (req: Request) => {
     const [existingUser] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1)
     if (existingUser) throw new HttpError(409, 'An account with that email already exists.')
 
-    const created = await createInvite(db, { email, role, createdBy: owner.id, baseUrl: siteBaseUrl(req), inviterName: owner.name })
+    const created = await createInvite(db, { email, role, createdBy: owner.id, baseUrl: siteBaseUrl(req), inviterName: owner.name, sendEmail: false })
     return Response.json(stripNullsAll([created])[0])
   }
 

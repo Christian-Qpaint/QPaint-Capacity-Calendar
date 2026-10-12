@@ -63,15 +63,9 @@ export default withErrorHandling(async (req: Request) => {
   if (req.method === 'POST') {
     const body = await parseJsonBody(req)
     const [created] = await db.insert(workers).values(toValues(body)).returning()
-    // A new worker with an email is invited to QPaint OS automatically. This can never fail the
-    // create — the worker is already saved; the outcome is just reported back for the toast.
-    let invite: { status: string; error?: string } = { status: 'email_failed' }
-    try {
-      invite = await inviteWorker(db, created, actor, siteBaseUrl(req), { resendIfPending: false })
-    } catch (err) {
-      console.error('Auto-invite failed', err)
-    }
-    return Response.json({ ...stripNulls(created), inviteStatus: invite.status, inviteError: invite.error })
+    // Inviting is manual: no email goes out when a worker is created (see the "Send QPaint OS
+    // invite" action above).
+    return Response.json(stripNulls(created))
   }
 
   if (!id) throw new HttpError(400, 'Missing id')

@@ -108,13 +108,15 @@ export async function deliverInvite(
 
 export async function createInvite(
   db: Db,
-  args: { email: string; role: Role; createdBy: string; workerId?: string | null; baseUrl: string; inviterName: string; recipientName?: string },
+  args: { email: string; role: Role; createdBy: string; workerId?: string | null; baseUrl: string; inviterName: string; recipientName?: string; sendEmail: boolean },
 ): Promise<InviteRow> {
   const expiresAt = new Date(Date.now() + INVITE_LIFETIME_DAYS * 86_400_000).toISOString()
   const [created] = await db
     .insert(userInvites)
     .values({ email: args.email, role: args.role, token: crypto.randomUUID(), createdBy: args.createdBy, expiresAt, workerId: args.workerId ?? null })
     .returning()
+  // Emailing is always a deliberate click — never a side effect of creating an invite.
+  if (!args.sendEmail) return created
   return deliverInvite(db, created, { baseUrl: args.baseUrl, inviterName: args.inviterName, recipientName: args.recipientName })
 }
 
@@ -151,7 +153,7 @@ export async function inviteWorker(
     const [refreshed] = await db.update(userInvites).set({ expiresAt, workerId: worker.id }).where(eq(userInvites.id, pending.id)).returning()
     invite = await deliverInvite(db, refreshed, ctx)
   } else {
-    invite = await createInvite(db, { email, role, createdBy: actor.id, workerId: worker.id, ...ctx })
+    invite = await createInvite(db, { email, role, createdBy: actor.id, workerId: worker.id, sendEmail: true, ...ctx })
   }
   return invite.emailSentAt && !invite.emailError ? { status: 'emailed' } : { status: 'email_failed', error: invite.emailError ?? undefined }
 }

@@ -156,9 +156,6 @@ export interface Worker {
   /** When the QBuild induction was completed (only meaningful when qbuildInductionDone). */
   qbuildInductionDate?: string // ISO date
   otherTickets?: WorkerTicket[]
-  /** Only present on the response to creating a worker: what happened to the automatic invite. */
-  inviteStatus?: WorkerInviteStatus
-  inviteError?: string
 }
 
 export type WorkerInviteStatus = 'emailed' | 'email_failed' | 'already_has_account' | 'already_invited' | 'no_email' | 'not_eligible'

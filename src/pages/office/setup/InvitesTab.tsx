@@ -35,13 +35,8 @@ export function InvitesTab() {
     setCreating(true)
     try {
       const saved = await createInvite(email.trim().toLowerCase(), role)
-      if (saved.emailSentAt && !saved.emailError) {
-        toast.success(`Invite emailed to ${saved.email}`)
-      } else {
-        // Email isn't set up or was refused — fall back to copying the link, as before.
-        await navigator.clipboard.writeText(inviteLink(saved.token))
-        toast.warning(`Invite created, but the email wasn't sent (${saved.emailError ?? 'unknown reason'}). The link is copied — send it yourself.`)
-      }
+      await navigator.clipboard.writeText(inviteLink(saved.token))
+      toast.success('Invite created — link copied. Click “Send email” on it when you’re ready to email it.')
       setEmail('')
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to create invite')
@@ -58,7 +53,7 @@ export function InvitesTab() {
   async function handleResend(id: string, address: string) {
     try {
       const saved = await resendInvite(id)
-      if (saved.emailSentAt && !saved.emailError) toast.success(`Invite re-sent to ${address}`)
+      if (saved.emailSentAt && !saved.emailError) toast.success(`Invite emailed to ${address}`)
       else toast.warning(`The email wasn't sent (${saved.emailError ?? 'unknown reason'}). Use Copy link instead.`)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to resend invite')
@@ -101,11 +96,11 @@ export function InvitesTab() {
             </Select>
           </div>
           <Button onClick={handleCreate} disabled={creating || !email.trim()}>
-            <Send /> {creating ? 'Sending…' : 'Send invite'}
+            <Send /> {creating ? 'Creating…' : 'Create invite'}
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          The invite link is emailed to them automatically. If the email can't be sent, the link is copied to your clipboard so you can send it yourself. Links expire after 7 days.
+          Creating an invite sends nothing — it copies the link to your clipboard. Use “Send email” on an invite when you want it emailed to them. Links expire after 7 days.
         </p>
       </Card>
 
@@ -123,18 +118,20 @@ export function InvitesTab() {
                     {ROLE_LABELS[invite.role]} · <span className={status.className}>{status.label}</span>
                   </p>
                   {status.label !== 'Used' && (
-                    <p className={`flex items-center gap-1 text-xs ${invite.emailSentAt && !invite.emailError ? 'text-success' : 'text-warning'}`}>
-                      {invite.emailSentAt && !invite.emailError ? <MailCheck className="size-3" /> : <MailWarning className="size-3" />}
-                      {invite.emailSentAt && !invite.emailError
-                        ? `Emailed ${new Date(invite.emailSentAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}`
-                        : `Not emailed${invite.emailError ? ` — ${invite.emailError}` : ''}`}
+                    <p className={`flex items-center gap-1 text-xs ${invite.emailError ? 'text-warning' : invite.emailSentAt ? 'text-success' : 'text-muted-foreground'}`}>
+                      {invite.emailError ? <MailWarning className="size-3" /> : invite.emailSentAt ? <MailCheck className="size-3" /> : null}
+                      {invite.emailError
+                        ? `Email not sent — ${invite.emailError}`
+                        : invite.emailSentAt
+                          ? `Emailed ${new Date(invite.emailSentAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}`
+                          : 'Not emailed yet'}
                     </p>
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
                   {status.label !== 'Used' && (
                     <Button variant="outline" size="sm" onClick={() => handleResend(invite.id, invite.email)}>
-                      <RefreshCw className="size-3.5" /> Resend email
+                      <RefreshCw className="size-3.5" /> {invite.emailSentAt ? 'Resend email' : 'Send email'}
                     </Button>
                   )}
                   {status.label === 'Pending' && (
