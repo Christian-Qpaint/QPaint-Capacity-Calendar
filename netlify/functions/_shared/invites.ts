@@ -4,6 +4,7 @@
 import { and, eq, isNull } from 'drizzle-orm'
 import { userInvites, users } from '../../../db/schema.js'
 import { getDb } from './db.js'
+import { emailDetails, emailParagraph, escapeHtml, renderEmail } from './emailLayout.js'
 
 type Db = ReturnType<typeof getDb>
 type Role = (typeof users.$inferSelect)['role']
@@ -39,10 +40,6 @@ export function siteBaseUrl(req: Request): string {
   return (origin.startsWith('http') ? origin : process.env.URL ?? origin).replace(/\/$/, '')
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-}
-
 /** Sends one invite email through Resend. Never throws — returns why it didn't send instead, so a
  * missing/refused email never blocks the invite itself (the link can always be copied). */
 async function sendInviteEmail(args: {
@@ -58,16 +55,19 @@ async function sendInviteEmail(args: {
 
   const roleLabel = ROLE_LABELS[args.role] ?? args.role
   const greeting = args.recipientName ? `Hi ${args.recipientName},` : 'Hi,'
-  const subject = 'You’ve been invited to QPaint OS'
-  const text = `${greeting}\n\n${args.inviterName} has invited you to QPaint OS as ${roleLabel}.\n\nSet your password and sign in here:\n${args.link}\n\nThis link works once and expires in ${INVITE_LIFETIME_DAYS} days.\n`
-  const html = `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#111">
-  <h2 style="margin:0 0 12px">You’re invited to QPaint OS</h2>
-  <p>${escapeHtml(greeting)}</p>
-  <p>${escapeHtml(args.inviterName)} has invited you to QPaint OS as <strong>${escapeHtml(roleLabel)}</strong>.</p>
-  <p style="margin:24px 0"><a href="${escapeHtml(args.link)}" style="background:#111;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600">Set your password</a></p>
-  <p style="color:#555;font-size:13px">Or paste this link into your browser:<br>${escapeHtml(args.link)}</p>
-  <p style="color:#555;font-size:13px">This link works once and expires in ${INVITE_LIFETIME_DAYS} days.</p>
-</div>`
+  const subject = 'You’re invited to QPaint OS'
+  const text = `QPaint OS\n\n${greeting}\n\n${args.inviterName} has invited you to QPaint OS.\n\nYour role: ${roleLabel}\n\nSet your password and sign in:\n${args.link}\n\nThis link works once and expires in ${INVITE_LIFETIME_DAYS} days.\n\n— QPaint OS\nIf you weren’t expecting this, you can safely ignore it.\n`
+  const html = renderEmail({
+    preheader: `${args.inviterName} invited you to QPaint OS — set your password to get started.`,
+    heading: 'You’re invited to QPaint OS',
+    bodyHtml:
+      emailParagraph(escapeHtml(greeting)) +
+      emailParagraph(`<strong style="color:#171717">${escapeHtml(args.inviterName)}</strong> has invited you to join QPaint OS — where jobs, crews and production are managed.`) +
+      emailDetails([{ label: 'Your role', value: roleLabel }, { label: 'Signing in as', value: args.to }]) +
+      emailParagraph('Choose a password to activate your account and sign in.'),
+    cta: { label: 'Set your password', url: args.link },
+    note: `This link works once and expires in ${INVITE_LIFETIME_DAYS} days.`,
+  })
 
   try {
     const res = await fetch('https://api.resend.com/emails', {
