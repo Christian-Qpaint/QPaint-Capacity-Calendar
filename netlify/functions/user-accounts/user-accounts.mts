@@ -2,7 +2,7 @@
 // slightly stricter than the original RLS for the role-update path (profiles_update_office allowed
 // any office role), but this endpoint's sole real-world caller is the owner-only admin screen, and
 // user_permission_overrides' own RLS (permission_overrides_write) was already owner-only.
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, eq, ne } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { requireOwnerRole, withErrorHandling, HttpError } from '../_shared/authz.js'
 import { parseJsonBody } from '../_shared/http.js'
@@ -54,6 +54,29 @@ export default withErrorHandling(async (req: Request) => {
       })
       .returning()
     return Response.json(stripNullsAll([saved])[0])
+  }
+
+  // Permanently deletes a login account. Guarded so the owner can't lock everyone out.
+  if (req.method === 'DELETE' && action === 'user') {
+    const userId = url.searchParams.get('userId')
+    if (!userId) throw new HttpError(400, 'Missing userId')
+    if (userId === owner.id) throw new HttpError(400, "You can't delete your own account.")
+    const [target] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
+    if (!target) throw new HttpError(404, 'User not found')
+    if (target.role === 'owner') {
+      const otherOwners = await db.select({ id: users.id }).from(users).where(and(eq(users.role, 'owner'), ne(users.id, userId)))
+      if (otherOwners.length === 0) throw new HttpError(400, "You can't delete the only owner account.")
+    }
+    try {
+      await db.delete(users).where(eq(users.id, userId))
+    } catch (err) {
+      const text = `${err instanceof Error ? err.message : ''} ${(err as { cause?: { code?: string; message?: string } })?.cause?.code ?? ''} ${(err as { cause?: { message?: string } })?.cause?.message ?? ''}`
+      if (text.includes('23503') || /foreign key/i.test(text)) {
+        throw new HttpError(409, 'This person has records tied to their account (for example hours they logged), so it can’t be deleted.')
+      }
+      throw err
+    }
+    return Response.json({ ok: true })
   }
 
   if (req.method === 'DELETE') {

@@ -34,6 +34,12 @@ export function useUserAccounts() {
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role } : u)))
   }
 
+  async function deleteUser(userId: string) {
+    await api.delete(`/api/user-accounts?action=user&userId=${userId}`)
+    setUsers((prev) => prev.filter((u) => u.id !== userId))
+    setOverrides((prev) => prev.filter((o) => o.userId !== userId))
+  }
+
   async function setOverride(userId: string, permissionKey: string, granted: boolean) {
     const saved = await api.post<UserPermissionOverride>('/api/user-accounts?action=override', { userId, permissionKey, granted })
     setOverrides((prev) => [...prev.filter((o) => !(o.userId === userId && o.permissionKey === permissionKey)), saved])
@@ -44,5 +50,5 @@ export function useUserAccounts() {
     setOverrides((prev) => prev.filter((o) => !(o.userId === userId && o.permissionKey === permissionKey)))
   }
 
-  return { users, overrides, loading, error, refetch, updateRole, setOverride, clearOverride }
+  return { users, overrides, loading, error, refetch, updateRole, deleteUser, setOverride, clearOverride }
 }

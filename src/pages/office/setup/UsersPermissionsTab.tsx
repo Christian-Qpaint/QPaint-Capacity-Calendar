@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { RotateCcw } from 'lucide-react'
+import { RotateCcw, Trash2 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { useCurrentUser } from '@/context/AuthContext'
 import { useUserAccounts } from '@/hooks/useUserAccounts'
 import { PERMISSION_CATALOG, PERMISSION_PAGES } from '@/lib/permissionCatalog'
 import { ROLE_LABELS, type Role } from '@/types'
@@ -17,7 +19,9 @@ import { cn } from '@/lib/utils'
  * access, another view-only with imports revoked). A checked box with no "Reset" button next to
  * it means the user is at that permission's role default, not an explicit grant. */
 export function UsersPermissionsTab() {
-  const { users, overrides, loading, error, updateRole, setOverride, clearOverride } = useUserAccounts()
+  const { users, overrides, loading, error, updateRole, deleteUser, setOverride, clearOverride } = useUserAccounts()
+  const currentUser = useCurrentUser()
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [searchParams] = useSearchParams()
   const [search, setSearch] = useState('')
   const [selectedUserId, setSelectedUserId] = useState<string | null>(searchParams.get('user'))
@@ -67,6 +71,17 @@ export function UsersPermissionsTab() {
     }
   }
 
+  async function handleDeleteUser() {
+    if (!selectedUser) return
+    try {
+      await deleteUser(selectedUser.id)
+      setSelectedUserId(null)
+      toast.success(`${selectedUser.name} was deleted`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to delete user')
+    }
+  }
+
   if (loading) return <p className="p-4 text-sm text-muted-foreground">Loading users…</p>
   if (error) return <p className="p-4 text-sm text-danger">Couldn't load users: {error}</p>
 
@@ -101,14 +116,21 @@ export function UsersPermissionsTab() {
                 <p className="font-medium">{selectedUser.name}</p>
                 <p className="text-xs text-muted-foreground">Role sets every permission's default below — overrides take priority over it.</p>
               </div>
-              <Select value={selectedUser.role} onValueChange={(v) => v && handleRoleChange(v as Role)}>
-                <SelectTrigger size="sm" className="w-52"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {(Object.keys(ROLE_LABELS) as Role[]).map((role) => (
-                    <SelectItem key={role} value={role}>{ROLE_LABELS[role]}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-2">
+                <Select value={selectedUser.role} onValueChange={(v) => v && handleRoleChange(v as Role)}>
+                  <SelectTrigger size="sm" className="w-52"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(ROLE_LABELS) as Role[]).map((role) => (
+                      <SelectItem key={role} value={role}>{ROLE_LABELS[role]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedUser.id !== currentUser.id && (
+                  <Button variant="outline" size="sm" className="text-danger hover:bg-danger-bg hover:text-danger" onClick={() => setConfirmDelete(true)}>
+                    <Trash2 /> Delete user
+                  </Button>
+                )}
+              </div>
             </div>
           </Card>
 
@@ -152,6 +174,14 @@ export function UsersPermissionsTab() {
       ) : (
         <p className="text-sm text-muted-foreground">Select a user to manage their permissions.</p>
       )}
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title={`Delete ${selectedUser?.name ?? 'this user'}?`}
+        description="This permanently removes their login and permission overrides. They won't be able to sign in. This can't be undone — to let them back in later you'd need to send a new invite."
+        confirmLabel="Delete user"
+        onConfirm={handleDeleteUser}
+      />
     </div>
   )
 }
