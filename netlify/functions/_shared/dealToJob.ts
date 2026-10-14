@@ -3,7 +3,7 @@
 // Won-stage/mark-won promotion. Both paths funnel through the SAME createOrAdoptJobFromDeal so a
 // deal can never end up with two Jobs no matter which path reaches it first — it always checks
 // jobs.pipedriveDealId before inserting and adopts (links, doesn't duplicate) if one exists.
-import { asc, eq } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
 import { getDb } from './db.js'
 import { clients, jobs, crmPipelines, crmStages } from '../../../db/schema.js'
 import { recordStageEntry } from './stageHistory.js'
@@ -242,4 +242,17 @@ export async function syncJobFieldsFromDeal(
   if (updatedJob && (deal.personPhone || deal.personEmail)) {
     await db.update(clients).set({ phone: deal.personPhone, email: deal.personEmail }).where(eq(clients.id, updatedJob.clientId))
   }
+}
+
+/** Archives the OS job for every deal that's archived in Pipedrive (hidden by default, never
+ * deleted — same as a manual archive). Only ever archives: a job someone archived by hand stays
+ * archived, and an un-archive in Pipedrive is not mirrored back. Returns how many jobs changed. */
+export async function archiveJobsForArchivedDeals(db: ReturnType<typeof getDb>, pipedriveDealIds: string[]): Promise<number> {
+  if (pipedriveDealIds.length === 0) return 0
+  const rows = await db
+    .update(jobs)
+    .set({ archivedAt: new Date().toISOString() })
+    .where(and(inArray(jobs.pipedriveDealId, pipedriveDealIds), isNull(jobs.archivedAt)))
+    .returning({ id: jobs.id })
+  return rows.length
 }

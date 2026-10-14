@@ -22,7 +22,7 @@ import { eq } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { isPipedriveWebhookAuthorized } from '../_shared/pipedriveAuth.js'
 import { fetchFullDeal, extractFieldsFromV1Deal, extractPrimaryContact, type PipedriveDealPayload } from '../_shared/pipedriveApi.js'
-import { attemptPromotion } from '../_shared/dealToJob.js'
+import { archiveJobsForArchivedDeals, attemptPromotion } from '../_shared/dealToJob.js'
 import { recordStageEntry } from '../_shared/stageHistory.js'
 import { crmPipelines, crmStages, crmFieldDefinitions, crmDeals } from '../../../db/schema.js'
 
@@ -63,6 +63,9 @@ export default async (req: Request): Promise<Response> => {
 
     const db = getDb()
     const pipedriveDealId = String(webhookDeal.id)
+    // If the webhook itself says the deal was archived in Pipedrive, archive its OS job right away
+    // (the hourly reconcile catches it regardless if this payload doesn't carry the flag).
+    if (webhookDeal.is_archived === true) await archiveJobsForArchivedDeals(db, [pipedriveDealId])
     const [existing] = await db.select().from(crmDeals).where(eq(crmDeals.pipedriveDealId, pipedriveDealId)).limit(1)
     if (!existing) return Response.json({ updated: false, dealId: webhookDeal.id, reason: 'Not copied into the CRM yet — nothing to sync' })
     if (existing.status === 'won') {

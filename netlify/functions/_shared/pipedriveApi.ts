@@ -25,6 +25,9 @@ export interface PipedriveDealPayload {
   activities_count?: number | null
   stage_change_time?: string | null
   expected_close_date?: string | null
+  /** Pipedrive's own "archived" flag. Archived deals are left out of the normal deals list entirely
+   * (they only appear under /deals/archived), so this is mostly seen on a single-deal fetch. */
+  is_archived?: boolean
   [key: string]: unknown
 }
 
@@ -79,4 +82,27 @@ export function extractFieldsFromV1Deal(deal: PipedriveDealPayload, fieldDefs: F
     if (raw !== null && raw !== undefined && raw !== '') fields[def.key] = raw
   }
   return fields
+}
+
+/** The ids of every deal archived in Pipedrive. Archived deals are deliberately excluded from the
+ * regular /deals list that the sync paths read, so this separate endpoint is the only way to learn
+ * a deal was archived. Archived deals are few, so it just reads them all (a handful of pages). */
+export async function fetchArchivedDealIds(token: string): Promise<string[]> {
+  const ids: string[] = []
+  let start = 0
+  for (let page = 0; page < 20; page++) {
+    const res = await fetch(`https://api.pipedrive.com/v1/deals/archived?limit=500&start=${start}&api_token=${token}`)
+    const json = (await res.json()) as {
+      success: boolean
+      error?: string
+      data?: { id: number }[]
+      additional_data?: { pagination?: { more_items_in_collection?: boolean; next_start?: number } }
+    }
+    if (!json.success) throw new Error(json.error ?? 'Pipedrive archived deals list failed')
+    for (const d of json.data ?? []) ids.push(String(d.id))
+    const p = json.additional_data?.pagination
+    if (!p?.more_items_in_collection) break
+    start = p.next_start ?? start + 500
+  }
+  return ids
 }

@@ -176,7 +176,8 @@ export async function upsertJobsPipelineDeals(db: Db, pipeline: CrmPipelineRow, 
         fields,
         pipedriveDealTitle: deal.title ?? existingJob.pipedriveDealTitle,
         totalValue: typeof deal.value === 'number' ? deal.value : existingJob.totalValue,
-        archivedAt: isWon ? null : (existingJob.archivedAt ?? new Date().toISOString()),
+        // Archived in Pipedrive always wins: it stays archived here even though the deal is Won.
+        archivedAt: deal.is_archived === true ? (existingJob.archivedAt ?? new Date().toISOString()) : isWon ? null : (existingJob.archivedAt ?? new Date().toISOString()),
         status: dealStatus,
       }
       if (stageChanged) {
@@ -241,7 +242,7 @@ export async function upsertJobsPipelineDeals(db: Db, pipeline: CrmPipelineRow, 
     // Same as the existing-job patch above — a deal that's never actually been Won still gets
     // recorded as a Job (so it shows up under "Show Archived"), just archived immediately on
     // creation instead of shown on the live board by default.
-    if (!isWon) await db.update(jobs).set({ archivedAt: new Date().toISOString() }).where(eq(jobs.id, result.jobId))
+    if (!isWon || deal.is_archived === true) await db.update(jobs).set({ archivedAt: new Date().toISOString() }).where(eq(jobs.id, result.jobId))
     created++
   }
 

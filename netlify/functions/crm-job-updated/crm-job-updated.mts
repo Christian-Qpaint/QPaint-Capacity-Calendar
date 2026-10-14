@@ -115,7 +115,8 @@ export default async (req: Request): Promise<Response> => {
         // in Pipedrive afterward — an accepted tradeoff for keeping this rule simple and
         // predictable, and one that only matters if a manually-archived Won deal's status changes
         // again later, which is rare in practice (see also archivedAt's own doc comment).
-        archivedAt: isWon ? null : (existingJob.archivedAt ?? new Date().toISOString()),
+        // Archived in Pipedrive always wins: it stays archived here even though the deal is Won.
+        archivedAt: deal.is_archived === true ? (existingJob.archivedAt ?? new Date().toISOString()) : isWon ? null : (existingJob.archivedAt ?? new Date().toISOString()),
         status: dealStatus,
       }
       if (stageChanged) {
@@ -180,7 +181,7 @@ export default async (req: Request): Promise<Response> => {
     // Same as the existing-job patch above — a deal that's never actually been Won still gets
     // recorded as a Job (so it shows up under "Show Archived"), just archived immediately on
     // creation instead of shown on the live board by default.
-    if (!isWon) await db.update(jobs).set({ archivedAt: new Date().toISOString() }).where(eq(jobs.id, result.jobId))
+    if (!isWon || deal.is_archived === true) await db.update(jobs).set({ archivedAt: new Date().toISOString() }).where(eq(jobs.id, result.jobId))
 
     const [staleDeal] = await db.select().from(crmDeals).where(eq(crmDeals.pipedriveDealId, pipedriveDealId)).limit(1)
     if (staleDeal) {

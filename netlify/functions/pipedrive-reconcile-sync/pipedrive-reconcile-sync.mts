@@ -12,7 +12,8 @@ import { inArray } from 'drizzle-orm'
 import { getDb } from '../_shared/db.js'
 import { notifyOwners } from '../_shared/notifyOwners.js'
 import { upsertSalesDeals, upsertJobsPipelineDeals } from '../_shared/dealSync.js'
-import type { PipedriveDealPayload } from '../_shared/pipedriveApi.js'
+import { archiveJobsForArchivedDeals } from '../_shared/dealToJob.js'
+import { fetchArchivedDealIds, type PipedriveDealPayload } from '../_shared/pipedriveApi.js'
 import { crmPipelines } from '../../../db/schema.js'
 
 const JOBS_PIPELINE_PIPEDRIVE_ID = 3
@@ -82,7 +83,11 @@ export default async (): Promise<Response> => {
       db.select().from(crmPipelines).where(inArray(crmPipelines.pipedrivePipelineId, [2, 3, 4])),
     ])
 
-    if (recentDeals.length === 0) return Response.json({ ok: true, recentDeals: 0 })
+    // Archived deals never appear in the list above, so ask for them separately: a deal archived in
+    // Pipedrive archives its OS job too (otherwise archiving there would never reach OS).
+    const archivedJobs = await archiveJobsForArchivedDeals(db, await fetchArchivedDealIds(token))
+
+    if (recentDeals.length === 0) return Response.json({ ok: true, recentDeals: 0, archivedJobs })
 
     let created = 0
     let updated = 0
@@ -97,7 +102,7 @@ export default async (): Promise<Response> => {
       deleted += result.deleted
     }
 
-    return Response.json({ ok: true, recentDeals: recentDeals.length, created, updated, deleted })
+    return Response.json({ ok: true, recentDeals: recentDeals.length, created, updated, deleted, archivedJobs })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('pipedrive-reconcile-sync failed:', message)
